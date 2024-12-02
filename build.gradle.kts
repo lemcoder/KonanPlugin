@@ -10,6 +10,17 @@ plugins {
 version = "1.0.0"
 group = "io.github.lemcoder"
 
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
+}
+
+tasks.withType<JavaCompile> {
+    sourceCompatibility = "17"
+    targetCompatibility = "17"
+}
+
 gradlePlugin {
     website.set("https://github.com/lemcoder/KonanPlugin")
     vcsUrl.set("https://github.com/lemcoder/KonanPlugin")
