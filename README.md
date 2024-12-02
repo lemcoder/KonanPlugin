@@ -2,15 +2,11 @@
 
 The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ sources using the `run_konan` utility. It simplifies multi-platform native compilation for Kotlin Native projects.
 
----
-
 ## Features
 - Compiles C/C++ source files to `.o` object files.
 - Supports linking object files into static libraries (`.a`).
 - Works with all Kotlin Native targets 
 - Configurable via a Gradle extension.
-
----
 
 ## Installation
 1. Apply the plugin in your `build.gradle.kts`:
@@ -21,8 +17,6 @@ The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ 
    ```
 
 2. Ensure that the Kotlin/Native toolchain is installed and the `run_konan` utility is accessible.
-
----
 
 ## Configuration
 The plugin provides an extension called `KonanPluginExtension`. Below are the configuration options:
@@ -35,8 +29,6 @@ The plugin provides an extension called `KonanPluginExtension`. Below are the co
 | `libName`     | `String`            | Name of the output static library.          |
 | `outputDir`   | `String`            | Directory for output object files and libraries. |
 | `konanPath`   | `String`            | Path to the `run_konan` utility.            |
-
----
 
 ## Usage
 After applying the plugin, configure it in your build script using the provided extension:
@@ -65,8 +57,6 @@ configure<KonanPluginExtension> {
 }
 ```
 
----
-
 ## Tasks
 The plugin defines a task, `runKonanClang`, that:
 1. Compiles C/C++ source files into `.o` object files.
@@ -81,8 +71,6 @@ The plugin defines a task, `runKonanClang`, that:
    ```
 
 The compiled static libraries will be output to `outputDir`.
-
----
 
 ## Example Workflow
 ### Directory Structure
@@ -108,11 +96,7 @@ native/lib/
 │   └── libtsf.a
 ```
 
----
-
 ## License
 This project is licensed under the Apache 2.0 License. For more details, see the `LICENSE` file.
-
---- 
 
 Happy coding! 😊
