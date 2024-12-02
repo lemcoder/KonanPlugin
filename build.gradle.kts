@@ -5,7 +5,6 @@ repositories {
 }
 
 plugins {
-    id("java-gradle-plugin")
     id("com.gradle.plugin-publish") version "1.3.0"
     `kotlin-dsl`
 }
@@ -31,5 +30,5 @@ gradlePlugin {
 dependencies {
     implementation(gradleApi())
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
 }
