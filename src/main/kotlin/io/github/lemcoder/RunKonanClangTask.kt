@@ -1,4 +1,5 @@
-package io.github.lemcoder.konanplugin
+package io.github.lemcoder
+
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
@@ -149,7 +150,7 @@ abstract class RunKonanClangTask @Inject constructor(
 
             linkDir.resolve("args")
                 .writeText(
-                /*language=text*/ """
+                    /*language=text*/ """
                     |-rv
                     |${libFileName.get()}
                     |$objFilesPaths

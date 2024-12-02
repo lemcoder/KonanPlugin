@@ -1,4 +1,4 @@
-package io.github.lemcoder.konanplugin
+package io.github.lemcoder
 
 import org.gradle.process.ExecOperations
 import org.gradle.process.ExecResult
