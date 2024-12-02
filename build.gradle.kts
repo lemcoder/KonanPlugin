@@ -17,7 +17,7 @@ gradlePlugin {
     plugins {
         create("KonanPlugin") {
             id = "io.github.lemcoder.konanplugin"
-            implementationClass = "io.github.lemcoder.konanplugin.KonanPlugin"
+            implementationClass = "io.github.lemcoder.KonanPlugin"
             displayName = "Konan Plugin"
             description = "Gradle plugin to compile C sources to static libraries using Kotlin Konan compiler"
             tags.set(listOf("cross-compile", "konan", "c", "kotlin"))
