@@ -91,9 +91,9 @@ After running the task:
 ```plaintext
 native/lib/
 ├── linux_x64/
-│   └── libtsf.a
+│   └── lib.a
 ├── mingw_x64/
-│   └── libtsf.a
+│   └── lib.a
 ```
 
 ## License
