@@ -2,6 +2,8 @@
 
 The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ sources using the `run_konan` utility. It simplifies multi-platform native compilation for Kotlin Native projects.
 
+> This plugin is based on awesome work by [aSemy](https://gist.github.com/aSemy) 🚀 
+
 ## Features
 - Compiles C/C++ source files to `.o` object files.
 - Supports linking object files into static libraries (`.a`).
