@@ -31,8 +31,9 @@ abstract class KonanPlugin : Plugin<Project> {
 
             includeDirs.from(project.layout.projectDirectory.dir(extension.headerDir))
 
-            val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-            val scriptPath = if (isWindows) "bin/run_konan.bat" else "bin/run_konan"
+            val isHostWindows = System.getProperty("os.name").lowercase().contains("windows")
+            val scriptPath = if (isHostWindows) "bin/run_konan.bat" else "bin/run_konan"
+
             runKonan.set(File(extension.konanPath.get()).resolve(scriptPath))
         }
     }

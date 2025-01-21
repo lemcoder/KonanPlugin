@@ -1,6 +1,6 @@
 package io.github.lemcoder
 
-
+import io.github.lemcoder.commandBuilder.CommandBuilder
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -14,10 +14,8 @@ import org.gradle.api.tasks.PathSensitivity.NAME_ONLY
 import org.gradle.api.tasks.PathSensitivity.RELATIVE
 import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.konan.target.KonanTarget
-import org.jetbrains.kotlin.util.parseSpaceSeparatedArgs
 import java.io.File
 import javax.inject.Inject
-
 
 /**
  * https://github.com/JetBrains/kotlin/blob/v1.9.0/kotlin-native/HACKING.md#running-clang-the-same-way-kotlinnative-compiler-does
@@ -84,16 +82,16 @@ abstract class RunKonanClangTask @Inject constructor(
             compileDir.mkdirs()
 
             // prepare commands
-            val commands = CommandBuilder(
-                libType = libType.get(),
-                target = kotlinTarget,
-                workingDir = workingDir,
-                libFileName = libName.get()
-            ).build()
+            val commands = CommandBuilder(workingDir).apply {
+                setTarget(kotlinTarget)
+                setLibraryName(libName.get())
+                setLibraryType(libType.get())
+            }.build()
 
+            // run commands
             commands.forEach { command ->
                 logger.lifecycle("Running: $command")
-                // run command
+
                 val compileResult = exec.execCapture {
                     executable(runKonan.asFile.get())
                     args(command().split(" "))
@@ -105,6 +103,7 @@ abstract class RunKonanClangTask @Inject constructor(
                 compileResult.assertNormalExitValue()
             }
 
+            // copy compiled files to output dir
             val outDir = outputDir.get().dir(kotlinTarget.name)
             fs.delete { delete(outDir) }
             outDir.asFile.mkdirs()
