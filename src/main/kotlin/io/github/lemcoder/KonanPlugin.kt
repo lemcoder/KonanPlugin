@@ -27,14 +27,9 @@ abstract class KonanPlugin : Plugin<Project> {
 
             libName.set(extension.libName)
 
-            includeDirs.from(project.layout.projectDirectory.dir(extension.headerDir))
+            libType.set(extension.libType)
 
-            arguments.addAll(
-                "-std=c99",
-                "-fno-sanitize=undefined",
-                "-D" + "JPH_CROSS_PLATFORM_DETERMINISTIC",
-                "-D" + "JPH_ENABLE_ASSERTS",
-            )
+            includeDirs.from(project.layout.projectDirectory.dir(extension.headerDir))
 
             val isWindows = System.getProperty("os.name").lowercase().contains("windows")
             val scriptPath = if (isWindows) "bin/run_konan.bat" else "bin/run_konan"
@@ -48,6 +43,7 @@ interface KonanPluginExtension {
     val sourceDir: Property<String>
     val headerDir: Property<String>
     val libName: Property<String>
+    val libType: Property<LibraryType>
     val outputDir: Property<String>
     val konanPath: Property<String>
 }
