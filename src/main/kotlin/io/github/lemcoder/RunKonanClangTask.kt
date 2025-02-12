@@ -8,6 +8,7 @@ import org.gradle.api.file.FileSystemOperations
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.*
 import org.gradle.api.tasks.PathSensitivity.NAME_ONLY
@@ -48,13 +49,10 @@ abstract class RunKonanClangTask @Inject constructor(
 
     /** Kotlin target platform, e.g. `mingw_x64` */
     @get:Input
-    abstract val targets: ListProperty<KonanTarget>
+    abstract val targets: MapProperty<KonanTarget, LibraryType>
 
     @get:Internal
     abstract val workingDir: DirectoryProperty
-
-    @get:Input
-    abstract val libType: Property<LibraryType>
 
     @get:Input
     abstract val libName: Property<String>
@@ -62,7 +60,7 @@ abstract class RunKonanClangTask @Inject constructor(
     @TaskAction
     fun compileAndLink() {
         val workingDir = workingDir.asFile.getOrElse(temporaryDir)
-        targets.get().forEach { kotlinTarget ->
+        targets.get().forEach { (kotlinTarget, libraryType) ->
             // prepare output dirs
             val sourcesDir: File = workingDir.resolve(SOURCES_DIR)
             val headersDir: File = workingDir.resolve(HEADERS_DIR)
@@ -85,7 +83,7 @@ abstract class RunKonanClangTask @Inject constructor(
             val commands = CommandBuilder(workingDir).apply {
                 setTarget(kotlinTarget)
                 setLibraryName(libName.get())
-                setLibraryType(libType.get())
+                setLibraryType(libraryType)
             }.build()
 
             // run commands
@@ -110,7 +108,7 @@ abstract class RunKonanClangTask @Inject constructor(
 
             fs.sync {
                 from(compileDir) {
-                    include("*.${getFileExtension(libType.get(), kotlinTarget)}")
+                    include("*.${getFileExtension(libraryType, kotlinTarget)}")
                 }
                 into(outDir)
             }
