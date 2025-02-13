@@ -14,13 +14,13 @@ internal class SharedLibraryCommandBuilder(
 
     private val fullLibFileName = "lib$libFileName.${getFileExtension(LibraryType.SHARED, target)}"
 
-    override fun build(): List<Command> = listOf(::buildSharedLibraryCommand)
+    override fun build(): List<Command> = listOf(::compileSharedLibraryCommand, ::linkSharedLibraryCommand)
 
-    private fun buildSharedLibraryCommand(): String {
+    private fun compileSharedLibraryCommand(): String {
         val sourceFilePaths = sourcesDir
             .walk()
             .filter { it.extension in listOf("cpp", "c") }
-            .joinToString("\n") { it.invariantSeparatorsPath }
+            .joinToString(" ") { it.invariantSeparatorsPath }
 
         val arguments = mutableListOf(
             "--include-directory \"${headersDir.invariantSeparatorsPath}\"",
@@ -28,15 +28,24 @@ internal class SharedLibraryCommandBuilder(
             "\"-fno-sanitize=undefined\"",
             "-D" + "JPH_CROSS_PLATFORM_DETERMINISTIC",
             "-D" + "JPH_ENABLE_ASSERTS",
-            "${getSharedLibCommand()}",
-            "-o $fullLibFileName",
-            "-c $sourceFilePaths"
+            "-c",
+            sourceFilePaths
         )
 
-        // Add -fPIC for Unix-based targets (Linux/macOS), but not for Windows
-        if (target.supportsPositionIndependentCode()) {
-            arguments.add("-fPIC")
-        }
+        return "clang clang $target ${arguments.joinToString(" ")}".trim()
+    }
+
+    private fun linkSharedLibraryCommand(): String {
+        val objFilesPaths = compileDir
+            .walk()
+            .filter { it.extension == "o" }
+            .joinToString(" ") { it.invariantSeparatorsPath }
+
+        val arguments = mutableListOf(
+            getSharedLibCommand(),
+            "-o $fullLibFileName",
+            objFilesPaths
+        )
 
         return "clang clang $target ${arguments.joinToString(" ")}".trim()
     }
