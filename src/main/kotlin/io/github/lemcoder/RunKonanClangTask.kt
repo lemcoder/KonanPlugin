@@ -20,8 +20,6 @@ import org.gradle.api.tasks.PathSensitivity.NAME_ONLY
 import org.gradle.api.tasks.PathSensitivity.RELATIVE
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
-import org.jetbrains.kotlin.konan.target.KonanTarget
-import org.jetbrains.kotlin.util.parseSpaceSeparatedArgs
 import javax.inject.Inject
 
 /**
@@ -57,7 +55,7 @@ abstract class RunKonanClangTask @Inject constructor(
 
     /** Kotlin target platform, e.g. `mingw_x64` */
     @get:Input
-    abstract val targets: ListProperty<KonanTarget>
+    abstract val targets: ListProperty<String>
 
     @get:Input
     @get:Optional
@@ -75,7 +73,7 @@ abstract class RunKonanClangTask @Inject constructor(
     @TaskAction
     fun compileAndLink() {
         val workingDir = workingDir.asFile.getOrElse(temporaryDir)
-        targets.get().forEach { kotlinTarget ->
+        targets.get().forEach { target ->
             // prepare output dirs
             val sourcesDir = workingDir.resolve("sources")
             val headersDir = workingDir.resolve("headers")
@@ -118,11 +116,7 @@ abstract class RunKonanClangTask @Inject constructor(
             // compile files
             val compileResult = exec.execCapture {
                 executable(runKonan.asFile.get())
-                args(
-                    parseSpaceSeparatedArgs(
-                        "clang clang $kotlinTarget @args"
-                    )
-                )
+                args("clang", "clang", target, "@args")
                 workingDir(compileDir)
             }
 
@@ -131,7 +125,7 @@ abstract class RunKonanClangTask @Inject constructor(
             compileResult.assertNormalExitValue()
 
             // move compiled files to output directory
-            val outDir = outputDir.get().dir(kotlinTarget.name)
+            val outDir = outputDir.get().dir(target)
             fs.delete { delete(outDir) }
             fs.sync {
                 from(compileDir) {
@@ -160,11 +154,7 @@ abstract class RunKonanClangTask @Inject constructor(
             // link files
             val linkResult = exec.execCapture {
                 executable(runKonan.asFile.get())
-                args(
-                    parseSpaceSeparatedArgs(
-                        "llvm llvm-ar @args"
-                    )
-                )
+                args("llvm", "llvm-ar", "@args")
                 workingDir(linkDir)
             }
 

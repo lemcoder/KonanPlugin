@@ -4,7 +4,6 @@ import org.gradle.api.Project
 import org.gradle.api.Plugin
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
-import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.io.File
 
 abstract class KonanPlugin : Plugin<Project> {
@@ -35,6 +34,7 @@ abstract class KonanPlugin : Plugin<Project> {
                 "-D" + "JPH_CROSS_PLATFORM_DETERMINISTIC",
                 "-D" + "JPH_ENABLE_ASSERTS",
             )
+            arguments.addAll(extension.additionalCompilerArgs)
 
             val isWindows = System.getProperty("os.name").lowercase().contains("windows")
             val scriptPath = if (isWindows) "bin/run_konan.bat" else "bin/run_konan"
@@ -44,10 +44,11 @@ abstract class KonanPlugin : Plugin<Project> {
 }
 
 interface KonanPluginExtension {
-    val targets: ListProperty<KonanTarget>
+    val targets: ListProperty<String>
     val sourceDir: Property<String>
     val headerDir: Property<String>
     val libName: Property<String>
     val outputDir: Property<String>
     val konanPath: Property<String>
+    val additionalCompilerArgs: ListProperty<String>
 }

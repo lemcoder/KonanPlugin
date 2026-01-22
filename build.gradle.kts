@@ -7,7 +7,7 @@ plugins {
     `kotlin-dsl`
 }
 
-version = "1.0.0"
+version = "1.1.0"
 group = "io.github.lemcoder"
 
 java {
@@ -38,6 +38,4 @@ gradlePlugin {
 
 dependencies {
     implementation(gradleApi())
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.0")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.0")
 }

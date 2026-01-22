@@ -7,55 +7,66 @@ The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ 
 ## Features
 - Compiles C/C++ source files to `.o` object files.
 - Supports linking object files into static libraries (`.a`).
-- Works with all Kotlin Native targets 
+- Works with all Kotlin Native targets (passed as simple strings).
+- Zero runtime dependencies (only requires Gradle API).
+- Support for custom compiler arguments.
 - Configurable via a Gradle extension.
 
 ## Installation
 1. Apply the plugin in your `build.gradle.kts`:
    ```kotlin
    plugins {
-       id("io.github.lemcoder.konanplugin") version "1.0.0"
+       id("io.github.lemcoder.konanplugin") version "1.1.0"
    }
    ```
 
 2. Ensure that the Kotlin/Native toolchain is installed and the `run_konan` utility is accessible.
 
 ## Configuration
-The plugin provides an extension called `KonanPluginExtension`. Below are the configuration options:
+The plugin provides an extension called `konanConfig`. Below are the configuration options:
 
-| Property      | Type                | Description                                 |
-|---------------|---------------------|---------------------------------------------|
-| `targets`     | `List<KonanTarget>` | List of Kotlin/Native targets to compile for. |
-| `sourceDir`   | `String`            | Directory containing C/C++ source files.    |
-| `headerDir`   | `String`            | Directory containing `.h` header files.     |
-| `libName`     | `String`            | Name of the output static library.          |
-| `outputDir`   | `String`            | Directory for output object files and libraries. |
-| `konanPath`   | `String`            | Path to the `run_konan` utility.            |
+| Property                   | Type           | Description                                 |
+|----------------------------|----------------|---------------------------------------------|
+| `targets`                  | `List<String>` | List of Kotlin/Native target names to compile for (e.g., `"linux_x64"`, `"mingw_x64"`). |
+| `sourceDir`                | `String`       | Directory containing C/C++ source files.    |
+| `headerDir`                | `String`       | Directory containing `.h` header files.     |
+| `libName`                  | `String`       | Name of the output static library.          |
+| `outputDir`                | `String`       | Directory for output object files and libraries. |
+| `konanPath`                | `String`       | Path to the `run_konan` utility.            |
+| `additionalCompilerArgs`   | `List<String>` | Additional compiler arguments to pass to clang. |
 
 ## Usage
-After applying the plugin, configure it in your build script using the provided extension:
+After applying the plugin, configure it in your build script using the `konanConfig` extension:
 
 ### Sample Configuration
 ```kotlin
-configure<KonanPluginExtension> {
-    targets = buildList {
-        add(KonanTarget.LINUX_X64)
-        add(KonanTarget.MINGW_X64)
-        if (System.getProperty("os.name").lowercase().contains("mac")) {
-            add(KonanTarget.IOS_ARM64)
-            add(KonanTarget.IOS_SIMULATOR_ARM64)
-            add(KonanTarget.IOS_X64)
-            add(KonanTarget.MACOS_X64)
-            add(KonanTarget.MACOS_ARM64)
-        }
+konanConfig {
+    targets.addAll("linux_x64", "mingw_x64")
+    
+    // Optionally add platform-specific targets
+    if (System.getProperty("os.name").lowercase().contains("mac")) {
+        targets.addAll(
+            "ios_arm64",
+            "ios_simulator_arm64", 
+            "ios_x64",
+            "macos_x64",
+            "macos_arm64"
+        )
     }
-    sourceDir = "${rootDir}/native/src"
-    headerDir = "${rootDir}/native/include"
-    outputDir = "${rootDir}/native/lib"
-    libName = "mylib"
-    konanPath = localKonanDir.listFiles()?.first {
-        it.name.contains("<LATEST_KOTLIN_VERSION>") // e.g., "2.1.0"
-    }?.absolutePath
+    
+    sourceDir.set("${rootDir}/native/src")
+    headerDir.set("${rootDir}/native/include")
+    outputDir.set("${rootDir}/native/lib")
+    libName.set("mylib")
+    
+    konanPath.set(
+        localKonanDir.listFiles()?.first {
+            it.name.contains("<LATEST_KOTLIN_VERSION>") // e.g., "2.1.0"
+        }?.absolutePath
+    )
+    
+    // Optional: Add custom compiler arguments
+    additionalCompilerArgs.addAll("-O2", "-Wall")
 }
 ```
 
