@@ -11,6 +11,8 @@ abstract class KonanPlugin : Plugin<Project> {
         // Define the properties that can be configured by the user
         val extension = project.extensions.create("konanConfig", KonanPluginExtension::class.java)
 
+        registerJvmInterop(project, extension)
+
         project.tasks.register("runKonanClang", RunKonanClangTask::class.java) {
             group = project.name
 
@@ -41,6 +43,42 @@ abstract class KonanPlugin : Plugin<Project> {
             runKonan.set(File(extension.konanPath.get()).resolve(scriptPath))
         }
     }
+
+    /**
+     * Registers the [GenerateJvmInteropTask] (`generateJvmInterop`) that turns [KonanPluginExtension.defFile]
+     * into JVM/JNI bindings. Only wired up when a `.def` file is configured.
+     */
+    private fun registerJvmInterop(project: Project, extension: KonanPluginExtension) {
+        project.tasks.register("generateJvmInterop", GenerateJvmInteropTask::class.java) {
+            group = project.name
+
+            konanPath.set(extension.konanPath)
+            defFile.set(project.layout.projectDirectory.file(extension.defFile))
+            target.set(extension.targets.map { it.first() })
+            headerDirs.from(project.layout.projectDirectory.dir(extension.headerDir))
+            additionalCompilerArgs.set(extension.additionalCompilerArgs)
+            outputDirectory.set(
+                project.layout.buildDirectory.dir(
+                    extension.jvmInteropOutputDir.orElse("generated/jvmInterop")
+                )
+            )
+
+            // Default JDK include dirs (where jni.h / jni_md.h live) from the JVM running Gradle.
+            jdkIncludeDirs.from(defaultJdkIncludeDirs())
+        }
+    }
+
+    private fun defaultJdkIncludeDirs(): List<File> {
+        val javaHome = File(System.getProperty("java.home"))
+        val include = javaHome.resolve("include")
+        val osName = System.getProperty("os.name").lowercase()
+        val subDir = when {
+            osName.contains("mac") || osName.contains("darwin") -> "darwin"
+            osName.contains("windows") -> "win32"
+            else -> "linux"
+        }
+        return listOf(include, include.resolve(subDir))
+    }
 }
 
 interface KonanPluginExtension {
@@ -51,4 +89,10 @@ interface KonanPluginExtension {
     val outputDir: Property<String>
     val konanPath: Property<String>
     val additionalCompilerArgs: ListProperty<String>
+
+    /** Path (relative to the project) to the `.def` file used by `generateJvmInterop`. */
+    val defFile: Property<String>
+
+    /** Output dir (relative to `build/`) for generated JVM interop sources. Defaults to `generated/jvmInterop`. */
+    val jvmInteropOutputDir: Property<String>
 }
