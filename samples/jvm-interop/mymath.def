@@ -1,3 +1,0 @@
-headers = mymath.h
-headerFilter = mymath.h
-package = sample.mymath

@@ -1,0 +1,4 @@
+headers = mymath.h
+headerFilter = mymath.h
+package = mymath
+staticLibraries = libmymath.a
