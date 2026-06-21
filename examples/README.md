@@ -6,8 +6,12 @@ two flows the plugin provides:
 | Example | Flow | What it proves | Run |
 |---|---|---|---|
 | [`jvm/`](jvm) | `konanConfig` (.a) + `jvmInterop` (JNI .dylib + bridges) | full JNI path, end to end | `../../gradlew -p jvm run` |
-| [`android/`](android) | same, cross-compiled per ABI | `.so` for `arm64-v8a` + `x86_64` | `../../gradlew -p android assembleAndroidJni` |
+| [`android/`](android) | same, cross-compiled per ABI, real app | APK with `.so` (arm64-v8a + x86_64) + `MainActivity` | `cd android && ./gradlew installDebug` |
 | [`native/`](native) | `konanConfig` (.a) + K/N `cinterops` | the existing native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
+
+`jvm` and `native` build the plugin from source via `includeBuild`. `android` needs AGP 9 (Gradle 9.4,
+its own wrapper), so it consumes the plugin from mavenLocal — publish it first:
+`(cd ../.. && ./gradlew publishToMavenLocal)`.
 
 Each example auto-detects the newest `~/.konan/kotlin-native-prebuilt-*` (override with `KONAN_HOME`).
 The `jvm` example also needs a JDK with `include/jni.h` (auto-scanned; the Android leg gets `jni.h`
