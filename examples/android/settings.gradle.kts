@@ -7,7 +7,7 @@ pluginManagement {
     }
     plugins {
         id("com.android.application") version "9.2.1"
-        id("io.github.lemcoder.konanplugin") version "1.1.1"
+        id("io.github.lemcoder.konanplugin") version "1.1.2"
     }
 }
 

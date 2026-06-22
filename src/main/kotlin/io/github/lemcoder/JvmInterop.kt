@@ -108,6 +108,24 @@ internal fun Project.registerJvmInterop(ext: JvmInteropExtension) {
         description = "Compile + link the JNI stub shared library for every configured target."
     }
 
+    // Auto-wire sources into an Android project (AGP), if present: the generated Kotlin bridges as a
+    // source dir and the per-ABI jniLibs/ as native libraries. Registered at configuration time (the
+    // variant API rejects callbacks added from afterEvaluate), via the variant API so it works with
+    // AGP 9 (which rejects Provider-based sourceSet entries).
+    plugins.withId("com.android.base") {
+        val generatedKotlinDir = layout.buildDirectory.dir("generated/jvmInterop/kotlin").get().asFile
+        val jniLibsDir = layout.buildDirectory.dir("jvmInterop/jniLibs").get().asFile
+        // addStaticSourceDirectory requires the directories to exist at configuration time.
+        generatedKotlinDir.mkdirs(); jniLibsDir.mkdirs()
+        val kotlinRel = generatedKotlinDir.relativeTo(projectDir).path
+        val jniRel = jniLibsDir.relativeTo(projectDir).path
+        extensions.findByType(com.android.build.api.variant.AndroidComponentsExtension::class.java)
+            ?.onVariants { variant ->
+                variant.sources.kotlin?.addStaticSourceDirectory(kotlinRel)
+                variant.sources.jniLibs?.addStaticSourceDirectory(jniRel)
+            }
+    }
+
     // One link task per target; the umbrella `linkJvmInterop` depends on all of them.
     afterEvaluate {
         // jvmInterop is optional — skip all wiring when the project doesn't configure it.
@@ -140,13 +158,17 @@ internal fun Project.registerJvmInterop(ext: JvmInteropExtension) {
                 this.additionalLinkerArgs.set(ext.additionalLinkerArgs)
                 this.outputDirectory.set(jniLibsRoot.map { it.dir(JvmInteropSupport.abiDir(target)) })
             }
+            // The JNI stub statically links the .a produced by `runKonanClang`.
+            tasks.findByName("runKonanClang")?.let { rk -> linkTarget.configure { dependsOn(rk) } }
             link.configure { dependsOn(linkTarget) }
         }
 
-        // Auto-wire: run generation before compilation. (Add the generated `kotlin/` dir as a source
-        // directory in your build — see the examples — since the source set differs per project type.)
-        tasks.matching { it.name == "compileKotlin" || it.name == "compileJava" || it.name == "preBuild" }
+        // Auto-wire task ordering: generate bridges before any Kotlin/Java compile, and build the
+        // stub libraries before AGP packages them (preBuild).
+        tasks.matching { (it.name.startsWith("compile") && it.name.contains("Kotlin")) || it.name == "compileJava" }
             .configureEach { dependsOn(generate) }
+        tasks.matching { it.name == "preBuild" }
+            .configureEach { dependsOn(generate, link) }
     }
 }
 

@@ -53,20 +53,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
-    // Consume the plugin's outputs: generated Kotlin bridges + the per-ABI .so libraries.
-    // AGP 9 disallows Providers here; task ordering is handled by the dependsOn wiring below.
-    sourceSets["main"].kotlin.srcDir(layout.buildDirectory.dir("generated/jvmInterop/kotlin").get().asFile)
-    sourceSets["main"].jniLibs.srcDir(layout.buildDirectory.dir("jvmInterop/jniLibs").get().asFile)
 }
 
-// --- task wiring ---
-androidTargets.forEach { t ->
-    tasks.matching { it.name == "linkJvmInterop${t.replaceFirstChar { c -> c.uppercase() }}" }
-        .configureEach { dependsOn("runKonanClang") }
-}
-// Generate the bridges before Kotlin compiles, and build the .so before AGP packages it.
-tasks.matching { it.name.startsWith("compile") && it.name.contains("Kotlin") }
-    .configureEach { dependsOn("generateJvmInterop") }
-tasks.matching { it.name == "preBuild" }
-    .configureEach { dependsOn("linkJvmInterop") }
+// That's it — the plugin auto-wires the generated Kotlin bridges + per-ABI jniLibs into AGP and
+// orders generateJvmInterop / linkJvmInterop / runKonanClang before the build.

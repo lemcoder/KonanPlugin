@@ -47,12 +47,19 @@ my_scale(4.0) = 40.0
 
 ## How it's wired (`build.gradle.kts`)
 
+Just two config blocks — the plugin does the wiring:
+
 - `konanConfig { targets = [android_arm64, android_x64] }` → the `.a`s.
 - `jvmInterop { headers = ["mymath.h"]; packageName = "example"; ... }` → bridges + `.so`s.
-- `android { sourceSets["main"].jniLibs.srcDir(...) ; .kotlin.srcDir(...) }` → consume both outputs.
-- `MainActivity` calls `example.add/scale` (in `src/main/kotlin/example/Api.kt`), which call the
-  generated `kniBridgeN`. `System.loadLibrary("examplestubs")` loads the `.so` from the APK — no
-  `java.library.path` on Android.
+
+When AGP is present the plugin **automatically** adds the generated Kotlin bridges as a source
+directory and the per-ABI `jniLibs/` as native libraries (via the AGP variant API), and orders
+`generateJvmInterop` / `linkJvmInterop` / `runKonanClang` ahead of the build. No `sourceSets` or
+`dependsOn` boilerplate needed.
+
+`MainActivity` calls `example.add/scale` (in `src/main/kotlin/example/Api.kt`), which call the
+generated `kniBridgeN`. `System.loadLibrary("examplestubs")` loads the `.so` from the APK — no
+`java.library.path` on Android.
 
 The `.so` gets `jni.h` from the NDK sysroot; the bridges are runtime-free (no `kotlinx.cinterop`), so
 nothing extra ships in the APK.

@@ -1,4 +1,5 @@
 repositories {
+    google()
     mavenCentral()
 }
 
@@ -7,7 +8,7 @@ plugins {
     `kotlin-dsl`
 }
 
-version = "1.1.1"
+version = "1.1.2"
 group = "io.github.lemcoder"
 
 java {
@@ -38,4 +39,7 @@ gradlePlugin {
 
 dependencies {
     implementation(gradleApi())
+    // Used only to auto-wire generated sources/jniLibs into Android projects via the AGP variant API.
+    // compileOnly: the consuming Android project supplies AGP at runtime.
+    compileOnly("com.android.tools.build:gradle-api:9.2.1")
 }
