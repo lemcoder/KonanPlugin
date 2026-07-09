@@ -1,4 +1,4 @@
-package io.github.lemcoder
+package io.github.lemcoder.util
 
 import org.gradle.process.ExecOperations
 import org.gradle.process.ExecResult

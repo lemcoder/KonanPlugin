@@ -42,4 +42,14 @@ dependencies {
     // Used only to auto-wire generated sources/jniLibs into Android projects via the AGP variant API.
     // compileOnly: the consuming Android project supplies AGP at runtime.
     compileOnly("com.android.tools.build:gradle-api:9.2.1")
+
+    // Functional testing of the plugin with Gradle TestKit (see doc/testing-with-test-kit.md).
+    // gradleTestKit() + the java-gradle-plugin (applied by kotlin-dsl) auto-inject the
+    // plugin-under-test classpath into withPluginClasspath().
+    testImplementation(gradleTestKit())
+    testImplementation(kotlin("test"))
+}
+
+tasks.named<Test>("test") {
+    useJUnitPlatform()
 }

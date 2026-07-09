@@ -1,5 +1,7 @@
 package io.github.lemcoder
 
+import io.github.lemcoder.jvm.JvmInteropExtension
+import io.github.lemcoder.jvm.registerJvmInterop
 import org.gradle.api.Project
 import org.gradle.api.Plugin
 import org.gradle.api.provider.ListProperty
