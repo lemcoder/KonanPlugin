@@ -1,4 +1,4 @@
-package io.github.lemcoder.jvm
+package io.github.lemcoder.util
 
 private val JVM_NAME = Regex("""@file:JvmName\("([^"]+)"\)""")
 private val EXTERN = Regex("""(?m)^\s*(?:private\s+)?external\s+fun\s+(kniBridge\d+)\s*\(([^)]*)\)\s*:\s*(\S+)\s*$""")

@@ -1,6 +1,7 @@
 package io.github.lemcoder.jvm
 
 import io.github.lemcoder.util.execCapture
+import io.github.lemcoder.util.stripCinterop
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
