@@ -2,39 +2,25 @@
 // Both plugins are applied to this one module: the konan plugin produces the .a + the JNI stub .so
 // + the Kotlin bridges; AGP packages the .so and compiles the app.
 
+import io.github.lemcoder.KonanTarget
+
 plugins {
     id("com.android.application") // AGP 9 has built-in Kotlin support
     id("io.github.lemcoder.konanplugin")
 }
 
-val konanHome: String = System.getenv("KONAN_HOME")
-    ?: file("${System.getProperty("user.home")}/.konan")
-        .listFiles { f -> f.isDirectory && f.name.startsWith("kotlin-native-prebuilt-") }
-        ?.maxByOrNull { it.name }?.absolutePath
-    ?: error("No Kotlin/Native distribution found. Set KONAN_HOME.")
-
-// Device (arm64) + emulator (x86_64).
-val androidTargets = listOf("android_arm64", "android_x64")
-
-// 1) Cross-compile native/*.c -> build/native/<target>/libmymath.a per ABI.
+// Cross-compile native/*.c -> build/native/<target>/libmymath.a per ABI, then generate the JNI
+// bridges + link a self-contained stub .so per ABI. The nested jvmInterop block inherits the
+// targets, header dir and static library from the enclosing block; the Kotlin/Native distribution
+// is auto-detected ($KONAN_HOME, else the newest ~/.konan/kotlin-native-prebuilt-*).
 konanConfig {
-    konanPath.set(konanHome)
-    targets.set(androidTargets)
-    sourceDir.set("native")
-    headerDir.set("native")
+    targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64) // device + emulator
     libName.set("mymath")
-    outputDir.set("build/native")
-    additionalCompilerArgs.set(listOf("-std=c99"))
-}
 
-// 2) Generate JNI bridges + link a self-contained stub .so per ABI.
-jvmInterop {
-    headers.set(listOf("mymath.h"))
-    packageName.set("example")
-    headerDir.set("native")
-    targets.set(androidTargets)
-    staticLibraryDir.set("build/native")
-    staticLibraryName.set("mymath")
+    jvmInterop {
+        // Only the binding package; the headers are scanned from sourceDir (`native`).
+        packageName.set("example")
+    }
 }
 
 android {

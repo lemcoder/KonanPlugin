@@ -1,5 +1,6 @@
 package io.github.lemcoder.jvm
 
+import io.github.lemcoder.KonanTarget
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
@@ -23,7 +24,7 @@ abstract class LinkJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:Input abstract val konanPath: Property<String>
-    @get:Input abstract val target: Property<String>
+    @get:Input abstract val target: Property<KonanTarget>
     @get:Input abstract val stubBaseName: Property<String>
     @get:InputFile abstract val stubCFile: RegularFileProperty
     @get:Input abstract val headerDir: Property<String>
@@ -43,13 +44,13 @@ abstract class LinkJvmInteropTask @Inject constructor(
 
         val outDir = outputDirectory.get().asFile
         outDir.deleteRecursively(); outDir.mkdirs()
-        val outLib = outDir.resolve("lib${stubBaseName.get()}${JvmInteropSupport.sharedLibExt(tgt)}")
+        val outLib = outDir.resolve("lib${stubBaseName.get()}${tgt.sharedLibExtension}")
 
         val cmd = buildList {
-            add(runKonan.absolutePath); add("clang"); add("clang"); add(tgt)
+            add(runKonan.absolutePath); add("clang"); add("clang"); add(tgt.konanName)
             add("-shared")
             add("-I${headerDir.get()}")
-            if (tgt.startsWith("android")) {
+            if (tgt.isAndroid) {
                 // jni.h comes from the NDK sysroot; supply compiler-rt and skip the (absent) unwinder.
                 ndkResourceDir.orNull?.takeIf { it.isNotEmpty() }?.let { add("-resource-dir=$it") }
                 add("--unwindlib=none")

@@ -2,6 +2,8 @@
 // The plugin's role here is only the cross-compiler: it produces libmymath.a;
 // the K/N `cinterops {}` block does the binding, exactly as it does today.
 
+import io.github.lemcoder.KonanTarget
+
 plugins {
     kotlin("multiplatform") version "2.3.10"
     id("io.github.lemcoder.konanplugin")
@@ -9,23 +11,13 @@ plugins {
 
 repositories { mavenCentral() }
 
-val konanHome: String = System.getenv("KONAN_HOME")
-    ?: file("${System.getProperty("user.home")}/.konan")
-        .listFiles { f -> f.isDirectory && f.name.startsWith("kotlin-native-prebuilt-") }
-        ?.maxByOrNull { it.name }?.absolutePath
-    ?: error("No Kotlin/Native distribution found. Set KONAN_HOME.")
+val host = KonanTarget.MACOS_ARM64
 
-val host = "macos_arm64"
-
-// Build native/*.c -> build/native/macos_arm64/libmymath.a
+// Build native/*.c -> build/native/macos_arm64/libmymath.a. No jvmInterop block and no Android
+// target, so the JNI leg stays off — this example binds through K/N cinterop instead.
 konanConfig {
-    konanPath.set(konanHome)
-    targets.set(listOf(host))
-    sourceDir.set("native")
-    headerDir.set("native")
+    targets(host)
     libName.set("mymath")
-    outputDir.set("build/native")
-    additionalCompilerArgs.set(listOf("-std=c99"))
 }
 
 kotlin {
@@ -34,7 +26,7 @@ kotlin {
             defFile("src/nativeInterop/cinterop/mymath.def")
             includeDirs("native")
             // Where the static library referenced by the .def lives.
-            extraOpts("-libraryPath", layout.buildDirectory.dir("native/$host").get().asFile.absolutePath)
+            extraOpts("-libraryPath", layout.buildDirectory.dir("native/${host.konanName}").get().asFile.absolutePath)
         }
         binaries.executable { entryPoint = "main" }
     }

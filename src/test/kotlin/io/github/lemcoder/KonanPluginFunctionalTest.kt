@@ -4,6 +4,7 @@ import org.gradle.testkit.runner.GradleRunner
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -28,24 +29,32 @@ class KonanPluginFunctionalTest {
         return home.absolutePath.replace("\\", "/")
     }
 
-    @Test
-    fun `registers runKonanClang and configures it without a real toolchain`() {
-        settingsFile.writeText("""rootProject.name = "konan-fixture"""")
+    private fun writeBuild(name: String, konanConfig: String) {
+        settingsFile.writeText("""rootProject.name = "$name"""")
         buildFile.writeText(
             """
+            import io.github.lemcoder.KonanTarget
+
             plugins {
                 id("io.github.lemcoder.konanplugin")
             }
 
             konanConfig {
                 konanPath.set("${konanStub()}")
-                targets.set(listOf("macos_arm64"))
-                sourceDir.set("native")
-                headerDir.set("native")
-                libName.set("mymath")
-                outputDir.set("build/native")
+            ${konanConfig.trimIndent().prependIndent("    ")}
             }
             """.trimIndent()
+        )
+    }
+
+    @Test
+    fun `registers runKonanClang and configures it without a real toolchain`() {
+        writeBuild(
+            "konan-fixture",
+            """
+            targets(KonanTarget.MACOS_ARM64)
+            libName.set("mymath")
+            """
         )
 
         val result = runner("runKonanClang", "--dry-run").build()
@@ -59,39 +68,36 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
-    fun `jvmInterop wires a per-target link task under the linkJvmInterop umbrella`() {
-        settingsFile.writeText("""rootProject.name = "interop-fixture"""")
-        buildFile.writeText(
+    fun `sourceDir, headerDir, libName and outputDir have conventions`() {
+        // Only the targets are declared: everything else must come from a convention, and the build
+        // must still configure. libName defaults to the project name.
+        writeBuild("convention-fixture", """targets(KonanTarget.MACOS_ARM64)""")
+
+        val result = runner("runKonanClang", "--dry-run").build()
+
+        assertTrue(
+            result.output.contains(":runKonanClang SKIPPED"),
+            "expected runKonanClang to configure from conventions alone, got:\n${result.output}"
+        )
+    }
+
+    @Test
+    fun `nested jvmInterop derives its inputs from the enclosing konanConfig`() {
+        // packageName is the only jvmInterop input set here; targets, headerDir, staticLibraryDir,
+        // staticLibraryName and konanPath must all be inherited from konanConfig.
+        writeBuild(
+            "interop-fixture",
             """
-            plugins {
-                id("io.github.lemcoder.konanplugin")
-            }
-
-            // The plugin always registers runKonanClang, so konanConfig must be present too.
-            konanConfig {
-                konanPath.set("${konanStub()}")
-                targets.set(listOf("macos_arm64"))
-                sourceDir.set("native")
-                headerDir.set("native")
-                libName.set("mymath")
-                outputDir.set("build/native")
-            }
-
+            targets(KonanTarget.MACOS_ARM64)
+            libName.set("mymath")
             jvmInterop {
-                konanPath.set("${konanStub()}")
-                headers.set(listOf("mymath.h"))
                 packageName.set("example")
-                headerDir.set("native")
-                targets.set(listOf("macos_arm64"))
-                staticLibraryDir.set("build/native")
-                staticLibraryName.set("mymath")
             }
-            """.trimIndent()
+            """
         )
 
         val result = runner("linkJvmInterop", "--dry-run").build()
 
-        // afterEvaluate registers linkJvmInterop<Target> and makes it a dependency of the umbrella.
         assertTrue(
             result.output.contains(":linkJvmInterop SKIPPED"),
             "expected the umbrella link task in the dry-run graph, got:\n${result.output}"
@@ -99,6 +105,76 @@ class KonanPluginFunctionalTest {
         assertTrue(
             result.output.contains(":linkJvmInteropMacos_arm64 SKIPPED"),
             "expected a per-target link task in the dry-run graph, got:\n${result.output}"
+        )
+        // The per-target link task must depend on the .a it links.
+        assertTrue(
+            result.output.contains(":runKonanClang SKIPPED"),
+            "expected runKonanClang to be a dependency of the link task, got:\n${result.output}"
+        )
+    }
+
+    @Test
+    fun `android targets enable the jvm interop leg without a jvmInterop block`() {
+        writeBuild(
+            "android-auto-fixture",
+            """
+            targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64)
+            libName.set("mymath")
+            // No jvmInterop block: enabled by the Android targets. packageName would normally come
+            // from the AGP namespace, which this AGP-less fixture has to stand in for.
+            jvmInterop.packageName.set("example")
+            """
+        )
+
+        val result = runner("linkJvmInterop", "--dry-run").build()
+
+        assertTrue(
+            result.output.contains(":linkJvmInteropAndroid_arm64 SKIPPED"),
+            "expected an arm64 link task, got:\n${result.output}"
+        )
+        assertTrue(
+            result.output.contains(":linkJvmInteropAndroid_x64 SKIPPED"),
+            "expected an x64 link task, got:\n${result.output}"
+        )
+    }
+
+    @Test
+    fun `host-only targets leave the jvm interop leg off`() {
+        writeBuild(
+            "no-interop-fixture",
+            """
+            targets(KonanTarget.MACOS_ARM64)
+            libName.set("mymath")
+            """
+        )
+
+        val result = runner("linkJvmInterop", "--dry-run").build()
+
+        // The umbrella task still exists, but no per-target link task is wired under it.
+        assertFalse(
+            result.output.contains(":linkJvmInteropMacos_arm64"),
+            "expected no per-target link task when jvmInterop is disabled, got:\n${result.output}"
+        )
+    }
+
+    @Test
+    fun `enabled opts back out of the interop leg for android targets`() {
+        writeBuild(
+            "opt-out-fixture",
+            """
+            targets(KonanTarget.ANDROID_ARM64)
+            libName.set("mymath")
+            jvmInterop {
+                enabled.set(false)
+            }
+            """
+        )
+
+        val result = runner("linkJvmInterop", "--dry-run").build()
+
+        assertFalse(
+            result.output.contains(":linkJvmInteropAndroid_arm64"),
+            "expected enabled=false to suppress the per-target link task, got:\n${result.output}"
         )
     }
 }

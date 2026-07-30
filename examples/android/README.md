@@ -23,6 +23,12 @@ plugin. Both plugins are applied to this single module:
 ./gradlew assembleDebug
 ```
 
+Or, from anywhere in the repo, build + install + launch in one step (no IDE root switching):
+
+```bash
+../../scripts/run-android.sh          # publishes the plugin first; -s skips that, -l tails logcat
+```
+
 This runs the full chain and produces `build/outputs/apk/debug/android-example-debug.apk` containing:
 
 ```
@@ -47,10 +53,20 @@ my_scale(4.0) = 40.0
 
 ## How it's wired (`build.gradle.kts`)
 
-Just two config blocks — the plugin does the wiring:
+One config block — the plugin does the wiring:
 
-- `konanConfig { targets = [android_arm64, android_x64] }` → the `.a`s.
-- `jvmInterop { headers = ["mymath.h"]; packageName = "example"; ... }` → bridges + `.so`s.
+```kotlin
+konanConfig {
+    targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64)
+    libName.set("mymath")
+    jvmInterop { packageName.set("example") }
+}
+```
+
+- `targets` + `libName` → the per-ABI `.a`s, from `sourceDir` (default `native`).
+- the nested `jvmInterop` → bridges + `.so`s. It inherits the targets, header dir and static library
+  from the enclosing block, and is enabled automatically because Android targets are present; the
+  Kotlin/Native distribution is auto-detected from `$KONAN_HOME` / `~/.konan`.
 
 When AGP is present the plugin **automatically** adds the generated Kotlin bridges as a source
 directory and the per-ABI `jniLibs/` as native libraries (via the AGP variant API), and orders

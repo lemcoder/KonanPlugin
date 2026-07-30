@@ -12,7 +12,7 @@ internal object JvmInteropSupport {
         val konanDir = File(System.getProperty("user.home"), ".konan")
         return konanDir.listFiles { f -> f.isDirectory && f.name.startsWith("kotlin-native-prebuilt-") }
             ?.maxByOrNull { it.name }
-            ?: error("No Kotlin/Native distribution under $konanDir. Set jvmInterop.konanPath or KONAN_HOME.")
+            ?: error("No Kotlin/Native distribution under $konanDir. Set konanConfig.konanPath or KONAN_HOME.")
     }
 
     private fun osIncludeSubDir(): String {
@@ -45,7 +45,7 @@ internal object JvmInteropSupport {
             File("/usr/lib/jvm").listFiles()?.let { addAll(it) }
         }
         return candidates.firstNotNullOfOrNull { jniIncludeDirsOf(it) }
-            ?: error("No JDK with include/jni.h found. Set jvmInterop.jniHome.")
+            ?: error("No JDK with include/jni.h found. Set konanConfig.jvmInterop.jniHome.")
     }
 
     /** Android NDK clang resource dir (holds compiler-rt builtins), discovered under the konan dependencies. */
@@ -55,34 +55,8 @@ internal object JvmInteropSupport {
         return File(ndk, "lib64/clang").listFiles { f -> f.isDirectory }?.maxByOrNull { it.name }
     }
 
-    fun hostTarget(): String {
-        val os = System.getProperty("os.name").lowercase()
-        val arch = System.getProperty("os.arch").lowercase()
-        val isArm = arch.contains("aarch64") || arch.contains("arm64")
-        return when {
-            os.contains("mac") || os.contains("darwin") -> if (isArm) "macos_arm64" else "macos_x64"
-            os.contains("windows") -> "mingw_x64"
-            else -> if (isArm) "linux_arm64" else "linux_x64"
-        }
-    }
-
     // --- naming --------------------------------------------------------------
 
     /** cinterop's stub library base name: package parts joined, plus "stubs" (e.g. `io.example.m` -> `ioexamplemstubs`). */
     fun stubBaseName(packageName: String): String = packageName.split('.').joinToString("") + "stubs"
-
-    fun sharedLibExt(target: String): String = when {
-        target.startsWith("mingw") -> ".dll"
-        target.startsWith("macos") || target.startsWith("ios") || target.startsWith("tvos") || target.startsWith("watchos") -> ".dylib"
-        else -> ".so"
-    }
-
-    /** Maps a Kotlin/Native target to the Android ABI directory used in `jniLibs/`; non-Android targets map to the target name. */
-    fun abiDir(target: String): String = when (target) {
-        "android_arm64" -> "arm64-v8a"
-        "android_arm32" -> "armeabi-v7a"
-        "android_x64" -> "x86_64"
-        "android_x86" -> "x86"
-        else -> target
-    }
 }

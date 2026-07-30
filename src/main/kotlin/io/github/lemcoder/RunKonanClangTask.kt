@@ -54,9 +54,9 @@ abstract class RunKonanClangTask @Inject constructor(
     @get:PathSensitive(NAME_ONLY)
     abstract val runKonan: RegularFileProperty
 
-    /** Kotlin target platform, e.g. `mingw_x64` */
+    /** Kotlin/Native target platforms to compile for */
     @get:Input
-    abstract val targets: ListProperty<String>
+    abstract val targets: ListProperty<KonanTarget>
 
     @get:Input
     @get:Optional
@@ -117,7 +117,7 @@ abstract class RunKonanClangTask @Inject constructor(
             // compile files
             val compileResult = exec.execCapture {
                 executable(runKonan.asFile.get())
-                args("clang", "clang", target, "@args")
+                args("clang", "clang", target.konanName, "@args")
                 workingDir(compileDir)
             }
 
@@ -126,7 +126,7 @@ abstract class RunKonanClangTask @Inject constructor(
             compileResult.assertNormalExitValue()
 
             // move compiled files to output directory
-            val outDir = outputDir.get().dir(target)
+            val outDir = outputDir.get().dir(target.konanName)
             fs.delete { delete(outDir) }
             fs.sync {
                 from(compileDir) {

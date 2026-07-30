@@ -1,83 +1,121 @@
 # Konan Plugin
 
-The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ sources using the `run_konan` utility. It simplifies multi-platform native compilation for Kotlin Native projects.
+The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ sources using the `run_konan` utility. It simplifies multi-platform native compilation for Kotlin Native projects, and can generate JNI bindings so the same C library is callable from JVM and Android.
 
 > This plugin is based on awesome work by [aSemy](https://gist.github.com/aSemy) 🚀 
 
 ## Features
 - Compiles C/C++ source files to `.o` object files.
 - Supports linking object files into static libraries (`.a`).
-- Works with all Kotlin Native targets (passed as simple strings).
+- Works with all Kotlin Native targets, as `KonanTarget` enum constants.
+- Generates runtime-free JNI bindings + a self-contained stub shared library (`jvmInterop`).
+- Auto-wires generated sources and per-ABI `jniLibs` into Android projects (AGP).
+- Auto-detects the Kotlin/Native distribution and the JDK that supplies `jni.h`.
 - Zero runtime dependencies (only requires Gradle API).
 - Support for custom compiler arguments.
-- Configurable via a Gradle extension.
 
 ## Installation
 1. Apply the plugin in your `build.gradle.kts`:
    ```kotlin
    plugins {
-       id("io.github.lemcoder.konanplugin") version "1.1.0"
+       id("io.github.lemcoder.konanplugin") version "1.2.0-alpha"
    }
    ```
 
-2. Ensure that the Kotlin/Native toolchain is installed and the `run_konan` utility is accessible.
+2. Ensure a Kotlin/Native distribution is installed. It is found automatically via `$KONAN_HOME`, else
+   the newest `~/.konan/kotlin-native-prebuilt-*`; override with `konanConfig.konanPath`.
 
 ## Configuration
-The plugin provides an extension called `konanConfig`. Below are the configuration options:
+The plugin provides one extension, `konanConfig`, with a nested `jvmInterop` block. Everything except
+`targets` and `libName` has a convention, so most builds only declare those.
 
-| Property                   | Type           | Description                                 |
-|----------------------------|----------------|---------------------------------------------|
-| `targets`                  | `List<String>` | List of Kotlin/Native target names to compile for (e.g., `"linux_x64"`, `"mingw_x64"`). |
-| `sourceDir`                | `String`       | Directory containing C/C++ source files.    |
-| `headerDir`                | `String`       | Directory containing `.h` header files.     |
-| `libName`                  | `String`       | Name of the output static library.          |
-| `outputDir`                | `String`       | Directory for output object files and libraries. |
-| `konanPath`                | `String`       | Path to the `run_konan` utility.            |
-| `additionalCompilerArgs`   | `List<String>` | Additional compiler arguments to pass to clang. |
+| Property                 | Type                | Default        | Description                                                        |
+|--------------------------|---------------------|----------------|--------------------------------------------------------------------|
+| `targets`                | `List<KonanTarget>` | —              | Targets to compile for. Use `targets(...)` or `androidTargets()`.   |
+| `libName`                | `String`            | project name   | Static library base name (no `lib` prefix / `.a` suffix).           |
+| `sourceDir`              | `String`            | `native`       | Directory containing C/C++ sources.                                |
+| `headerDir`              | `String`            | `sourceDir`    | Include root passed as `-I`.                                       |
+| `outputDir`              | `String`            | `build/native` | Root for the per-target `.a`s (`<outputDir>/<target>/lib<libName>.a`). |
+| `konanPath`              | `String`            | auto-detected  | Root of the Kotlin/Native distribution.                            |
+| `additionalCompilerArgs` | `List<String>`      | `[]`           | Appended to the defaults `-std=c99 -fno-sanitize=undefined`.        |
+
+### `jvmInterop { }` (nested)
+Generates JNI bridges from the headers and links a stub shared library per target. Every input is
+derived from the enclosing block, so in practice only `packageName` is set — and on Android even that
+defaults to the AGP `namespace`.
+
+| Property                 | Type                | Default                         | Description                                          |
+|--------------------------|---------------------|---------------------------------|------------------------------------------------------|
+| `enabled`                | `Boolean`           | block declared, or Android target | Whether to generate JNI bindings.                  |
+| `packageName`            | `String`            | Android `namespace`             | Kotlin package for the generated bindings.           |
+| `headers`                | `List<String>`      | every `.h` under `headerDir`     | Header file names to bind.                          |
+| `headerFilter`           | `String`            | the header names                | `.def` `headerFilter` glob.                          |
+| `headerDir`              | `String`            | `konanConfig.headerDir`         | Include root holding the headers.                    |
+| `targets`                | `List<KonanTarget>` | `konanConfig.targets`           | Targets to build the stub library for.               |
+| `staticLibraryDir`       | `String`            | `konanConfig.outputDir`         | Root holding the per-target `.a`s to link.           |
+| `staticLibraryName`      | `String`            | `konanConfig.libName`           | Static library base name to link.                    |
+| `konanPath`              | `String`            | `konanConfig.konanPath`         | Root of the Kotlin/Native distribution.              |
+| `jniHome`                | `String`            | auto-detected                   | JDK that ships `include/jni.h` (host targets only).  |
+| `additionalCompilerArgs` | `List<String>`      | `[]`                            | Extra `-compiler-option` values for the generator.   |
+| `additionalLinkerArgs`   | `List<String>`      | `[]`                            | Extra arguments for the native link command.         |
 
 ## Usage
-After applying the plugin, configure it in your build script using the `konanConfig` extension:
 
-### Sample Configuration
+### Static library only
 ```kotlin
+import io.github.lemcoder.KonanTarget
+
 konanConfig {
-    targets.addAll("linux_x64", "mingw_x64")
-    
-    // Optionally add platform-specific targets
-    if (System.getProperty("os.name").lowercase().contains("mac")) {
-        targets.addAll(
-            "ios_arm64",
-            "ios_simulator_arm64", 
-            "ios_x64",
-            "macos_x64",
-            "macos_arm64"
-        )
-    }
-    
-    sourceDir.set("${rootDir}/native/src")
-    headerDir.set("${rootDir}/native/include")
-    outputDir.set("${rootDir}/native/lib")
+    targets(KonanTarget.LINUX_X64, KonanTarget.MINGW_X64, KonanTarget.MACOS_ARM64)
     libName.set("mylib")
-    
-    konanPath.set(
-        localKonanDir.listFiles()?.first {
-            it.name.contains("<LATEST_KOTLIN_VERSION>") // e.g., "2.1.0"
-        }?.absolutePath
-    )
-    
-    // Optional: Add custom compiler arguments
+
+    sourceDir.set("native/src")
+    headerDir.set("native/include")
+    outputDir.set("native/lib")
+
     additionalCompilerArgs.addAll("-O2", "-Wall")
 }
 ```
 
+Target names are also accepted as strings — `targets("linux_x64", "mingw_x64")` — and resolved to the
+enum, so an unknown name fails at configuration time instead of during the clang invocation.
+
+### Android, with JNI bindings
+The JNI leg turns itself on for Android targets, and AGP wiring is automatic:
+
+```kotlin
+import io.github.lemcoder.KonanTarget
+
+konanConfig {
+    targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64) // device + emulator
+    libName.set("mymath")
+
+    jvmInterop {
+        packageName.set("example")   // omit to use the AGP namespace
+    }
+}
+```
+
+That is the whole configuration: headers are scanned from `sourceDir`, the `.a`s land in
+`build/native/<target>/`, the stubs in `build/jvmInterop/jniLibs/<abi>/`, and the generated Kotlin
+bridges become a source directory of every variant. See `examples/android`.
+
+To opt out of the JNI leg while still targeting Android, set `jvmInterop { enabled.set(false) }`.
+
 ## Tasks
-The plugin defines a task, `runKonanClang`, that:
-1. Compiles C/C++ source files into `.o` object files.
-2. Links object files into a `.a` static library.
+| Task                        | Description                                                             |
+|-----------------------------|-------------------------------------------------------------------------|
+| `runKonanClang`             | Compiles the sources to `.o` and links them into `lib<libName>.a` per target. |
+| `generateJvmInterop`        | Generates the JNI `.c` stubs + runtime-free Kotlin bridges.              |
+| `linkJvmInterop`            | Umbrella task: links the stub shared library for every target.           |
+| `linkJvmInterop<Target>`    | Links the stub shared library for one target.                            |
+
+On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks automatically, so
+`assembleDebug` alone runs the whole chain.
 
 ### Example
-1. Place your C/C++ source files in the directory specified by `sourceDir` (e.g., `native/src`).
-2. Place your `.h` headers in the directory specified by `headerDir` (e.g., `native/include`).
+1. Place your C/C++ source files in `sourceDir` (default `native/`).
+2. Place your `.h` headers in `headerDir` (defaults to `sourceDir`).
 3. Run the build:
    ```bash
    ./gradlew runKonanClang
@@ -108,6 +146,23 @@ native/lib/
 ├── mingw_x64/
 │   └── lib.a
 ```
+
+## Examples
+- `examples/native` — Kotlin/Native consumer via standard `cinterop` (no JNI).
+- `examples/jvm` — plain JVM app loading the stub from `java.library.path`.
+- `examples/android` — Android app calling C through the generated bridges.
+  `scripts/run-android.sh` publishes the plugin, builds, installs and launches it in one command.
+
+## Migrating from 1.1.x
+- `targets` takes `KonanTarget` constants instead of strings: `targets(KonanTarget.ANDROID_ARM64)`, or
+  `targets("android_arm64")` to keep using names.
+- The top-level `jvmInterop { }` block moved inside `konanConfig { }`.
+- `jvmInterop`'s `targets`, `headers`, `headerDir`, `staticLibraryDir`, `staticLibraryName` and
+  `konanPath` now default from `konanConfig` and can usually be deleted.
+- `konanPath` is auto-detected; the manual `~/.konan` lookup in build scripts can go.
+- The default clang arguments are `-std=c99 -fno-sanitize=undefined`. Previous versions also passed
+  `-DJPH_CROSS_PLATFORM_DETERMINISTIC -DJPH_ENABLE_ASSERTS`; add them via `additionalCompilerArgs` if
+  your sources rely on them.
 
 ## License
 This project is licensed under the Apache 2.0 License. For more details, see the `LICENSE` file.

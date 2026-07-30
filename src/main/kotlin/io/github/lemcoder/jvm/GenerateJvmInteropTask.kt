@@ -1,5 +1,6 @@
 package io.github.lemcoder.jvm
 
+import io.github.lemcoder.KonanTarget
 import io.github.lemcoder.util.execCapture
 import io.github.lemcoder.util.stripCinterop
 import org.gradle.api.DefaultTask
@@ -23,7 +24,7 @@ abstract class GenerateJvmInteropTask @Inject constructor(
     @get:Input abstract val packageName: Property<String>
     @get:Input @get:Optional abstract val headerFilter: Property<String>
     @get:Input abstract val headerDir: Property<String>
-    @get:Input abstract val hostTarget: Property<String>
+    @get:Input abstract val hostTarget: Property<KonanTarget>
     @get:Input abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val additionalCompilerArgs: ListProperty<String>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
@@ -63,7 +64,7 @@ abstract class GenerateJvmInteropTask @Inject constructor(
                 "-def", defFile.absolutePath,
                 "-generated", out.resolve("kotlin").absolutePath,
                 "-Xtemporary-files-dir", out.resolve("c").absolutePath,
-                "-target", hostTarget.get(),
+                "-target", hostTarget.get().konanName,
             )
             args(includeOpts); args(extraOpts)
             environment("LIBCLANG_DISABLE_CRASH_RECOVERY", "1")
