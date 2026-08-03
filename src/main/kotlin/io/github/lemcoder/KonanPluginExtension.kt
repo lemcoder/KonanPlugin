@@ -47,7 +47,11 @@ abstract class KonanPluginExtension @Inject constructor(objects: ObjectFactory) 
      */
     abstract val konanPath: Property<String>
 
-    /** Extra clang arguments, appended to the plugin's defaults (`-std=c99 -fno-sanitize=undefined`). */
+    /**
+     * Extra clang arguments, appended to the plugin's default (`-fno-sanitize=undefined`). A language
+     * standard belongs here rather than in the defaults: all sources compile in one invocation, so
+     * `-std=c99` would break a source dir that also holds C++.
+     */
     abstract val additionalCompilerArgs: ListProperty<String>
 
     /** JNI binding generation on top of the same sources. See [JvmInteropExtension]. */

@@ -54,8 +54,12 @@ enum class KonanTarget(val konanName: String) {
             else -> ".so"
         }
 
-    /** Task-name segment, e.g. `Android_arm64`. */
-    internal val taskSuffix: String get() = konanName.replaceFirstChar { it.uppercase() }
+    /**
+     * Task-name segment, e.g. `Android_arm64` in `linkJvmInteropAndroid_arm64`. Public so a build can
+     * depend on a single target's link task rather than the umbrella — useful for a job that needs the
+     * host stub only and has no cross-compilation toolchain installed.
+     */
+    val taskSuffix: String get() = konanName.replaceFirstChar { it.uppercase() }
 
     companion object {
         // `values()` rather than `entries`: the kotlin-dsl plugin pins the language version to 1.8.

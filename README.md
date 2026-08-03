@@ -9,8 +9,11 @@ The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ 
 - Supports linking object files into static libraries (`.a`).
 - Works with all Kotlin Native targets, as `KonanTarget` enum constants.
 - Generates runtime-free JNI bindings + a self-contained stub shared library (`jvmInterop`).
+- Marshals `String`s and primitive arrays across the bridge, so a C API taking `const char*` or
+  `float*` buffers is callable without an off-heap allocator on the Kotlin side.
 - Auto-wires generated sources and per-ABI `jniLibs` into Android projects (AGP).
-- Auto-detects the Kotlin/Native distribution and the JDK that supplies `jni.h`.
+- Auto-detects the Kotlin/Native distribution, the JDK that supplies `jni.h`, and the compiler-rt
+  builtins each target needs (NDK on Android, Xcode on macOS).
 - Zero runtime dependencies (only requires Gradle API).
 - Support for custom compiler arguments.
 
@@ -37,7 +40,7 @@ The plugin provides one extension, `konanConfig`, with a nested `jvmInterop` blo
 | `headerDir`              | `String`            | `sourceDir`    | Include root passed as `-I`.                                       |
 | `outputDir`              | `String`            | `build/native` | Root for the per-target `.a`s (`<outputDir>/<target>/lib<libName>.a`). |
 | `konanPath`              | `String`            | auto-detected  | Root of the Kotlin/Native distribution.                            |
-| `additionalCompilerArgs` | `List<String>`      | `[]`           | Appended to the defaults `-std=c99 -fno-sanitize=undefined`.        |
+| `additionalCompilerArgs` | `List<String>`      | `[]`           | Appended to the default `-fno-sanitize=undefined`. Put `-std=…` here — C and C++ sources share one invocation. |
 
 ### `jvmInterop { }` (nested)
 Generates JNI bridges from the headers and links a stub shared library per target. Every input is
@@ -57,7 +60,36 @@ defaults to the AGP `namespace`.
 | `konanPath`              | `String`            | `konanConfig.konanPath`         | Root of the Kotlin/Native distribution.              |
 | `jniHome`                | `String`            | auto-detected                   | JDK that ships `include/jni.h` (host targets only).  |
 | `additionalCompilerArgs` | `List<String>`      | `[]`                            | Extra `-compiler-option` values for the generator.   |
-| `additionalLinkerArgs`   | `List<String>`      | `[]`                            | Extra arguments for the native link command.         |
+| `additionalLinkerArgs`   | `List<String>`      | `[]`                            | Extra link arguments for every target.               |
+| `targetLinkerArgs`       | `Map<KonanTarget, List<String>>` | `{}`               | Extra link arguments for one target; set via `linkerArgsFor(target, …)`. |
+
+Platform-specific link arguments belong in `linkerArgsFor` — `-framework` reaches the Android linker
+as an error if put in `additionalLinkerArgs`:
+
+```kotlin
+jvmInterop {
+    linkerArgsFor(KonanTarget.MACOS_ARM64, "-lc++", "-framework", "Accelerate")
+    linkerArgsFor(KonanTarget.ANDROID_ARM64, "$ndk/…/libc++_static.a")
+}
+```
+
+A static library built with a current NDK needs *that* NDK's C++ runtime: konan bundles an old one,
+and the plugin's auto-detected `-L` is appended last so an explicit path wins.
+
+#### Generated bindings
+One `external fun kniBridgeN(...)` per C function, in header order, each carrying its C-derived
+signature as a doc comment. Parameters are marshalled by shape:
+
+| C parameter                        | Kotlin parameter | Crosses as                                    |
+|------------------------------------|------------------|------------------------------------------------|
+| `const char*` input                | `String?`        | `GetStringUTFChars`                            |
+| `char*` / `float*` / … buffer      | `ByteArray?` / `FloatArray?` / … | `Get<Type>ArrayElements` (writes copied back) |
+| struct by value, struct return     | `ByteArray?`     | raw struct bytes                               |
+| opaque handle, pointer to struct   | `Long`           | raw address                                    |
+
+Functions returning `const char*` return the address; read it with the generated
+`kniCString(ptr: Long): String?`. Struct arguments are raw bytes, so the caller writes the fields —
+`ByteBuffer.order(ByteOrder.nativeOrder())` with the layout from the C header.
 
 ## Usage
 
@@ -160,9 +192,10 @@ native/lib/
 - `jvmInterop`'s `targets`, `headers`, `headerDir`, `staticLibraryDir`, `staticLibraryName` and
   `konanPath` now default from `konanConfig` and can usually be deleted.
 - `konanPath` is auto-detected; the manual `~/.konan` lookup in build scripts can go.
-- The default clang arguments are `-std=c99 -fno-sanitize=undefined`. Previous versions also passed
-  `-DJPH_CROSS_PLATFORM_DETERMINISTIC -DJPH_ENABLE_ASSERTS`; add them via `additionalCompilerArgs` if
-  your sources rely on them.
+- The only default clang argument is `-fno-sanitize=undefined`. 1.1.x also passed `-std=c99`, which
+  made any `.cpp` in the source dir a hard error; add it back via `additionalCompilerArgs` if your C
+  sources rely on it. Earlier versions additionally passed `-DJPH_CROSS_PLATFORM_DETERMINISTIC
+  -DJPH_ENABLE_ASSERTS`; those go through the same property.
 
 ## License
 This project is licensed under the Apache 2.0 License. For more details, see the `LICENSE` file.

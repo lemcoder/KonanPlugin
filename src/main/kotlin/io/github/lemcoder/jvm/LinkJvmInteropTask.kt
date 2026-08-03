@@ -31,6 +31,7 @@ abstract class LinkJvmInteropTask @Inject constructor(
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val staticLibrary: RegularFileProperty
     @get:Input @get:Optional abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val ndkResourceDir: Property<String>
+    @get:Input @get:Optional abstract val ndkSysrootLibDir: Property<String>
     @get:Input @get:Optional abstract val additionalLinkerArgs: ListProperty<String>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
@@ -59,8 +60,17 @@ abstract class LinkJvmInteropTask @Inject constructor(
             }
             add(stubCFile.get().asFile.absolutePath)
             add(staticLibrary.get().asFile.absolutePath)
+            if (tgt.konanName.startsWith("macos")) {
+                // Konan's LLVM has no host compiler-rt; Apple-framework code needs its builtins.
+                JvmInteropSupport.appleCompilerRt(xcodeDeveloperDir())?.let { add(it.absolutePath) }
+            }
             add("-o"); add(outLib.absolutePath)
             addAll(additionalLinkerArgs.getOrElse(emptyList()))
+            // Last, so an explicit -L wins: konan bundles an old NDK, and a static library built with
+            // a current one needs that NDK's C++ runtime, not this one.
+            if (tgt.isAndroid) {
+                ndkSysrootLibDir.orNull?.takeIf { it.isNotEmpty() }?.let { add("-L$it") }
+            }
         }
 
         val result = exec.execCapture { commandLine(cmd) }
@@ -68,4 +78,12 @@ abstract class LinkJvmInteropTask @Inject constructor(
         result.assertNormalExitValue()
         logger.lifecycle("JNI stub library: $outLib")
     }
+
+    /** `xcode-select -p`, or null when there is no Xcode (then only the Command Line Tools are tried). */
+    private fun xcodeDeveloperDir(): File? = runCatching {
+        exec.execCapture { commandLine("xcode-select", "-p") }
+            .takeIf { it.exitValue == 0 }
+            ?.let { File(it.output.trim()) }
+            ?.takeIf { it.isDirectory }
+    }.getOrNull()
 }

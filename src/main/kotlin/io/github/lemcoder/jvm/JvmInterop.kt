@@ -92,10 +92,17 @@ internal fun Project.registerJvmInterop(konanConfig: KonanPluginExtension) {
                 )
                 if (target.isAndroid) {
                     this.ndkResourceDir.set(JvmInteropSupport.ndkResourceDir(konanHome.get())?.absolutePath ?: "")
+                    this.ndkSysrootLibDir.set(
+                        JvmInteropSupport.ndkSysrootLibDir(konanHome.get(), target)?.absolutePath ?: ""
+                    )
                 } else {
                     this.jniIncludeDirs.set(jniIncludeDirs.map { dirs -> dirs.map { it.absolutePath } })
                 }
-                this.additionalLinkerArgs.set(ext.additionalLinkerArgs)
+                this.additionalLinkerArgs.set(
+                    ext.additionalLinkerArgs.zip(ext.targetLinkerArgs) { common, perTarget ->
+                        common + perTarget[target].orEmpty()
+                    }
+                )
                 this.outputDirectory.set(jniLibsRoot.map { it.dir(target.abiDir) })
             }
             // The JNI stub statically links the .a produced by `runKonanClang`.

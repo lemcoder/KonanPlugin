@@ -1,7 +1,10 @@
 package io.github.lemcoder.jvm
 
 import io.github.lemcoder.KonanTarget
+import io.github.lemcoder.util.ParamKind
 import io.github.lemcoder.util.execCapture
+import io.github.lemcoder.util.marshalStub
+import io.github.lemcoder.util.parseBridgeKinds
 import io.github.lemcoder.util.stripCinterop
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
@@ -72,9 +75,15 @@ abstract class GenerateJvmInteropTask @Inject constructor(
         logger.lifecycle(result.output)
         result.assertNormalExitValue()
 
-        // Strip kotlinx.cinterop from the generated Kotlin so it ships on plain JVM / Android.
-        out.resolve("kotlin").walkTopDown().filter { it.extension == "kt" }.forEach { kt ->
-            kt.writeText(stripCinterop(kt.readText()))
+        // Strip kotlinx.cinterop from the generated Kotlin so it ships on plain JVM / Android, and
+        // marshal strings/primitive buffers on both sides of the bridge — the raw output passes them
+        // as addresses, which only a Kotlin/Native caller can produce.
+        val kotlinFiles = out.resolve("kotlin").walkTopDown().filter { it.extension == "kt" }.toList()
+        val kinds = kotlinFiles.fold(emptyMap<Int, List<ParamKind>>()) { acc, kt ->
+            acc + parseBridgeKinds(kt.readText())
         }
+        kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds)) }
+        out.resolve("c").walkTopDown().filter { it.extension == "c" }
+            .forEach { c -> c.writeText(marshalStub(c.readText(), kinds)) }
     }
 }

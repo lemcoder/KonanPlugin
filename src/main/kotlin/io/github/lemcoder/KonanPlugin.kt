@@ -7,8 +7,14 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import java.io.File
 
-/** Default clang arguments for [RunKonanClangTask]; `konanConfig.additionalCompilerArgs` is appended. */
-private val DEFAULT_COMPILER_ARGS = listOf("-std=c99", "-fno-sanitize=undefined")
+/**
+ * Default clang arguments for [RunKonanClangTask]; `konanConfig.additionalCompilerArgs` is appended.
+ *
+ * No `-std=` here: sources are compiled in one invocation, so a C standard would also reach any `.cpp`
+ * in the source dir, which clang rejects outright ("invalid argument '-std=c99' not allowed with
+ * 'C++'"). Builds that need a specific standard set it via `additionalCompilerArgs`.
+ */
+private val DEFAULT_COMPILER_ARGS = listOf("-fno-sanitize=undefined")
 
 /**
  * The `clean` task as a lazy collection — empty when the base plugin isn't applied, so it is safe to

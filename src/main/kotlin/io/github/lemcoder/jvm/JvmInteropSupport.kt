@@ -1,5 +1,6 @@
 package io.github.lemcoder.jvm
 
+import io.github.lemcoder.KonanTarget
 import java.io.File
 
 /** Pure helpers for the JVM/JNI interop leg: toolchain discovery, naming, and the cinterop strip transform. */
@@ -48,11 +49,45 @@ internal object JvmInteropSupport {
             ?: error("No JDK with include/jni.h found. Set konanConfig.jvmInterop.jniHome.")
     }
 
+    /**
+     * Xcode's compiler-rt builtins for macOS. Konan's `essentials` LLVM ships none for the host, so a
+     * stub that pulls in Apple-framework code (e.g. ggml's Metal backend) is otherwise short
+     * `___isPlatformVersionAtLeast`. [developerDir] is `xcode-select -p`, when that succeeded.
+     */
+    fun appleCompilerRt(developerDir: File?): File? {
+        val roots = listOfNotNull(
+            developerDir?.resolve("Toolchains/XcodeDefault.xctoolchain/usr/lib/clang"),
+            File("/Library/Developer/CommandLineTools/usr/lib/clang"),
+        )
+        return roots.filter { it.isDirectory }
+            .flatMap { it.listFiles()?.sortedByDescending { v -> v.name }?.toList() ?: emptyList() }
+            .map { it.resolve("lib/darwin/libclang_rt.osx.a") }
+            .firstOrNull { it.isFile }
+    }
+
     /** Android NDK clang resource dir (holds compiler-rt builtins), discovered under the konan dependencies. */
     fun ndkResourceDir(konanHome: File): File? {
         val deps = File(konanHome.parentFile, "dependencies")
         val ndk = deps.listFiles { f -> f.isDirectory && f.name.contains("android_ndk") }?.firstOrNull() ?: return null
         return File(ndk, "lib64/clang").listFiles { f -> f.isDirectory }?.maxByOrNull { it.name }
+    }
+
+    /**
+     * The NDK sysroot lib dir for [target], which holds the C++ runtime (`libc++_static.a`,
+     * `libc++abi.a`). The `--sysroot` konan passes points at the API-level headers/libs only, so a stub
+     * linking C++ code needs this on the library search path.
+     */
+    fun ndkSysrootLibDir(konanHome: File, target: KonanTarget): File? {
+        val triple = when (target) {
+            KonanTarget.ANDROID_ARM64 -> "aarch64-linux-android"
+            KonanTarget.ANDROID_ARM32 -> "arm-linux-androideabi"
+            KonanTarget.ANDROID_X64 -> "x86_64-linux-android"
+            KonanTarget.ANDROID_X86 -> "i686-linux-android"
+            else -> return null
+        }
+        val deps = File(konanHome.parentFile, "dependencies")
+        val toolchains = deps.listFiles { f -> f.isDirectory && f.name.contains("android_ndk") } ?: return null
+        return toolchains.map { it.resolve("sysroot/usr/lib/$triple") }.firstOrNull { it.isDirectory }
     }
 
     // --- naming --------------------------------------------------------------

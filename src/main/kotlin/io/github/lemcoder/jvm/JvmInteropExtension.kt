@@ -2,6 +2,7 @@ package io.github.lemcoder.jvm
 
 import io.github.lemcoder.KonanTarget
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 
 /**
@@ -63,6 +64,20 @@ interface JvmInteropExtension {
     /** Extra `-compiler-option` values forwarded to the binding generator's clang. */
     val additionalCompilerArgs: ListProperty<String>
 
-    /** Extra arguments appended to the native link command (per target). */
+    /** Extra arguments appended to the native link command of every target. */
     val additionalLinkerArgs: ListProperty<String>
+
+    /**
+     * Extra link arguments for a single target, appended after [additionalLinkerArgs]. Platform
+     * specifics belong here — Apple frameworks, the C++ runtime — since one flat list reaches the
+     * Android linker too, which rejects `-framework` outright. Prefer the [linkerArgsFor] helper.
+     */
+    val targetLinkerArgs: MapProperty<KonanTarget, List<String>>
+
+    /** Appends [args] to the link command of [target] only. */
+    fun linkerArgsFor(target: KonanTarget, vararg args: String) {
+        // Read eagerly: a provider derived from the property it is then written back to is circular.
+        val existing = targetLinkerArgs.getOrElse(emptyMap())[target].orEmpty()
+        targetLinkerArgs.put(target, existing + args)
+    }
 }
