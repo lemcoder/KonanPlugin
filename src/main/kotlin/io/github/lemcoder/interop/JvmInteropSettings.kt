@@ -36,7 +36,10 @@ abstract class JvmInteropSettings @Inject constructor(
 
     override fun getName(): String = name
 
-    /** The cinterop `.def` describing the headers to bind. Shared with the native targets. */
+    /**
+     * The cinterop `.def` describing the headers to bind, shared with the native targets. Defaults to
+     * cinterop's own convention, `src/nativeInterop/cinterop/<name>.def`.
+     */
     abstract val defFile: RegularFileProperty
 
     /** Kotlin package for the generated bindings. Overrides `package` in the def. */

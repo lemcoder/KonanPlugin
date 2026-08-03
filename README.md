@@ -57,7 +57,7 @@ kotlin {
 
     jvm().compilations["main"].jvmInterops {
         create("mymath") {
-            defFile(project.file("src/main/nativeInterop/mymath.def"))
+            // defFile defaults to src/nativeInterop/cinterop/mymath.def
             includeDirs.from(file("native"))
         }
     }
@@ -80,7 +80,7 @@ jvmInterops {
 
 | Property                 | Type                | Default            | Description                                          |
 |--------------------------|---------------------|--------------------|------------------------------------------------------|
-| `defFile`                | `File`              | —                  | The cinterop `.def` to bind. Shared with the native targets. |
+| `defFile`                | `File`              | `src/nativeInterop/cinterop/<name>.def` | The cinterop `.def` to bind — cinterop's own default location, so one file serves both legs. |
 | `packageName`            | `String`            | the def's `package`| Kotlin package for the generated bindings.           |
 | `targets`                | `List<KonanTarget>` | the build host     | Targets to link the JNI library for.                 |
 | `library`                | `File`              | see below          | Archive to link, overriding the def.                 |

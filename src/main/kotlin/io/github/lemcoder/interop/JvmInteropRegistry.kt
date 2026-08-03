@@ -74,6 +74,10 @@ abstract class JvmInteropRegistry @Inject constructor(
     private fun register(wiring: SourceWiring?, settings: JvmInteropSettings) {
         val konanConfig = project.extensions.getByType(KonanPluginExtension::class.java)
         settings.targets.convention(defaultInteropTargets())
+        // Same default location cinterop uses, so one def serves both legs with nothing declared.
+        settings.defFile.convention(
+            project.layout.projectDirectory.file("src/nativeInterop/cinterop/${settings.name}.def")
+        )
 
         val suffix = settings.name.replaceFirstChar { it.uppercase() }
         val generatedRoot = project.layout.buildDirectory.dir("generated/jvmInterop/${settings.name}")
