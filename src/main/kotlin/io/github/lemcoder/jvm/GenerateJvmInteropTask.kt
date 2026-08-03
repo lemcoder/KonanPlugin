@@ -52,6 +52,9 @@ abstract class GenerateJvmInteropTask @Inject constructor(
     @get:Input abstract val hostTarget: Property<KonanTarget>
     @get:Input abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val additionalCompilerArgs: ListProperty<String>
+
+    /** Emit the bridges as `internal`, keeping them out of the module's published API. */
+    @get:Input abstract val internalBindings: Property<Boolean>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     /**
@@ -130,7 +133,8 @@ abstract class GenerateJvmInteropTask @Inject constructor(
         val kinds = kotlinFiles.fold(emptyMap<Int, List<ParamKind>>()) { acc, kt ->
             acc + parseBridgeKinds(kt.readText())
         }
-        kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds)) }
+        val internal = internalBindings.getOrElse(true)
+        kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds, internal)) }
         out.resolve(C_DIR).walkTopDown().filter { it.extension == "c" }
             .forEach { c -> c.writeText(marshalStub(c.readText(), kinds)) }
     }

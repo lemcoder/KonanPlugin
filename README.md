@@ -82,6 +82,7 @@ jvmInterops {
 |--------------------------|---------------------|--------------------|------------------------------------------------------|
 | `defFile`                | `File`              | `src/nativeInterop/cinterop/<name>.def` | The cinterop `.def` to bind — cinterop's own default location, so one file serves both legs. |
 | `packageName`            | `String`            | the def's `package`| Kotlin package for the generated bindings.           |
+| `visibility`             | `BindingVisibility` | `INTERNAL`         | `PUBLIC` when the idiomatic wrapper lives in another module. |
 | `targets`                | `List<KonanTarget>` | the build host     | Targets to link the JNI library for.                 |
 | `library`                | `File`              | see below          | Archive to link, overriding the def.                 |
 | `includeDirs`            | `FileCollection`    | the def's directory| Extra include roots.                                 |
@@ -160,6 +161,12 @@ signature as a doc comment. Parameters are marshalled by shape:
 | `char*` / `float*` / … buffer      | `ByteArray?` / `FloatArray?` / … | `Get<Type>ArrayElements` (writes copied back) |
 | struct by value, struct return     | `ByteArray?`     | raw struct bytes                               |
 | opaque handle, pointer to struct   | `Long`           | raw address                                    |
+
+The bridges are `internal` by default — they are an implementation detail of the module that writes
+the idiomatic API over them, and this keeps `kniBridge0…N` out of its published surface. Each carries
+`@JvmName`, because Kotlin mangles internal functions on the JVM and JNI resolves the symbol from the
+unmangled method name. Set `visibility.set(BindingVisibility.PUBLIC)` if the wrapper is in a
+different Gradle module.
 
 Functions returning `const char*` return the address; read it with the generated
 `kniCString(ptr: Long): String?`. Struct arguments are raw bytes, so the caller writes the fields —

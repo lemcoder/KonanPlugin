@@ -84,6 +84,7 @@ abstract class JvmInteropRegistry @Inject constructor(
     private fun register(wiring: SourceWiring?, settings: JvmInteropSettings) {
         val konanConfig = project.extensions.getByType(KonanPluginExtension::class.java)
         settings.targets.convention(defaultInteropTargets())
+        settings.visibility.convention(BindingVisibility.INTERNAL)
         // Same default location cinterop uses, so one def serves both legs with nothing declared.
         settings.defFile.convention(
             project.layout.projectDirectory.file("src/nativeInterop/cinterop/${settings.name}.def")
@@ -120,6 +121,7 @@ abstract class JvmInteropRegistry @Inject constructor(
             hostTarget.set(hostKonanTarget())
             this.jniIncludeDirs.set(jniIncludeDirs.map { dirs -> dirs.map { it.absolutePath } })
             additionalCompilerArgs.set(settings.additionalCompilerArgs)
+            internalBindings.set(settings.visibility.map { it == BindingVisibility.INTERNAL })
             outputDirectory.set(generatedRoot)
         }
 

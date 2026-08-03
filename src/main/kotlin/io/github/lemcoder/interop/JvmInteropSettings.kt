@@ -46,6 +46,13 @@ abstract class JvmInteropSettings @Inject constructor(
      */
     abstract val defFile: RegularFileProperty
 
+    /**
+     * Visibility of the generated bridges. They are an implementation detail — the idiomatic API is
+     * written on top of them — so they are `internal` by default and stay out of the published API.
+     * Set [BindingVisibility.PUBLIC] when the wrapper lives in a different Gradle module.
+     */
+    abstract val visibility: Property<BindingVisibility>
+
     /** Kotlin package for the generated bindings. Overrides `package` in the def. */
     abstract val packageName: Property<String>
 
@@ -105,3 +112,6 @@ abstract class JvmInteropSettings @Inject constructor(
         targetLinkerArgs.put(target, existing + args)
     }
 }
+
+/** Whether the generated bridges are visible outside the module that declares the interop. */
+enum class BindingVisibility { INTERNAL, PUBLIC }

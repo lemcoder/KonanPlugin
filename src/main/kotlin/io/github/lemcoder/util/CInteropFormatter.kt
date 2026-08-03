@@ -17,7 +17,11 @@ private val WRAPPER = Regex("""(?s)fun\s+(\w+)\(([^)]*)\)\s*:\s*([^{]+?)\s*\{[^}
  * side, so strings and primitive buffers cross as `String?` / `ByteArray?` / … instead of as addresses
  * the JVM has no way to produce. Pass an empty map to keep every parameter address-typed.
  */
-fun stripCinterop(src: String, kinds: Map<Int, List<ParamKind>> = emptyMap()): String {
+fun stripCinterop(
+    src: String,
+    kinds: Map<Int, List<ParamKind>> = emptyMap(),
+    internalBindings: Boolean = false,
+): String {
     val jvmName = JVM_NAME.find(src)?.groupValues?.get(1)
     val pkg = src.lineSequence().firstOrNull { it.trimStart().startsWith("package ") }?.trim()
     val libName = LOAD_LIB.find(src)?.groupValues?.get(1)
@@ -31,6 +35,7 @@ fun stripCinterop(src: String, kinds: Map<Int, List<ParamKind>> = emptyMap()): S
         m.groupValues[4] to "$name($params): $ret"
     }
 
+    val modifier = if (internalBindings) "internal " else ""
     val externs = EXTERN.findAll(src).map { m ->
         val bridge = m.groupValues[1]
         val idx = bridge.removePrefix("kniBridge")
@@ -42,7 +47,10 @@ fun stripCinterop(src: String, kinds: Map<Int, List<ParamKind>> = emptyMap()): S
         }.joinToString(", ")
         val ret = m.groupValues[3].replace("NativePtr", "Long")
         val doc = origByBridge[idx]?.let { "/** C: $it */\n" } ?: ""
-        "${doc}external fun $bridge($params): $ret"
+        // @JvmName because Kotlin mangles internal functions on the JVM ("kniBridge0${'$'}module"),
+        // and JNI resolves the C symbol from the unmangled method name.
+        val jvmNameAnnotation = if (internalBindings) "@JvmName(\"$bridge\")\n" else ""
+        "$doc$jvmNameAnnotation${modifier}external fun $bridge($params): $ret"
     }.toList()
 
     return buildString {
@@ -60,7 +68,8 @@ fun stripCinterop(src: String, kinds: Map<Int, List<ParamKind>> = emptyMap()): S
         if (kinds.isNotEmpty()) {
             appendLine()
             appendLine("/** Reads the NUL-terminated C string at [ptr], for bridges returning `const char*`. */")
-            appendLine("external fun $C_STRING_HELPER(ptr: Long): String?")
+            if (internalBindings) appendLine("""@JvmName("$C_STRING_HELPER")""")
+            appendLine("${modifier}external fun $C_STRING_HELPER(ptr: Long): String?")
         }
     }
 }

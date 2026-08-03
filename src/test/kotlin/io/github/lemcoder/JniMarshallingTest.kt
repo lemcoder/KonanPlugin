@@ -123,6 +123,25 @@ class JniMarshallingTest {
     }
 
     @Test
+    fun `internal bindings carry a JvmName so JNI still resolves them`() {
+        val kotlin = stripCinterop(rawKotlin, kinds, internalBindings = true)
+
+        // Kotlin mangles internal functions on the JVM (kniBridge2${'$'}module); JNI looks the symbol up
+        // by the unmangled name, so every bridge needs the annotation.
+        assertContains(kotlin, "@JvmName(\"kniBridge2\")\ninternal external fun kniBridge2(p0: String?): Long")
+        assertContains(kotlin, "@JvmName(\"kniCString\")\ninternal external fun kniCString(ptr: Long): String?")
+    }
+
+    @Test
+    fun `bindings are public unless asked otherwise`() {
+        val kotlin = stripCinterop(rawKotlin, kinds)
+
+        assertContains(kotlin, "external fun kniBridge2(p0: String?): Long")
+        assertFalse(kotlin.contains("internal external"))
+        assertFalse(kotlin.contains("@JvmName(\"kniBridge"))
+    }
+
+    @Test
     fun `without kinds every parameter stays an address`() {
         val kotlin = stripCinterop(rawKotlin)
 
