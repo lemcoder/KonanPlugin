@@ -66,6 +66,13 @@ abstract class GenerateJvmInteropTask @Inject constructor(
     val stubSourceFile: Provider<RegularFile>
         get() = outputDirectory.file(packageName.map { "$C_DIR/${JvmInteropSupport.stubBaseName(it)}.c" })
 
+    /**
+     * Base name of the JNI library the generated bindings will `System.loadLibrary`, derived from the
+     * binding package. A build that links the stub itself has to produce exactly this name.
+     */
+    @get:Internal
+    val stubLibraryBaseName: Provider<String> get() = packageName.map { JvmInteropSupport.stubBaseName(it) }
+
     /** Directory holding the generated Kotlin bindings. */
     @get:Internal
     val kotlinSourceDirectory: Provider<Directory> get() = outputDirectory.dir(KOTLIN_DIR)

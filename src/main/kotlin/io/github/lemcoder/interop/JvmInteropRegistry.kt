@@ -79,14 +79,12 @@ abstract class JvmInteropRegistry @Inject constructor(
         val generatedRoot = project.layout.buildDirectory.dir("generated/jvmInterop/${settings.name}")
         val jniLibsRoot = project.layout.buildDirectory.dir("jvmInterop/${settings.name}/jniLibs")
 
-        // The stub library's name is derived from the package, and is baked into the generated
-        // System.loadLibrary call — the link task has to produce exactly that name.
+        // Falls back to the def's own `package`, so an interop that does not override it still has one.
         val packageName = settings.packageName.orElse(
             project.provider {
                 settings.defFile.orNull?.asFile?.takeIf { it.isFile }?.let { DefFile.parse(it).packageName }
             }
         )
-        val stubBaseName = packageName.map { JvmInteropSupport.stubBaseName(it) }
 
         val jniIncludeDirs = project.providers.provider {
             settings.jniHome.orNull
@@ -142,7 +140,7 @@ abstract class JvmInteropRegistry @Inject constructor(
                     mustRunAfter(project.cleanTask())
                     konanPath.set(konanConfig.konanPath)
                     this.target.set(target)
-                    this.stubBaseName.set(stubBaseName)
+                    this.stubBaseName.set(generate.flatMap { it.stubLibraryBaseName })
                     stubCFile.set(generate.flatMap { it.stubSourceFile })
                     includeDirs.from(settings.defFile.map { it.asFile.parentFile }, settings.includeDirs)
                     staticLibrary.set(
