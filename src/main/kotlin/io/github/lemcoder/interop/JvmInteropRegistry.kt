@@ -10,6 +10,7 @@ import io.github.lemcoder.cleanTask
 import io.github.lemcoder.jvm.GenerateJvmInteropTask
 import io.github.lemcoder.jvm.JvmInteropSupport
 import io.github.lemcoder.jvm.LinkJvmInteropTask
+import org.gradle.api.Task
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
@@ -34,7 +35,16 @@ abstract class JvmInteropRegistry @Inject constructor(
 ) {
     private val containers = mutableMapOf<String, NamedDomainObjectContainer<JvmInteropSettings>>()
 
-    private companion object { const val PROJECT_KEY = "<project>" }
+    private companion object {
+        const val PROJECT_KEY = "<project>"
+
+        /**
+         * Cache entries the plugin sets on an external CMake build — its side of the contract, the
+         * way an AGP project reads ANDROID_ABI. A CMakeLists opts in by reading them.
+         */
+        const val STUB_DIR_VARIABLE = "KONAN_JNI_STUB_DIR"
+        const val LIB_NAME_VARIABLE = "KONAN_JNI_LIB_NAME"
+    }
 
     /** How a declaration site takes the generated Kotlin; keeps KGP types out of this class. */
     internal fun interface SourceWiring {
@@ -129,8 +139,14 @@ abstract class JvmInteropRegistry @Inject constructor(
         }
 
         // Deferred: the container fires whenObjectAdded before create()'s configure block runs, so
-        // `targets` is not readable yet. Everything above only needs values Gradle resolves lazily.
+        // `targets` and externalNativeBuild are not readable yet. Everything above only needs values
+        // Gradle resolves lazily.
         project.afterEvaluate {
+            if (settings.externalNativeBuild.isConfigured) {
+                registerExternalBuild(settings, generate, linkAll)
+                return@afterEvaluate
+            }
+
             settings.targets.get().forEach { target ->
                 val link = project.tasks.register(
                     "linkJvmInterop$suffix${target.taskSuffix}",
@@ -179,6 +195,60 @@ abstract class JvmInteropRegistry @Inject constructor(
                 linkAll.configure { dependsOn(link) }
             }
         }
+    }
+
+    /**
+     * Drives the external build that compiles the stub, in place of the plugin's own link tasks. The
+     * plugin supplies what only it knows — where the stub is, the library name the bindings will
+     * load, and a JDK with jni.h — so the CMakeLists only reads two cache entries.
+     */
+    private fun registerExternalBuild(
+        settings: JvmInteropSettings,
+        generate: org.gradle.api.tasks.TaskProvider<GenerateJvmInteropTask>,
+        linkAll: org.gradle.api.tasks.TaskProvider<Task>,
+    ) {
+        val cmake = settings.externalNativeBuild.cmake
+        val suffix = settings.name.replaceFirstChar { it.uppercase() }
+        val executable = cmake.executable.orElse(project.provider { CMakeSupport.detectExecutable() })
+
+        // With a preset the binary directory is the preset's to choose, and `-B` cannot override it;
+        // the conventional layout is <source>/build/<preset>, which stays overridable.
+        val sourceDir = cmake.path.map { it.asFile.parentFile }
+        val buildDir = cmake.buildDirectory.orElse(
+            project.layout.dir(
+                cmake.preset.map { preset -> sourceDir.get().resolve("build/$preset") }
+                    .orElse(project.layout.buildDirectory.dir("jvmInterop/${settings.name}/cmake").map { it.asFile })
+            )
+        )
+
+        val configure = project.tasks.register("cmakeConfigure$suffix", CMakeConfigureTask::class.java) {
+            group = "interop"
+            description = "Configure the external CMake build for '${settings.name}'."
+            dependsOn(generate)
+            this.executable.set(executable)
+            preset.set(cmake.preset)
+            sourceDirectory.set(sourceDir.map { it.absolutePath })
+            arguments.set(cmake.arguments)
+            stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
+            cacheEntries.put(STUB_DIR_VARIABLE, generate.flatMap { it.stubSourceDirectory }.map { it.asFile.absolutePath })
+            cacheEntries.put(LIB_NAME_VARIABLE, generate.flatMap { it.stubLibraryBaseName })
+            javaHome.set(project.provider { JvmInteropSupport.detectJniHome().absolutePath })
+            buildDirectory.set(buildDir)
+        }
+
+        val build = project.tasks.register("cmakeBuild$suffix", CMakeBuildTask::class.java) {
+            group = "interop"
+            description = "Build the external CMake target that links the '${settings.name}' stub."
+            dependsOn(configure)
+            this.executable.set(executable)
+            targets.set(cmake.targets)
+            stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
+            buildDirectory.set(buildDir)
+        }
+
+        // The umbrella link task stands for "make the JNI library exist", however it gets made.
+        linkAll.configure { dependsOn(build) }
+        settings.resolvedLibraryDirectory.set(cmake.libraryDirectory.orElse(buildDir))
     }
 
     /**

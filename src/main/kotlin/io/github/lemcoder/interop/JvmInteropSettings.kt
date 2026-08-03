@@ -1,9 +1,12 @@
 package io.github.lemcoder.interop
 
 import org.jetbrains.kotlin.konan.target.KonanTarget
+import org.gradle.api.Action
 import org.gradle.api.Named
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
@@ -32,6 +35,7 @@ import javax.inject.Inject
  */
 abstract class JvmInteropSettings @Inject constructor(
     private val name: String,
+    private val objects: ObjectFactory,
 ) : Named {
 
     override fun getName(): String = name
@@ -76,6 +80,24 @@ abstract class JvmInteropSettings @Inject constructor(
     fun defFile(file: File) {
         defFile.set(file)
     }
+
+    /**
+     * Declares that another build system compiles and links the stub — see [ExternalNativeBuildSettings].
+     * Mutually exclusive with the plugin linking it: no link task is registered once this is declared.
+     */
+    val externalNativeBuild: ExternalNativeBuildSettings =
+        objects.newInstance(ExternalNativeBuildSettings::class.java)
+
+    /** Configures the external build that compiles the generated stub. */
+    fun externalNativeBuild(action: Action<in ExternalNativeBuildSettings>) {
+        action.execute(externalNativeBuild)
+    }
+
+    /**
+     * Where the linked JNI library ends up, whoever linked it. Use it to put the library on
+     * `java.library.path` for tests, or to package it.
+     */
+    abstract val resolvedLibraryDirectory: DirectoryProperty
 
     /** Appends [args] to the link command of [target] only. */
     fun linkerArgsFor(target: KonanTarget, vararg args: String) {

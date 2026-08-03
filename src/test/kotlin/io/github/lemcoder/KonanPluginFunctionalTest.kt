@@ -154,6 +154,40 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `an external build replaces the plugin's link tasks`() {
+        writeInteropBuild(
+            "external-fixture",
+            konanConfig = """
+            libName.set("mymath")
+            """,
+            interops = """
+            create("mymath") {
+                defFile(project.file("mymath.def"))
+                externalNativeBuild {
+                    cmake {
+                        path.set(project.file("CMakeLists.txt"))
+                        targets.add("mymath-jni")
+                    }
+                }
+            }
+            """,
+        )
+        File(projectDir, "CMakeLists.txt").writeText("cmake_minimum_required(VERSION 3.16)\n")
+
+        val result = runner("linkJvmInteropMymath", "--dry-run").build()
+
+        assertTrue(
+            result.output.contains(":cmakeConfigureMymath SKIPPED") &&
+                result.output.contains(":cmakeBuildMymath SKIPPED"),
+            "expected the CMake tasks in the dry-run graph, got:\n${result.output}"
+        )
+        assertFalse(
+            result.output.contains(":linkJvmInteropMymathMacos_arm64"),
+            "expected no plugin link task when an external build owns the link, got:\n${result.output}"
+        )
+    }
+
+    @Test
     fun `konanConfig alone registers no interop tasks`() {
         writeBuild(
             "no-interop-fixture",

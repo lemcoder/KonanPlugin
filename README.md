@@ -105,6 +105,51 @@ into the klib, and the JVM leg has to *link* a shared library, because a JVM can
 Preferring the `konanConfig` output over a def entry keeps the def portable — naming the archive in
 it would hardcode a target directory.
 
+### Letting another build link it — `externalNativeBuild`
+
+When the native library belongs to a CMake project, the plugin can drive that build instead of
+linking anything itself, the way AGP's `externalNativeBuild` hands a module's native code to CMake:
+
+```kotlin
+create("koinference") {
+    packageName.set("com.example.native")
+
+    externalNativeBuild {
+        cmake {
+            path.set(file("native/CMakeLists.txt"))
+            preset.set("macosArm64")          // or buildDirectory, for preset-less projects
+            targets.add("koinference-jni")
+            arguments.add("-DMY_OWN_SWITCH=ON")
+        }
+    }
+}
+```
+
+No link task is registered; `cmakeConfigure<Name>` and `cmakeBuild<Name>` take its place, ordered
+after generation, and `linkJvmInterop<Name>` depends on the build so "make the JNI library exist"
+means the same thing either way.
+
+The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` reads:
+
+| variable | meaning |
+|---|---|
+| `KONAN_JNI_STUB_DIR` | directory holding the generated `.c` stub |
+| `KONAN_JNI_LIB_NAME` | the name the generated bindings will `System.loadLibrary` |
+
+It also points `JAVA_HOME` at a JDK that ships `include/jni.h` — the one running Gradle often does
+not, since IDE-bundled JBRs strip the headers — and locates `cmake` itself, because the Gradle daemon
+does not inherit a login shell's PATH.
+
+```cmake
+set(KONAN_JNI_STUB_DIR "" CACHE PATH "")
+set(KONAN_JNI_LIB_NAME "" CACHE STRING "")
+
+file(GLOB JNI_SOURCES "${KONAN_JNI_STUB_DIR}/*.c")
+add_library(mylib-jni SHARED ${JNI_SOURCES})
+set_target_properties(mylib-jni PROPERTIES OUTPUT_NAME "${KONAN_JNI_LIB_NAME}")
+target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arrive transitively
+```
+
 ### Generated bindings
 One `external fun kniBridgeN(...)` per C function, in header order, each carrying its C-derived
 signature as a doc comment. Parameters are marshalled by shape:
@@ -178,6 +223,8 @@ of every variant. See `examples/android`.
 | `generateJvmInterop<Name>`       | Generates the JNI `.c` stub + runtime-free Kotlin bridges for one interop. |
 | `linkJvmInterop<Name>`           | Umbrella task: links that interop for every target.                      |
 | `linkJvmInterop<Name><Target>`   | Links one interop for one target.                                        |
+| `cmakeConfigure<Name>`           | Configures an interop's external CMake build.                            |
+| `cmakeBuild<Name>`               | Runs it, replacing the plugin's own link.                                |
 
 On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks automatically, so
 `assembleDebug` alone runs the whole chain.
