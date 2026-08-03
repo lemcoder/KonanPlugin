@@ -35,18 +35,28 @@ internal object JvmInteropSupport {
         return null
     }
 
-    /** Scans the running JVM and installed JDKs for one that ships jni.h. */
-    fun detectJniIncludeDirs(): List<File> {
-        val candidates = buildList {
-            System.getenv("JNI_HOME")?.let { add(File(it)) }
-            System.getProperty("java.home")?.let { add(File(it)) }
-            File(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines").listFiles()?.let { addAll(it) }
-            File("/Library/Java/JavaVirtualMachines").listFiles()?.let { addAll(it) }
-            File("/usr/lib/jvm").listFiles()?.let { addAll(it) }
-        }
-        return candidates.firstNotNullOfOrNull { jniIncludeDirsOf(it) }
-            ?: error("No JDK with include/jni.h found. Set konanConfig.jvmInterop.jniHome.")
+    /**
+     * JDK homes worth checking for `include/jni.h`, most specific first. Not just the running JVM:
+     * IDE-bundled JBRs — Android Studio's, which is often the Gradle daemon — strip the headers.
+     */
+    private fun jdkCandidates(): List<File> = buildList {
+        System.getenv("JNI_HOME")?.let { add(File(it)) }
+        System.getenv("JAVA_HOME")?.let { add(File(it)) }
+        System.getProperty("java.home")?.let { add(File(it)) }
+        File(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines").listFiles()?.let { addAll(it) }
+        File("/Library/Java/JavaVirtualMachines").listFiles()?.let { addAll(it) }
+        File("/usr/lib/jvm").listFiles()?.let { addAll(it) }
     }
+
+    /** Scans the running JVM and installed JDKs for one that ships jni.h. */
+    fun detectJniIncludeDirs(): List<File> = jdkCandidates().firstNotNullOfOrNull { jniIncludeDirsOf(it) }
+        ?: error("No JDK with include/jni.h found. Set the interop's jniHome.")
+
+    /** The home of the JDK [detectJniIncludeDirs] would use. */
+    fun detectJniHome(): File = jdkCandidates()
+        .flatMap { listOf(it, it.resolve("Contents/Home")) }
+        .firstOrNull { it.resolve("include/jni.h").isFile }
+        ?: error("No JDK with include/jni.h found. Set the interop's jniHome.")
 
     /**
      * Xcode's compiler-rt builtins for macOS. Konan's `essentials` LLVM ships none for the host, so a
