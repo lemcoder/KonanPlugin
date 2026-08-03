@@ -114,9 +114,9 @@ abstract class JvmInteropRegistry @Inject constructor(
         if (wiring != null) {
             // Generated bindings are ordinary sources of whoever declared the interop; a srcDir
             // carrying the task dependency is all the wiring needed.
-            wiring.addGeneratedSources(generate.flatMap { it.outputDirectory.dir("kotlin") })
+            wiring.addGeneratedSources(generate.flatMap { it.kotlinSourceDirectory })
         } else {
-            wireIntoAndroid(settings, generatedRoot, jniLibsRoot)
+            wireIntoAndroid(settings, generate.get().kotlinSourceDirectory, jniLibsRoot)
         }
 
         // One link task per target. Whether it does anything depends on the def naming a library; a
@@ -143,9 +143,7 @@ abstract class JvmInteropRegistry @Inject constructor(
                     konanPath.set(konanConfig.konanPath)
                     this.target.set(target)
                     this.stubBaseName.set(stubBaseName)
-                    stubCFile.set(
-                        generate.flatMap { task -> stubBaseName.flatMap { task.outputDirectory.file("c/$it.c") } }
-                    )
+                    stubCFile.set(generate.flatMap { it.stubSourceFile })
                     includeDirs.from(settings.defFile.map { it.asFile.parentFile }, settings.includeDirs)
                     staticLibrary.set(
                         project.layout.file(project.provider { resolveLibrary(settings, konanConfig, target) })
@@ -188,11 +186,11 @@ abstract class JvmInteropRegistry @Inject constructor(
      */
     private fun wireIntoAndroid(
         settings: JvmInteropSettings,
-        generatedRoot: org.gradle.api.provider.Provider<org.gradle.api.file.Directory>,
+        kotlinSources: org.gradle.api.provider.Provider<org.gradle.api.file.Directory>,
         jniLibsRoot: org.gradle.api.provider.Provider<org.gradle.api.file.Directory>,
     ) {
         project.plugins.withId("com.android.base") {
-            val kotlinDir = generatedRoot.get().dir("kotlin").asFile.apply { mkdirs() }
+            val kotlinDir = kotlinSources.get().asFile.apply { mkdirs() }
             val jniLibsDir = jniLibsRoot.get().asFile.apply { mkdirs() }
             val kotlinRel = kotlinDir.relativeTo(project.projectDir).path
             val jniRel = jniLibsDir.relativeTo(project.projectDir).path

@@ -9,14 +9,18 @@ import io.github.lemcoder.util.parseBridgeKinds
 import io.github.lemcoder.util.stripCinterop
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.Directory
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.Provider
 import org.gradle.api.provider.Property
 import java.io.File
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -49,6 +53,22 @@ abstract class GenerateJvmInteropTask @Inject constructor(
     @get:Input abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val additionalCompilerArgs: ListProperty<String>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+
+    /**
+     * Directory holding the generated JNI `.c` stub — the handover point when another build system
+     * compiles it. Derived from [outputDirectory] so the layout stays the plugin's to change.
+     */
+    @get:Internal
+    val stubSourceDirectory: Provider<Directory> get() = outputDirectory.dir(C_DIR)
+
+    /** The generated stub itself, named after the binding package. */
+    @get:Internal
+    val stubSourceFile: Provider<RegularFile>
+        get() = outputDirectory.file(packageName.map { "$C_DIR/${JvmInteropSupport.stubBaseName(it)}.c" })
+
+    /** Directory holding the generated Kotlin bindings. */
+    @get:Internal
+    val kotlinSourceDirectory: Provider<Directory> get() = outputDirectory.dir(KOTLIN_DIR)
 
     @TaskAction
     fun run() {
@@ -85,8 +105,8 @@ abstract class GenerateJvmInteropTask @Inject constructor(
                 "org.jetbrains.kotlin.native.interop.gen.jvm.MainKt",
                 "-flavor", "jvm",
                 "-def", effectiveDef.absolutePath,
-                "-generated", out.resolve("kotlin").absolutePath,
-                "-Xtemporary-files-dir", out.resolve("c").absolutePath,
+                "-generated", out.resolve(KOTLIN_DIR).absolutePath,
+                "-Xtemporary-files-dir", out.resolve(C_DIR).absolutePath,
                 // The generator indexes headers once on the host; the bridges are platform-independent.
                 "-target", hostTarget.get().name,
             )
@@ -99,12 +119,17 @@ abstract class GenerateJvmInteropTask @Inject constructor(
         // Strip kotlinx.cinterop from the generated Kotlin so it ships on plain JVM / Android, and
         // marshal strings/primitive buffers on both sides of the bridge — the raw output passes them
         // as addresses, which only a Kotlin/Native caller can produce.
-        val kotlinFiles = out.resolve("kotlin").walkTopDown().filter { it.extension == "kt" }.toList()
+        val kotlinFiles = out.resolve(KOTLIN_DIR).walkTopDown().filter { it.extension == "kt" }.toList()
         val kinds = kotlinFiles.fold(emptyMap<Int, List<ParamKind>>()) { acc, kt ->
             acc + parseBridgeKinds(kt.readText())
         }
         kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds)) }
-        out.resolve("c").walkTopDown().filter { it.extension == "c" }
+        out.resolve(C_DIR).walkTopDown().filter { it.extension == "c" }
             .forEach { c -> c.writeText(marshalStub(c.readText(), kinds)) }
+    }
+
+    private companion object {
+        const val C_DIR = "c"
+        const val KOTLIN_DIR = "kotlin"
     }
 }
