@@ -3,23 +3,28 @@
 // + the Kotlin bridges; AGP packages the .so and compiles the app.
 
 import io.github.lemcoder.KonanTarget
+import io.github.lemcoder.interop.jvmInterops
 
 plugins {
     id("com.android.application") // AGP 9 has built-in Kotlin support
     id("io.github.lemcoder.konanplugin")
 }
 
-// Cross-compile native/*.c -> build/native/<target>/libmymath.a per ABI, then generate the JNI
-// bridges + link a self-contained stub .so per ABI. The nested jvmInterop block inherits the
-// targets, header dir and static library from the enclosing block; the Kotlin/Native distribution
-// is auto-detected ($KONAN_HOME, else the newest ~/.konan/kotlin-native-prebuilt-*).
+// konanConfig compiles only: native/*.c -> build/native/<target>/libmymath.a per ABI. The
+// Kotlin/Native distribution is auto-detected ($KONAN_HOME, else the newest ~/.konan/kotlin-native-prebuilt-*).
 konanConfig {
     targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64) // device + emulator
     libName.set("mymath")
+}
 
-    jvmInterop {
-        // Only the binding package; the headers are scanned from sourceDir (`native`).
-        packageName.set("example")
+// An AGP module has no Kotlin compilation to hang interops on, so they are declared on the project;
+// the generated bindings and the per-ABI jniLibs are wired into the variants. The archive to link
+// defaults to what konanConfig built for each target.
+jvmInterops {
+    create("mymath") {
+        defFile(project.file("src/main/nativeInterop/mymath.def"))
+        includeDirs.from(file("native"))
+        targets.set(listOf(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64))
     }
 }
 
@@ -42,4 +47,4 @@ android {
 }
 
 // That's it — the plugin auto-wires the generated Kotlin bridges + per-ABI jniLibs into AGP and
-// orders generateJvmInterop / linkJvmInterop / runKonanClang before the build.
+// orders generateJvmInteropMymath / linkJvmInteropMymath / runKonanClang before the build.

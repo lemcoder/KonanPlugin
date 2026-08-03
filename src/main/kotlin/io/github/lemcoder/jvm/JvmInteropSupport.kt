@@ -1,6 +1,5 @@
 package io.github.lemcoder.jvm
 
-import io.github.lemcoder.KonanTarget
 import java.io.File
 
 /** Pure helpers for the JVM/JNI interop leg: toolchain discovery, naming, and the cinterop strip transform. */
@@ -70,24 +69,6 @@ internal object JvmInteropSupport {
         val deps = File(konanHome.parentFile, "dependencies")
         val ndk = deps.listFiles { f -> f.isDirectory && f.name.contains("android_ndk") }?.firstOrNull() ?: return null
         return File(ndk, "lib64/clang").listFiles { f -> f.isDirectory }?.maxByOrNull { it.name }
-    }
-
-    /**
-     * The NDK sysroot lib dir for [target], which holds the C++ runtime (`libc++_static.a`,
-     * `libc++abi.a`). The `--sysroot` konan passes points at the API-level headers/libs only, so a stub
-     * linking C++ code needs this on the library search path.
-     */
-    fun ndkSysrootLibDir(konanHome: File, target: KonanTarget): File? {
-        val triple = when (target) {
-            KonanTarget.ANDROID_ARM64 -> "aarch64-linux-android"
-            KonanTarget.ANDROID_ARM32 -> "arm-linux-androideabi"
-            KonanTarget.ANDROID_X64 -> "x86_64-linux-android"
-            KonanTarget.ANDROID_X86 -> "i686-linux-android"
-            else -> return null
-        }
-        val deps = File(konanHome.parentFile, "dependencies")
-        val toolchains = deps.listFiles { f -> f.isDirectory && f.name.contains("android_ndk") } ?: return null
-        return toolchains.map { it.resolve("sysroot/usr/lib/$triple") }.firstOrNull { it.isDirectory }
     }
 
     // --- naming --------------------------------------------------------------

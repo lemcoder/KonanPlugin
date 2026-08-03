@@ -1,32 +1,50 @@
 package io.github.lemcoder.jvm
 
 import io.github.lemcoder.KonanTarget
+import io.github.lemcoder.interop.DefFile
 import io.github.lemcoder.util.ParamKind
 import io.github.lemcoder.util.execCapture
 import io.github.lemcoder.util.marshalStub
 import io.github.lemcoder.util.parseBridgeKinds
 import io.github.lemcoder.util.stripCinterop
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import java.io.File
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import javax.inject.Inject
 
-/** Generates the JNI `.c` stubs and the stripped, runtime-free Kotlin bindings. */
+/**
+ * Generates the JNI `.c` stub and the runtime-free Kotlin bindings from a cinterop `.def`.
+ *
+ * The same def feeds the native targets' cinterop, so the two legs cannot drift: only `package` is
+ * overridden here, since the JVM bindings live in their own package.
+ */
 abstract class GenerateJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:Input abstract val konanPath: Property<String>
-    @get:Input abstract val headers: ListProperty<String>
+
+    @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val defFile: RegularFileProperty
+
     @get:Input abstract val packageName: Property<String>
-    @get:Input @get:Optional abstract val headerFilter: Property<String>
-    @get:Input abstract val headerDir: Property<String>
+
+    /** Extra include roots; the def's own directory is always added. */
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val includeDirs: ConfigurableFileCollection
+
     @get:Input abstract val hostTarget: Property<KonanTarget>
     @get:Input abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val additionalCompilerArgs: ListProperty<String>
@@ -42,16 +60,18 @@ abstract class GenerateJvmInteropTask @Inject constructor(
         val out = outputDirectory.get().asFile
         out.deleteRecursively(); out.mkdirs()
 
-        // Synthesize the .def from the configured headers + package.
-        val defFile = out.resolve("${JvmInteropSupport.stubBaseName(packageName.get())}.def")
-        defFile.writeText(buildString {
-            appendLine("headers = ${headers.get().joinToString(" ")}")
-            appendLine("headerFilter = ${headerFilter.orNull ?: headers.get().joinToString(" ")}")
-            appendLine("package = ${packageName.get()}")
-        })
+        val userDef = defFile.get().asFile
+        val parsed = DefFile.parse(userDef)
+        val pkg = packageName.orNull ?: parsed.packageName ?: error(
+            "jvmInterops: neither packageName nor a `package =` line in ${userDef.name}."
+        )
 
-        val includeOpts = (listOf(headerDir.get()) + jniIncludeDirs.get())
-            .map { File(it) }.filter { it.exists() }
+        // The generator wants a def of its own: same contents, our package.
+        val effectiveDef = out.resolve("${name}.def")
+        effectiveDef.writeText(parsed.render(pkg))
+
+        val includes = (listOf(userDef.parentFile) + includeDirs.files + jniIncludeDirs.get().map(::File))
+            .filter { it.exists() }
             .flatMap { listOf("-compiler-option", "-I${it.absolutePath}") }
         val extraOpts = additionalCompilerArgs.getOrElse(emptyList()).flatMap { listOf("-compiler-option", it) }
 
@@ -64,12 +84,13 @@ abstract class GenerateJvmInteropTask @Inject constructor(
                 "-cp", embeddableJar.absolutePath,
                 "org.jetbrains.kotlin.native.interop.gen.jvm.MainKt",
                 "-flavor", "jvm",
-                "-def", defFile.absolutePath,
+                "-def", effectiveDef.absolutePath,
                 "-generated", out.resolve("kotlin").absolutePath,
                 "-Xtemporary-files-dir", out.resolve("c").absolutePath,
+                // The generator indexes headers once on the host; the bridges are platform-independent.
                 "-target", hostTarget.get().konanName,
             )
-            args(includeOpts); args(extraOpts)
+            args(includes); args(extraOpts)
             environment("LIBCLANG_DISABLE_CRASH_RECOVERY", "1")
         }
         logger.lifecycle(result.output)

@@ -3,6 +3,7 @@ package io.github.lemcoder.jvm
 import io.github.lemcoder.KonanTarget
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
@@ -12,6 +13,7 @@ import javax.inject.Inject
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -27,11 +29,12 @@ abstract class LinkJvmInteropTask @Inject constructor(
     @get:Input abstract val target: Property<KonanTarget>
     @get:Input abstract val stubBaseName: Property<String>
     @get:InputFile abstract val stubCFile: RegularFileProperty
-    @get:Input abstract val headerDir: Property<String>
+    /** Include roots for the stub compile: the def's directory plus whatever the interop declared. */
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val includeDirs: ConfigurableFileCollection
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val staticLibrary: RegularFileProperty
     @get:Input @get:Optional abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val ndkResourceDir: Property<String>
-    @get:Input @get:Optional abstract val ndkSysrootLibDir: Property<String>
     @get:Input @get:Optional abstract val additionalLinkerArgs: ListProperty<String>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
@@ -50,7 +53,7 @@ abstract class LinkJvmInteropTask @Inject constructor(
         val cmd = buildList {
             add(runKonan.absolutePath); add("clang"); add("clang"); add(tgt.konanName)
             add("-shared")
-            add("-I${headerDir.get()}")
+            includeDirs.files.filter { it.exists() }.forEach { add("-I${it.absolutePath}") }
             if (tgt.isAndroid) {
                 // jni.h comes from the NDK sysroot; supply compiler-rt and skip the (absent) unwinder.
                 ndkResourceDir.orNull?.takeIf { it.isNotEmpty() }?.let { add("-resource-dir=$it") }
@@ -65,12 +68,10 @@ abstract class LinkJvmInteropTask @Inject constructor(
                 JvmInteropSupport.appleCompilerRt(xcodeDeveloperDir())?.let { add(it.absolutePath) }
             }
             add("-o"); add(outLib.absolutePath)
+            // A C++ runtime, extra -L, frameworks: all caller-supplied. Adding konan's own NDK lib
+            // dir here would pull its static libc in ahead of the sysroot's shared one, which fails
+            // on x86_64 with "relocation R_X86_64_PC32 ... recompile with -fPIC".
             addAll(additionalLinkerArgs.getOrElse(emptyList()))
-            // Last, so an explicit -L wins: konan bundles an old NDK, and a static library built with
-            // a current one needs that NDK's C++ runtime, not this one.
-            if (tgt.isAndroid) {
-                ndkSysrootLibDir.orNull?.takeIf { it.isNotEmpty() }?.let { add("-L$it") }
-            }
         }
 
         val result = exec.execCapture { commandLine(cmd) }

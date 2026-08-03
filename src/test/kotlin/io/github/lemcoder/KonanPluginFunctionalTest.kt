@@ -34,6 +34,7 @@ class KonanPluginFunctionalTest {
         buildFile.writeText(
             """
             import io.github.lemcoder.KonanTarget
+            import io.github.lemcoder.interop.jvmInterops
 
             plugins {
                 id("io.github.lemcoder.konanplugin")
@@ -44,6 +45,17 @@ class KonanPluginFunctionalTest {
             ${konanConfig.trimIndent().prependIndent("    ")}
             }
             """.trimIndent()
+        )
+    }
+
+
+    /** As [writeBuild], plus a `jvmInterops { }` block and the def it points at. */
+    private fun writeInteropBuild(name: String, konanConfig: String, interops: String) {
+        writeBuild(name, konanConfig)
+        File(projectDir, "mymath.def").writeText("headers = mymath.h\npackage = example\n")
+        File(projectDir, "mymath.h").writeText("int my_add(int a, int b);\n")
+        buildFile.appendText(
+            "\n\njvmInterops {\n" + interops.trimIndent().prependIndent("    ") + "\n}\n"
         )
     }
 
@@ -82,28 +94,28 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
-    fun `nested jvmInterop derives its inputs from the enclosing konanConfig`() {
-        // packageName is the only jvmInterop input set here; targets, headerDir, staticLibraryDir,
-        // staticLibraryName and konanPath must all be inherited from konanConfig.
-        writeBuild(
+    fun `an interop declared on the project registers generate and per-target link tasks`() {
+        writeInteropBuild(
             "interop-fixture",
-            """
+            konanConfig = """
             targets(KonanTarget.MACOS_ARM64)
             libName.set("mymath")
-            jvmInterop {
-                packageName.set("example")
+            """,
+            interops = """
+            create("mymath") {
+                defFile(project.file("mymath.def"))
             }
-            """
+            """,
         )
 
-        val result = runner("linkJvmInterop", "--dry-run").build()
+        val result = runner("linkJvmInteropMymath", "--dry-run").build()
 
         assertTrue(
-            result.output.contains(":linkJvmInterop SKIPPED"),
-            "expected the umbrella link task in the dry-run graph, got:\n${result.output}"
+            result.output.contains(":generateJvmInteropMymath SKIPPED"),
+            "expected the generate task in the dry-run graph, got:\n${result.output}"
         )
         assertTrue(
-            result.output.contains(":linkJvmInteropMacos_arm64 SKIPPED"),
+            result.output.contains(":linkJvmInteropMymathMacos_arm64 SKIPPED"),
             "expected a per-target link task in the dry-run graph, got:\n${result.output}"
         )
         // The per-target link task must depend on the .a it links.
@@ -114,32 +126,35 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
-    fun `android targets enable the jvm interop leg without a jvmInterop block`() {
-        writeBuild(
-            "android-auto-fixture",
-            """
+    fun `interop targets are independent of the konanConfig ones`() {
+        writeInteropBuild(
+            "android-fixture",
+            konanConfig = """
             targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64)
             libName.set("mymath")
-            // No jvmInterop block: enabled by the Android targets. packageName would normally come
-            // from the AGP namespace, which this AGP-less fixture has to stand in for.
-            jvmInterop.packageName.set("example")
-            """
+            """,
+            interops = """
+            create("mymath") {
+                defFile(project.file("mymath.def"))
+                targets.set(listOf(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64))
+            }
+            """,
         )
 
-        val result = runner("linkJvmInterop", "--dry-run").build()
+        val result = runner("linkJvmInteropMymath", "--dry-run").build()
 
         assertTrue(
-            result.output.contains(":linkJvmInteropAndroid_arm64 SKIPPED"),
+            result.output.contains(":linkJvmInteropMymathAndroid_arm64 SKIPPED"),
             "expected an arm64 link task, got:\n${result.output}"
         )
         assertTrue(
-            result.output.contains(":linkJvmInteropAndroid_x64 SKIPPED"),
+            result.output.contains(":linkJvmInteropMymathAndroid_x64 SKIPPED"),
             "expected an x64 link task, got:\n${result.output}"
         )
     }
 
     @Test
-    fun `host-only targets leave the jvm interop leg off`() {
+    fun `konanConfig alone registers no interop tasks`() {
         writeBuild(
             "no-interop-fixture",
             """
@@ -148,33 +163,11 @@ class KonanPluginFunctionalTest {
             """
         )
 
-        val result = runner("linkJvmInterop", "--dry-run").build()
-
-        // The umbrella task still exists, but no per-target link task is wired under it.
-        assertFalse(
-            result.output.contains(":linkJvmInteropMacos_arm64"),
-            "expected no per-target link task when jvmInterop is disabled, got:\n${result.output}"
-        )
-    }
-
-    @Test
-    fun `enabled opts back out of the interop leg for android targets`() {
-        writeBuild(
-            "opt-out-fixture",
-            """
-            targets(KonanTarget.ANDROID_ARM64)
-            libName.set("mymath")
-            jvmInterop {
-                enabled.set(false)
-            }
-            """
-        )
-
-        val result = runner("linkJvmInterop", "--dry-run").build()
+        val result = runner("tasks", "--group=interop").build()
 
         assertFalse(
-            result.output.contains(":linkJvmInteropAndroid_arm64"),
-            "expected enabled=false to suppress the per-target link task, got:\n${result.output}"
+            result.output.contains("generateJvmInterop"),
+            "expected no interop tasks without a jvmInterops block, got:\n${result.output}"
         )
     }
 }

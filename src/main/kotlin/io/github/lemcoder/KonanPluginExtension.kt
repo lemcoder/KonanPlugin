@@ -1,7 +1,5 @@
 package io.github.lemcoder
 
-import io.github.lemcoder.jvm.JvmInteropExtension
-import org.gradle.api.Action
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
@@ -17,11 +15,10 @@ import javax.inject.Inject
  * konanConfig {
  *     targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64)
  *     libName.set("mymath")
- *     jvmInterop { packageName.set("example") }
  * }
  * ```
  *
- * The nested [jvmInterop] block generates JNI bindings on top of the same sources; all of its
+ * JNI bindings are declared separately, with `jvmInterops` on a Kotlin compilation; all of its
  * inputs default to the matching value here, so it usually needs nothing but a package name.
  */
 abstract class KonanPluginExtension @Inject constructor(objects: ObjectFactory) {
@@ -53,22 +50,6 @@ abstract class KonanPluginExtension @Inject constructor(objects: ObjectFactory) 
      * `-std=c99` would break a source dir that also holds C++.
      */
     abstract val additionalCompilerArgs: ListProperty<String>
-
-    /** JNI binding generation on top of the same sources. See [JvmInteropExtension]. */
-    val jvmInterop: JvmInteropExtension = objects.newInstance(JvmInteropExtension::class.java)
-
-    /**
-     * Set when the build declares a `jvmInterop { }` block, which opts the JNI leg in regardless of
-     * the configured targets. Backs the convention of [JvmInteropExtension.enabled].
-     */
-    internal var jvmInteropDeclared: Boolean = false
-        private set
-
-    /** Configures the nested JNI interop block, and enables the JNI leg. */
-    fun jvmInterop(action: Action<in JvmInteropExtension>) {
-        jvmInteropDeclared = true
-        action.execute(jvmInterop)
-    }
 
     /** Convenience for `targets.set(listOf(...))`. */
     fun targets(vararg targets: KonanTarget) = this.targets.set(targets.toList())

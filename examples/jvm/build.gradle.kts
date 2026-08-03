@@ -1,4 +1,5 @@
 import io.github.lemcoder.KonanTarget
+import io.github.lemcoder.interop.jvmInterops
 
 plugins {
     kotlin("jvm") version "2.3.10"
@@ -10,29 +11,33 @@ repositories { mavenCentral() }
 
 val host = KonanTarget.host()
 
-// Cross-compile native/*.c -> build/native/<target>/libmymath.a, then generate the JNI bridges and
-// link the stub shared library against it. konanPath / jniHome are auto-detected; the nested block
-// inherits the target, header dir and static library from the enclosing one.
+// konanConfig compiles, nothing else: native/*.c -> build/native/<target>/libmymath.a.
 konanConfig {
     targets(host)
     libName.set("mymath")
-
-    // A host-only target doesn't auto-enable the JNI leg, so declaring the block is what opts in.
-    jvmInterop {
-        packageName.set("example")
-    }
 }
 
-// Generated bridges become part of the main source set.
 kotlin {
     jvmToolchain(17)
-    sourceSets["main"].kotlin.srcDir(layout.buildDirectory.dir("generated/jvmInterop/kotlin"))
+
+    // Declared like a cinterop, on the compilation it belongs to. The def names the archive above,
+    // so the plugin also links the JNI library; drop `staticLibraries` from it and you get the
+    // bindings and the .c stub only, for another build system to compile.
+    target.compilations["main"].jvmInterops {
+        create("mymath") {
+            defFile(project.file("src/main/nativeInterop/mymath.def"))
+            includeDirs.from(file("native"))
+        }
+    }
 }
 
 application { mainClass.set("example.MainKt") }
 
 tasks.named<JavaExec>("run") {
-    dependsOn("linkJvmInterop")
+    dependsOn("linkJvmInteropMymath")
     // loadLibrary() resolves the stub from java.library.path.
-    jvmArgs("-Djava.library.path=${layout.buildDirectory.dir("jvmInterop/jniLibs/${host.abiDir}").get().asFile.absolutePath}")
+    jvmArgs(
+        "-Djava.library.path=" +
+            layout.buildDirectory.dir("jvmInterop/mymath/jniLibs/${host.abiDir}").get().asFile.absolutePath
+    )
 }
