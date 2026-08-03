@@ -2,11 +2,15 @@ package io.github.lemcoder.interop
 
 import com.android.build.api.variant.AndroidComponentsExtension
 import io.github.lemcoder.KonanPluginExtension
+import io.github.lemcoder.abiDir
+import io.github.lemcoder.hostKonanTarget
+import io.github.lemcoder.isAndroid
+import io.github.lemcoder.taskSuffix
 import io.github.lemcoder.cleanTask
 import io.github.lemcoder.jvm.GenerateJvmInteropTask
 import io.github.lemcoder.jvm.JvmInteropSupport
 import io.github.lemcoder.jvm.LinkJvmInteropTask
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.NamedDomainObjectFactory
@@ -101,7 +105,7 @@ abstract class JvmInteropRegistry @Inject constructor(
             defFile.set(settings.defFile)
             this.packageName.set(packageName)
             includeDirs.from(settings.includeDirs)
-            hostTarget.set(KonanTarget.host())
+            hostTarget.set(hostKonanTarget())
             this.jniIncludeDirs.set(jniIncludeDirs.map { dirs -> dirs.map { it.absolutePath } })
             additionalCompilerArgs.set(settings.additionalCompilerArgs)
             outputDirectory.set(generatedRoot)
@@ -131,7 +135,7 @@ abstract class JvmInteropRegistry @Inject constructor(
                     LinkJvmInteropTask::class.java,
                 ) {
                     group = "interop"
-                    description = "Link the ${settings.name} JNI library for ${target.konanName}."
+                    description = "Link the ${settings.name} JNI library for ${target.name}."
                     dependsOn(generate)
                     // The archive may be the one konanConfig produces, and it will not exist before then.
                     dependsOn(project.tasks.matching { it.name == "runKonanClang" })
@@ -227,7 +231,7 @@ abstract class JvmInteropRegistry @Inject constructor(
         val libName = konanConfig.libName.orNull ?: return null
         val outputDir = konanConfig.outputDir.orNull ?: return null
         return project.layout.projectDirectory
-            .file("$outputDir/${target.konanName}/lib$libName.a").asFile
+            .file("$outputDir/${target.name}/lib$libName.a").asFile
             .takeIf { it.isFile }
     }
 }

@@ -1,6 +1,9 @@
 package io.github.lemcoder.jvm
 
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.Family
+import org.jetbrains.kotlin.konan.target.KonanTarget
+import io.github.lemcoder.isAndroid
+import io.github.lemcoder.sharedLibraryName
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
@@ -48,10 +51,10 @@ abstract class LinkJvmInteropTask @Inject constructor(
 
         val outDir = outputDirectory.get().asFile
         outDir.deleteRecursively(); outDir.mkdirs()
-        val outLib = outDir.resolve("lib${stubBaseName.get()}${tgt.sharedLibExtension}")
+        val outLib = outDir.resolve(tgt.sharedLibraryName(stubBaseName.get()))
 
         val cmd = buildList {
-            add(runKonan.absolutePath); add("clang"); add("clang"); add(tgt.konanName)
+            add(runKonan.absolutePath); add("clang"); add("clang"); add(tgt.name)
             add("-shared")
             includeDirs.files.filter { it.exists() }.forEach { add("-I${it.absolutePath}") }
             if (tgt.isAndroid) {
@@ -63,7 +66,7 @@ abstract class LinkJvmInteropTask @Inject constructor(
             }
             add(stubCFile.get().asFile.absolutePath)
             add(staticLibrary.get().asFile.absolutePath)
-            if (tgt.konanName.startsWith("macos")) {
+            if (tgt.family == Family.OSX) {
                 // Konan's LLVM has no host compiler-rt; Apple-framework code needs its builtins.
                 JvmInteropSupport.appleCompilerRt(xcodeDeveloperDir())?.let { add(it.absolutePath) }
             }

@@ -7,7 +7,8 @@ The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ 
 ## Features
 - Compiles C/C++ source files to `.o` object files.
 - Supports linking object files into static libraries (`.a`).
-- Works with all Kotlin Native targets, as `KonanTarget` enum constants.
+- Works with all Kotlin Native targets, using Kotlin/Native's own `KonanTarget` — pass
+  `kotlinNativeTarget.konanTarget` straight in, and new targets arrive with the Kotlin version.
 - Generates runtime-free JNI bindings + a self-contained stub shared library (`jvmInterops`).
 - Marshals `String`s and primitive arrays across the bridge, so a C API taking `const char*` or
   `float*` buffers is callable without an off-heap allocator on the Kotlin side.
@@ -126,7 +127,7 @@ reach the Android linker, which rejects it.
 
 ### Static library only
 ```kotlin
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 
 konanConfig {
     targets(KonanTarget.LINUX_X64, KonanTarget.MINGW_X64, KonanTarget.MACOS_ARM64)
@@ -140,14 +141,16 @@ konanConfig {
 }
 ```
 
-Target names are also accepted as strings — `targets("linux_x64", "mingw_x64")` — and resolved to the
-enum, so an unknown name fails at configuration time instead of during the clang invocation.
+Target names are also accepted as strings — `targets("linux_x64", "mingw_x64")` — and resolved
+against `KonanTarget.predefinedTargets`, so an unknown name fails at configuration time instead of
+during the clang invocation. `hostKonanTarget()` is the build host; `androidKonanTargets()` is every
+Android ABI.
 
 ### Android, with JNI bindings
 AGP modules declare interops on the project; AGP wiring is automatic:
 
 ```kotlin
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import io.github.lemcoder.interop.jvmInterops
 
 konanConfig {
@@ -231,6 +234,9 @@ Alpha, and the interop DSL moved wholesale — there is no compatibility shim.
 - `staticLibraryDir` / `staticLibraryName` are gone; the archive is the def's `staticLibraries`,
   an explicit `library(...)`, or `konanConfig`'s own output for that target.
 - Task names carry the interop name: `generateJvmInteropMymath`, `linkJvmInteropMymathMacos_arm64`.
+- Targets are `org.jetbrains.kotlin.konan.target.KonanTarget`, not the plugin's own enum. Change the
+  import; `KonanTarget.host()` becomes `hostKonanTarget()` and `KonanTarget.ANDROID` becomes
+  `androidKonanTargets()`.
 - `targets(...)` on `konanConfig` no longer implies anything about JNI; an interop declares its own.
 - The default clang arguments are `-fno-sanitize=undefined -fPIC`. 1.1.x also passed `-std=c99`,
   which made any `.cpp` in the source dir a hard error; add it via `additionalCompilerArgs` if your

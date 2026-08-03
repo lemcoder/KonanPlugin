@@ -1,5 +1,7 @@
 package io.github.lemcoder
 
+import org.jetbrains.kotlin.konan.target.KonanTarget
+
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
@@ -55,8 +57,8 @@ abstract class KonanPluginExtension @Inject constructor(objects: ObjectFactory) 
     fun targets(vararg targets: KonanTarget) = this.targets.set(targets.toList())
 
     /** Convenience for `targets.set(...)` from Kotlin/Native target names, e.g. `"android_arm64"`. */
-    fun targets(vararg konanNames: String) = targets.set(konanNames.map(KonanTarget::fromKonanName))
+    fun targets(vararg konanNames: String) = targets.set(konanNames.map(::konanTargetOf))
 
     /** All four Android ABIs. */
-    fun androidTargets() = targets.set(KonanTarget.ANDROID)
+    fun androidTargets() = targets.set(androidKonanTargets())
 }

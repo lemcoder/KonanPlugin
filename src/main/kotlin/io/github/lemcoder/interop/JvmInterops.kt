@@ -1,6 +1,7 @@
 package io.github.lemcoder.interop
 
-import io.github.lemcoder.KonanTarget
+import io.github.lemcoder.hostKonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.Project
@@ -49,4 +50,4 @@ internal fun Project.jvmInteropRegistry(): JvmInteropRegistry =
         )
 
 /** Default targets for an interop that does not name any: the host is the only JVM-loadable one. */
-internal fun defaultInteropTargets(): List<KonanTarget> = listOf(KonanTarget.host())
+internal fun defaultInteropTargets(): List<KonanTarget> = listOf(hostKonanTarget())

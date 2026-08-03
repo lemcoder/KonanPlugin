@@ -1,6 +1,6 @@
 package io.github.lemcoder.interop
 
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.gradle.api.Named
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.RegularFileProperty

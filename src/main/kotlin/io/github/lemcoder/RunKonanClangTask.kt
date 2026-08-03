@@ -1,5 +1,7 @@
 package io.github.lemcoder
 
+import org.jetbrains.kotlin.konan.target.KonanTarget
+
 
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
@@ -117,7 +119,7 @@ abstract class RunKonanClangTask @Inject constructor(
             // compile files
             val compileResult = exec.execCapture {
                 executable(runKonan.asFile.get())
-                args("clang", "clang", target.konanName, "@args")
+                args("clang", "clang", target.name, "@args")
                 workingDir(compileDir)
             }
 
@@ -126,7 +128,7 @@ abstract class RunKonanClangTask @Inject constructor(
             compileResult.assertNormalExitValue()
 
             // move compiled files to output directory
-            val outDir = outputDir.get().dir(target.konanName)
+            val outDir = outputDir.get().dir(target.name)
             fs.delete { delete(outDir) }
             fs.sync {
                 from(compileDir) {

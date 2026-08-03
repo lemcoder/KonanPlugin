@@ -33,7 +33,7 @@ class KonanPluginFunctionalTest {
         settingsFile.writeText("""rootProject.name = "$name"""")
         buildFile.writeText(
             """
-            import io.github.lemcoder.KonanTarget
+            import org.jetbrains.kotlin.konan.target.KonanTarget
             import io.github.lemcoder.interop.jvmInterops
 
             plugins {

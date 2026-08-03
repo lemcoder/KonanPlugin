@@ -1,6 +1,6 @@
 package io.github.lemcoder.jvm
 
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import io.github.lemcoder.interop.DefFile
 import io.github.lemcoder.util.ParamKind
 import io.github.lemcoder.util.execCapture
@@ -88,7 +88,7 @@ abstract class GenerateJvmInteropTask @Inject constructor(
                 "-generated", out.resolve("kotlin").absolutePath,
                 "-Xtemporary-files-dir", out.resolve("c").absolutePath,
                 // The generator indexes headers once on the host; the bridges are platform-independent.
-                "-target", hostTarget.get().konanName,
+                "-target", hostTarget.get().name,
             )
             args(includes); args(extraOpts)
             environment("LIBCLANG_DISABLE_CRASH_RECOVERY", "1")

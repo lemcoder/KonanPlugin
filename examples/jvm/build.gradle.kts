@@ -1,4 +1,6 @@
-import io.github.lemcoder.KonanTarget
+import io.github.lemcoder.abiDir
+import io.github.lemcoder.hostKonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import io.github.lemcoder.interop.jvmInterops
 
 plugins {
@@ -9,7 +11,7 @@ plugins {
 
 repositories { mavenCentral() }
 
-val host = KonanTarget.host()
+val host = hostKonanTarget()
 
 // konanConfig compiles, nothing else: native/*.c -> build/native/<target>/libmymath.a.
 konanConfig {

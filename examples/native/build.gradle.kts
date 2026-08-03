@@ -2,7 +2,7 @@
 // The plugin's role here is only the cross-compiler: it produces libmymath.a;
 // the K/N `cinterops {}` block does the binding, exactly as it does today.
 
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 
 plugins {
     kotlin("multiplatform") version "2.3.10"
@@ -26,7 +26,7 @@ kotlin {
             defFile("src/nativeInterop/cinterop/mymath.def")
             includeDirs("native")
             // Where the static library referenced by the .def lives.
-            extraOpts("-libraryPath", layout.buildDirectory.dir("native/${host.konanName}").get().asFile.absolutePath)
+            extraOpts("-libraryPath", layout.buildDirectory.dir("native/${host.name}").get().asFile.absolutePath)
         }
         binaries.executable { entryPoint = "main" }
     }

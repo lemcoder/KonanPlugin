@@ -2,7 +2,7 @@
 // Both plugins are applied to this one module: the konan plugin produces the .a + the JNI stub .so
 // + the Kotlin bridges; AGP packages the .so and compiles the app.
 
-import io.github.lemcoder.KonanTarget
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import io.github.lemcoder.interop.jvmInterops
 
 plugins {
