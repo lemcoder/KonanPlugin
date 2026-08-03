@@ -193,6 +193,11 @@ abstract class JvmInteropRegistry @Inject constructor(
                     }
                 }
                 linkAll.configure { dependsOn(link) }
+                // Where a consumer looks for the library: the host's, since that is the one a JVM
+                // running this build could load.
+                if (target == hostKonanTarget()) {
+                    settings.resolvedLibraryDirectory.set(jniLibsRoot.map { it.dir(target.abiDir) })
+                }
             }
         }
     }

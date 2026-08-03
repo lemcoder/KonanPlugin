@@ -28,11 +28,16 @@ import org.jetbrains.kotlin.gradle.plugin.KotlinCompilation
  * by [JvmInteropRegistry], which also registers the tasks and wires the generated sources in.
  */
 fun KotlinCompilation<*>.jvmInterops(configure: Action<NamedDomainObjectContainer<JvmInteropSettings>>) {
-    val registry = project.jvmInteropRegistry()
-    val key = "${target.name}/$name"
-    val container = registry.containerFor(key) { dir -> defaultSourceSet.kotlin.srcDir(dir) }
-    configure.execute(container)
+    configure.execute(jvmInterops)
 }
+
+/**
+ * The interops declared on this compilation, for reading back what the plugin resolved — where the
+ * linked library ended up, say.
+ */
+val KotlinCompilation<*>.jvmInterops: NamedDomainObjectContainer<JvmInteropSettings>
+    get() = project.jvmInteropRegistry()
+        .containerFor("${target.name}/$name") { dir -> defaultSourceSet.kotlin.srcDir(dir) }
 
 /**
  * Declares JNI interops for a module without Kotlin compilations — an AGP application or library.
