@@ -93,7 +93,10 @@ abstract class JvmInteropRegistry @Inject constructor(
 
         val suffix = settings.name.replaceFirstChar { it.uppercase() }
         val generatedRoot = project.layout.buildDirectory.dir("generated/jvmInterop/${settings.name}")
+        // Only per-ABI libraries may live under jniLibs: AGP reads each subdirectory name as an ABI,
+        // and a host library sitting in the root fails its merge with "… is not an ABI".
         val jniLibsRoot = project.layout.buildDirectory.dir("jvmInterop/${settings.name}/jniLibs")
+        val hostLibRoot = project.layout.buildDirectory.dir("jvmInterop/${settings.name}/lib")
 
         // Falls back to the def's own `package`, so an interop that does not override it still has one.
         val packageName = settings.packageName.orElse(
@@ -194,7 +197,10 @@ abstract class JvmInteropRegistry @Inject constructor(
                             common + perTarget[target].orEmpty()
                         }
                     )
-                    outputDirectory.set(jniLibsRoot.map { it.dir(target.abiDir) })
+                    outputDirectory.set(
+                    if (target.isAndroid) jniLibsRoot.map { it.dir(target.abiDir) }
+                    else hostLibRoot.map { it.dir(target.name) }
+                )
 
                     onlyIf {
                         resolveLibrary(settings, konanConfig, target) != null || run {
@@ -210,7 +216,7 @@ abstract class JvmInteropRegistry @Inject constructor(
                 // Where a consumer looks for the library: the host's, since that is the one a JVM
                 // running this build could load.
                 if (target == hostKonanTarget()) {
-                    settings.resolvedLibraryDirectory.set(jniLibsRoot.map { it.dir(target.abiDir) })
+                    settings.resolvedLibraryDirectory.set(hostLibRoot.map { it.dir(target.name) })
                 }
             }
         }
@@ -230,7 +236,10 @@ abstract class JvmInteropRegistry @Inject constructor(
         val suffix = settings.name.replaceFirstChar { it.uppercase() }
         val executable = cmake.executable.orElse(project.provider { CMakeSupport.detectExecutable() })
         val sourceDir = cmake.path.map { it.asFile.parentFile }
+        // Only per-ABI libraries may live under jniLibs: AGP reads each subdirectory name as an ABI,
+        // and a host library sitting in the root fails its merge with "… is not an ABI".
         val jniLibsRoot = project.layout.buildDirectory.dir("jvmInterop/${settings.name}/jniLibs")
+        val hostLibRoot = project.layout.buildDirectory.dir("jvmInterop/${settings.name}/lib")
 
         // No ABIs means one build for the host; with them, one per ABI, each into jniLibs/<abi>/.
         val abis = cmake.abis.toList()
@@ -241,7 +250,7 @@ abstract class JvmInteropRegistry @Inject constructor(
                 .split('-', '_')
                 .joinToString("") { part -> part.replaceFirstChar { it.uppercase() } }
             val preset = abi?.preset?.orElse(cmake.preset) ?: cmake.preset
-            val outputDir = if (abi == null) jniLibsRoot else jniLibsRoot.map { it.dir(abi.name) }
+            val outputDir = if (abi == null) hostLibRoot else jniLibsRoot.map { it.dir(abi.name) }
 
             // With a preset the binary directory is the preset's to choose, and `-B` cannot override
             // it; the conventional layout is <source>/build/<preset>, which stays overridable.
@@ -304,7 +313,9 @@ abstract class JvmInteropRegistry @Inject constructor(
             linkAll.configure { dependsOn(build) }
         }
 
-        settings.resolvedLibraryDirectory.set(cmake.libraryDirectory.orElse(jniLibsRoot))
+        settings.resolvedLibraryDirectory.set(
+            cmake.libraryDirectory.orElse(if (abis.isEmpty()) hostLibRoot else jniLibsRoot)
+        )
     }
 
     /**

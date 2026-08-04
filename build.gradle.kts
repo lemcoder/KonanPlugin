@@ -8,7 +8,7 @@ plugins {
     `kotlin-dsl`
 }
 
-version = "1.2.0-alpha04"
+version = "1.2.0-alpha05"
 group = "io.github.lemcoder"
 
 java {
