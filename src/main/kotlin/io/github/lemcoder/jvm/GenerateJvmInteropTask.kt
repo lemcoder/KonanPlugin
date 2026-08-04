@@ -38,7 +38,7 @@ import javax.inject.Inject
 abstract class GenerateJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
-    @get:Input abstract val konanPath: Property<String>
+    @get:Input @get:Optional abstract val konanPath: Property<String>
 
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val defFile: RegularFileProperty
@@ -82,7 +82,7 @@ abstract class GenerateJvmInteropTask @Inject constructor(
 
     @TaskAction
     fun run() {
-        val konanHome = File(konanPath.get())
+        val konanHome = File(konanPath.orNull ?: error(JvmInteropSupport.MISSING_KONAN))
         val embeddableJar = konanHome.resolve("konan/lib/kotlin-native-compiler-embeddable.jar")
         check(embeddableJar.isFile) { "Embeddable compiler jar not found: $embeddableJar" }
         val nativeLibDir = konanHome.resolve("konan/nativelib")

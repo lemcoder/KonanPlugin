@@ -42,9 +42,11 @@ private fun Project.applyConventions(ext: KonanPluginExtension) {
     ext.headerDir.convention(ext.sourceDir)
     ext.libName.convention(name)
     ext.outputDir.convention("build/native")
-    // Auto-detected: $KONAN_HOME, else the newest ~/.konan/kotlin-native-prebuilt-*. Lazy, so a build
-    // that never runs a konan task doesn't require a distribution to be installed.
-    ext.konanPath.convention(providers.provider { JvmInteropSupport.detectKonanHome().absolutePath })
+    // Auto-detected: $KONAN_HOME, else the newest ~/.konan/kotlin-native-prebuilt-*. Absent rather
+    // than failing when there is none: the convention is queried whenever the configuration cache is
+    // stored, so throwing here breaks configuration of builds that never touch a konan task. The
+    // tasks that need it fail at execution instead, and say what to do.
+    ext.konanPath.convention(providers.provider { JvmInteropSupport.findKonanHome()?.absolutePath })
 }
 
 private fun Project.registerRunKonanClang(ext: KonanPluginExtension) {

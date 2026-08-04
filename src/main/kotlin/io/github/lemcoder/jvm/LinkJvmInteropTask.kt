@@ -28,7 +28,7 @@ import org.gradle.process.ExecOperations
 abstract class LinkJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
-    @get:Input abstract val konanPath: Property<String>
+    @get:Input @get:Optional abstract val konanPath: Property<String>
     @get:Input abstract val target: Property<KonanTarget>
     @get:Input abstract val stubBaseName: Property<String>
     @get:InputFile abstract val stubCFile: RegularFileProperty
@@ -43,7 +43,7 @@ abstract class LinkJvmInteropTask @Inject constructor(
 
     @TaskAction
     fun run() {
-        val konanHome = File(konanPath.get())
+        val konanHome = File(konanPath.orNull ?: error(JvmInteropSupport.MISSING_KONAN))
         val tgt = target.get()
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
         val runKonan = konanHome.resolve(if (isWindows) "bin/run_konan.bat" else "bin/run_konan")

@@ -7,13 +7,20 @@ internal object JvmInteropSupport {
 
     // --- toolchain discovery -------------------------------------------------
 
-    fun detectKonanHome(): File {
+    /** The Kotlin/Native distribution, or null when none is installed yet. */
+    fun findKonanHome(): File? {
         System.getenv("KONAN_HOME")?.let { return File(it) }
         val konanDir = File(System.getProperty("user.home"), ".konan")
         return konanDir.listFiles { f -> f.isDirectory && f.name.startsWith("kotlin-native-prebuilt-") }
             ?.maxByOrNull { it.name }
-            ?: error("No Kotlin/Native distribution under $konanDir. Set konanConfig.konanPath or KONAN_HOME.")
     }
+
+    /** As [findKonanHome], failing with the message a build needs when there is none. */
+    fun detectKonanHome(): File = findKonanHome() ?: error(MISSING_KONAN)
+
+    const val MISSING_KONAN: String =
+        "No Kotlin/Native distribution found. The Kotlin plugin downloads one when it first compiles " +
+            "a native target, so build one of those first, or set konanConfig.konanPath or KONAN_HOME."
 
     private fun osIncludeSubDir(): String {
         val os = System.getProperty("os.name").lowercase()
