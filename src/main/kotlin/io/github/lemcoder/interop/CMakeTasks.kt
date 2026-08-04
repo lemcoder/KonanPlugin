@@ -8,6 +8,7 @@ import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -72,7 +73,10 @@ abstract class CMakeBuildTask @Inject constructor(
     @get:Input abstract val targets: ListProperty<String>
     @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val stubSourceDirectory: DirectoryProperty
-    @get:OutputDirectory abstract val buildDirectory: DirectoryProperty
+    @get:Internal abstract val buildDirectory: DirectoryProperty
+
+    /** Where CMake was told to leave the linked library. */
+    @get:OutputDirectory abstract val libraryDirectory: DirectoryProperty
 
     @TaskAction
     fun run() {

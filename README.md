@@ -130,6 +130,24 @@ No link task is registered; `cmakeConfigure<Name>` and `cmakeBuild<Name>` take i
 after generation, and `linkJvmInterop<Name>` depends on the build so "make the JNI library exist"
 means the same thing either way.
 
+Android needs a library per ABI rather than one for the host, so declare them:
+
+```kotlin
+externalNativeBuild {
+    cmake {
+        path.set(file("native/CMakeLists.txt"))
+        targets.add("koinference-jni")
+
+        abi("arm64-v8a") { preset.set("androidNativeArm64") }
+        abi("x86_64") { preset.set("androidNativeX64") }
+    }
+}
+```
+
+Each ABI gets its own configure/build pair, the libraries land in `jniLibs/<abi>/`, and the plugin
+wires that directory into the Android variants so they are packaged into the AAR. The plugin sets
+`CMAKE_LIBRARY_OUTPUT_DIRECTORY`, so the CMakeLists needs no knowledge of the layout.
+
 The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` reads:
 
 | variable | meaning |

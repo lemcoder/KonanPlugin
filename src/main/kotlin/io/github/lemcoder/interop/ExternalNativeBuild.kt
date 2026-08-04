@@ -1,6 +1,8 @@
 package io.github.lemcoder.interop
 
 import org.gradle.api.Action
+import org.gradle.api.Named
+import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -37,8 +39,22 @@ abstract class ExternalNativeBuildSettings @Inject constructor(objects: ObjectFa
 /**
  * How to invoke CMake. Either name a [preset] or let the plugin configure [path] into [buildDirectory]
  * directly; everything else has a default.
+ *
+ * Declaring [abi]s builds once per ABI instead of once for the host, which is what Android needs: the
+ * libraries land in `jniLibs/<abi>/` and are packaged into the AAR.
  */
-abstract class CMakeSettings {
+abstract class CMakeSettings @Inject constructor(objects: ObjectFactory) {
+
+    /** Per-ABI builds. Empty means a single build for the host. */
+    val abis: NamedDomainObjectContainer<CMakeAbiSettings> =
+        objects.domainObjectContainer(CMakeAbiSettings::class.java) { name ->
+            objects.newInstance(CMakeAbiSettings::class.java, name)
+        }
+
+    /** Adds a build for one Android ABI, e.g. `abi("arm64-v8a") { preset.set("androidNativeArm64") }`. */
+    fun abi(name: String, action: Action<in CMakeAbiSettings>) {
+        action.execute(abis.maybeCreate(name))
+    }
 
     /** The `CMakeLists.txt` to configure. Required unless [preset] is set. */
     abstract val path: RegularFileProperty
@@ -66,4 +82,19 @@ abstract class CMakeSettings {
 
     /** The `cmake` binary. Defaults to `$CMAKE`, else a scan of the usual locations, else `cmake`. */
     abstract val executable: Property<String>
+}
+
+/** One ABI's build: everything not set here comes from the enclosing [CMakeSettings]. */
+abstract class CMakeAbiSettings @Inject constructor(private val abiName: String) : Named {
+
+    override fun getName(): String = abiName
+
+    /** Configure preset for this ABI. */
+    abstract val preset: Property<String>
+
+    /** Build directory for this ABI; defaults the same way as the enclosing block's. */
+    abstract val buildDirectory: DirectoryProperty
+
+    /** Extra configure arguments for this ABI only. */
+    abstract val arguments: ListProperty<String>
 }

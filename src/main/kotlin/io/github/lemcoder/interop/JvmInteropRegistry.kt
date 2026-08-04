@@ -1,6 +1,7 @@
 package io.github.lemcoder.interop
 
 import com.android.build.api.variant.AndroidComponentsExtension
+import com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtension
 import io.github.lemcoder.KonanPluginExtension
 import io.github.lemcoder.abiDir
 import io.github.lemcoder.hostKonanTarget
@@ -147,6 +148,10 @@ abstract class JvmInteropRegistry @Inject constructor(
             description = "Link the JNI library for '${settings.name}' for every configured target."
         }
 
+        // Eager: AGP's variant callbacks have already run by afterEvaluate, where the rest of the
+        // external build is registered. Wiring an empty directory costs nothing.
+        wireJniLibsIntoAndroid(jniLibsRoot, linkAll)
+
         // Deferred: the container fires whenObjectAdded before create()'s configure block runs, so
         // `targets` and externalNativeBuild are not readable yet. Everything above only needs values
         // Gradle resolves lazily.
@@ -224,45 +229,102 @@ abstract class JvmInteropRegistry @Inject constructor(
         val cmake = settings.externalNativeBuild.cmake
         val suffix = settings.name.replaceFirstChar { it.uppercase() }
         val executable = cmake.executable.orElse(project.provider { CMakeSupport.detectExecutable() })
-
-        // With a preset the binary directory is the preset's to choose, and `-B` cannot override it;
-        // the conventional layout is <source>/build/<preset>, which stays overridable.
         val sourceDir = cmake.path.map { it.asFile.parentFile }
-        val buildDir = cmake.buildDirectory.orElse(
-            project.layout.dir(
-                cmake.preset.map { preset -> sourceDir.get().resolve("build/$preset") }
-                    .orElse(project.layout.buildDirectory.dir("jvmInterop/${settings.name}/cmake").map { it.asFile })
+        val jniLibsRoot = project.layout.buildDirectory.dir("jvmInterop/${settings.name}/jniLibs")
+
+        // No ABIs means one build for the host; with them, one per ABI, each into jniLibs/<abi>/.
+        val abis = cmake.abis.toList()
+        val builds = if (abis.isEmpty()) listOf(null) else abis
+
+        builds.forEach { abi ->
+            val abiSuffix = abi?.name.orEmpty()
+                .split('-', '_')
+                .joinToString("") { part -> part.replaceFirstChar { it.uppercase() } }
+            val preset = abi?.preset?.orElse(cmake.preset) ?: cmake.preset
+            val outputDir = if (abi == null) jniLibsRoot else jniLibsRoot.map { it.dir(abi.name) }
+
+            // With a preset the binary directory is the preset's to choose, and `-B` cannot override
+            // it; the conventional layout is <source>/build/<preset>, which stays overridable.
+            val buildDir = (abi?.buildDirectory ?: cmake.buildDirectory).orElse(
+                project.layout.dir(
+                    preset.map { name -> sourceDir.get().resolve("build/$name") }
+                        .orElse(
+                            project.layout.buildDirectory
+                                .dir("jvmInterop/${settings.name}/cmake${abiSuffix}")
+                                .map { it.asFile }
+                        )
+                )
             )
-        )
 
-        val configure = project.tasks.register("cmakeConfigure$suffix", CMakeConfigureTask::class.java) {
-            group = "interop"
-            description = "Configure the external CMake build for '${settings.name}'."
-            dependsOn(generate)
-            this.executable.set(executable)
-            preset.set(cmake.preset)
-            sourceDirectory.set(sourceDir.map { it.absolutePath })
-            arguments.set(cmake.arguments)
-            stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
-            cacheEntries.put(STUB_DIR_VARIABLE, generate.flatMap { it.stubSourceDirectory }.map { it.asFile.absolutePath })
-            cacheEntries.put(LIB_NAME_VARIABLE, generate.flatMap { it.stubLibraryBaseName })
-            javaHome.set(project.provider { JvmInteropSupport.detectJniHome().absolutePath })
-            buildDirectory.set(buildDir)
+            val configure = project.tasks.register(
+                "cmakeConfigure$suffix$abiSuffix",
+                CMakeConfigureTask::class.java,
+            ) {
+                group = "interop"
+                description = "Configure the external CMake build for '${settings.name}'" +
+                    (abi?.let { " (${it.name})" } ?: "") + "."
+                dependsOn(generate)
+                this.executable.set(executable)
+                this.preset.set(preset)
+                sourceDirectory.set(sourceDir.map { it.absolutePath })
+                arguments.set(cmake.arguments.zip(abi?.arguments ?: cmake.arguments.map { emptyList() }) { a, b -> a + b })
+                stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
+                cacheEntries.put(
+                    STUB_DIR_VARIABLE,
+                    generate.flatMap { it.stubSourceDirectory }.map { it.asFile.absolutePath },
+                )
+                cacheEntries.put(LIB_NAME_VARIABLE, generate.flatMap { it.stubLibraryBaseName })
+                // Land the library where the plugin says, so a consumer never guesses the build
+                // layout and Android gets the jniLibs/<abi>/ shape AGP packages.
+                cacheEntries.put(
+                    "CMAKE_LIBRARY_OUTPUT_DIRECTORY",
+                    outputDir.map { it.asFile.absolutePath },
+                )
+                javaHome.set(project.provider { JvmInteropSupport.detectJniHome().absolutePath })
+                buildDirectory.set(buildDir)
+            }
+
+            val build = project.tasks.register(
+                "cmakeBuild$suffix$abiSuffix",
+                CMakeBuildTask::class.java,
+            ) {
+                group = "interop"
+                description = "Build the '${settings.name}' JNI library" +
+                    (abi?.let { " for ${it.name}" } ?: "") + "."
+                dependsOn(configure)
+                this.executable.set(executable)
+                targets.set(cmake.targets)
+                stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
+                buildDirectory.set(buildDir)
+                libraryDirectory.set(outputDir)
+            }
+
+            // The umbrella link task stands for "make the JNI library exist", however it gets made.
+            linkAll.configure { dependsOn(build) }
         }
 
-        val build = project.tasks.register("cmakeBuild$suffix", CMakeBuildTask::class.java) {
-            group = "interop"
-            description = "Build the external CMake target that links the '${settings.name}' stub."
-            dependsOn(configure)
-            this.executable.set(executable)
-            targets.set(cmake.targets)
-            stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
-            buildDirectory.set(buildDir)
-        }
+        settings.resolvedLibraryDirectory.set(cmake.libraryDirectory.orElse(jniLibsRoot))
+    }
 
-        // The umbrella link task stands for "make the JNI library exist", however it gets made.
-        linkAll.configure { dependsOn(build) }
-        settings.resolvedLibraryDirectory.set(cmake.libraryDirectory.orElse(buildDir))
+    /**
+     * Packages the per-ABI libraries into the AAR. The KMP Android plugin registers its own
+     * components extension rather than AGP's, and the directory has to exist at configuration time.
+     */
+    private fun wireJniLibsIntoAndroid(
+        jniLibsRoot: org.gradle.api.provider.Provider<org.gradle.api.file.Directory>,
+        linkAll: org.gradle.api.tasks.TaskProvider<Task>,
+    ) {
+        val dir = jniLibsRoot.get().asFile.apply { mkdirs() }
+        val relative = dir.relativeTo(project.projectDir).path
+
+        project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)
+            ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
+            ?: project.extensions.findByType(AndroidComponentsExtension::class.java)
+                ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
+
+        // Nothing consumes the directory as a task output, so packaging needs the ordering spelled out.
+        project.tasks.matching { it.name.contains("JniLibFolders") || it.name.contains("MergeJniLib") }
+            .configureEach { dependsOn(linkAll) }
     }
 
     /**
