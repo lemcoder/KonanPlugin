@@ -43,7 +43,12 @@ abstract class LinkJvmInteropTask @Inject constructor(
 
     @TaskAction
     fun run() {
-        val konanHome = File(konanPath.orNull ?: error(JvmInteropSupport.MISSING_KONAN))
+        // Resolved here rather than through the property's convention: that is queried while the
+        // configuration cache is stored, which is before the Kotlin plugin has downloaded the
+        // distribution, and an absent value would then be cached for the run that needs it.
+        val konanHome = konanPath.orNull?.let(::File)
+            ?: JvmInteropSupport.findKonanHome()
+            ?: error(JvmInteropSupport.MISSING_KONAN)
         val tgt = target.get()
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
         val runKonan = konanHome.resolve(if (isWindows) "bin/run_konan.bat" else "bin/run_konan")
