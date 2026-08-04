@@ -3,11 +3,13 @@ package io.github.lemcoder.interop
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
@@ -74,6 +76,13 @@ abstract class CMakeBuildTask @Inject constructor(
     @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val stubSourceDirectory: DirectoryProperty
     @get:Internal abstract val buildDirectory: DirectoryProperty
+
+    /**
+     * The cache the configure step wrote. Declared as an input so changing a cache entry — a linker
+     * flag, say — re-runs the build instead of leaving the previous library in place.
+     */
+    @get:InputFile @get:PathSensitive(PathSensitivity.NONE)
+    abstract val cmakeCache: RegularFileProperty
 
     /** Where CMake was told to leave the linked library. */
     @get:OutputDirectory abstract val libraryDirectory: DirectoryProperty

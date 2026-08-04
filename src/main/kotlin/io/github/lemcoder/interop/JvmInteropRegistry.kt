@@ -296,6 +296,7 @@ abstract class JvmInteropRegistry @Inject constructor(
                 targets.set(cmake.targets)
                 stubSourceDirectory.set(generate.flatMap { it.stubSourceDirectory })
                 buildDirectory.set(buildDir)
+                cmakeCache.set(buildDir.map { it.file("CMakeCache.txt") })
                 libraryDirectory.set(outputDir)
             }
 
@@ -317,10 +318,16 @@ abstract class JvmInteropRegistry @Inject constructor(
         val dir = jniLibsRoot.get().asFile.apply { mkdirs() }
         val relative = dir.relativeTo(project.projectDir).path
 
-        project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)
-            ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
-            ?: project.extensions.findByType(AndroidComponentsExtension::class.java)
+        // Behind withId so the AGP types are only resolved where AGP exists: this runs for every
+        // interop now, and a plain reference would be a NoClassDefFoundError in a plugin-only build.
+        project.plugins.withId("com.android.kotlin.multiplatform.library") {
+            project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)
                 ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
+        }
+        project.plugins.withId("com.android.base") {
+            project.extensions.findByType(AndroidComponentsExtension::class.java)
+                ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
+        }
 
         // Nothing consumes the directory as a task output, so packaging needs the ordering spelled out.
         project.tasks.matching { it.name.contains("JniLibFolders") || it.name.contains("MergeJniLib") }
