@@ -129,6 +129,13 @@ abstract class JvmInteropRegistry @Inject constructor(
             // Generated bindings are ordinary sources of whoever declared the interop; a srcDir
             // carrying the task dependency is all the wiring needed.
             wiring.addGeneratedSources(generate.flatMap { it.kotlinSourceDirectory })
+
+            // AGP looks for a `baselineProfiles` directory beside every source root, including this
+            // generated one, and reaches it by plain path — which carries no task dependency. Matched
+            // by name rather than behind plugins.withId: the KMP Android plugin does not apply
+            // com.android.base, and the matcher is inert when there is no AGP at all.
+            project.tasks.matching { it.name.contains("ArtProfile") }
+                .configureEach { dependsOn(generate) }
         } else {
             wireIntoAndroid(settings, generate.get().kotlinSourceDirectory, jniLibsRoot)
         }
