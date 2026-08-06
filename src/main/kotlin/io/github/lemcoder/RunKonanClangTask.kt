@@ -1,6 +1,9 @@
 package io.github.lemcoder
 
+import org.jetbrains.kotlin.konan.target.KonanTarget
 
+
+import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -53,9 +56,9 @@ abstract class RunKonanClangTask @Inject constructor(
     @get:PathSensitive(NAME_ONLY)
     abstract val runKonan: RegularFileProperty
 
-    /** Kotlin target platform, e.g. `mingw_x64` */
+    /** Kotlin/Native target platforms to compile for */
     @get:Input
-    abstract val targets: ListProperty<String>
+    abstract val targets: ListProperty<KonanTarget>
 
     @get:Input
     @get:Optional
@@ -116,7 +119,7 @@ abstract class RunKonanClangTask @Inject constructor(
             // compile files
             val compileResult = exec.execCapture {
                 executable(runKonan.asFile.get())
-                args("clang", "clang", target, "@args")
+                args("clang", "clang", target.name, "@args")
                 workingDir(compileDir)
             }
 
@@ -125,7 +128,7 @@ abstract class RunKonanClangTask @Inject constructor(
             compileResult.assertNormalExitValue()
 
             // move compiled files to output directory
-            val outDir = outputDir.get().dir(target)
+            val outDir = outputDir.get().dir(target.name)
             fs.delete { delete(outDir) }
             fs.sync {
                 from(compileDir) {

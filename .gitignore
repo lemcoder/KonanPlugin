@@ -1,12 +1,14 @@
 # Gradle files
 .gradle/
 build/
+.kotlin
 
 # Local configuration file (sdk path, etc)
 local.properties
 
 # Log/OS Files
 *.log
+.DS_Store
 
 # Android Studio generated files and folders
 captures/
