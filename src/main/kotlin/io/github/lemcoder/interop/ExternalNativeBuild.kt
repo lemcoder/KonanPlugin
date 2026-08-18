@@ -89,6 +89,9 @@ abstract class CMakeAbiSettings @Inject constructor(private val abiName: String)
 
     override fun getName(): String = abiName
 
+    /** Minimum Android API the stub is built against; `android-21` when unset. */
+    abstract val platform: Property<Int>
+
     /** Configure preset for this ABI. */
     abstract val preset: Property<String>
 

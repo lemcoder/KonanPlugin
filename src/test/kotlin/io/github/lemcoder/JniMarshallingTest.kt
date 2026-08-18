@@ -29,6 +29,13 @@ class JniMarshallingTest {
         }
 
         @ExperimentalForeignApi
+        fun koi_model_load_mem(data: CValuesRef<*>?, size: Int): CPointer<KoiModel>? {
+            memScoped {
+                return interpretCPointer<KoiModel>(kniBridge9(data?.getPointer(memScope).rawValue, size))
+            }
+        }
+
+        @ExperimentalForeignApi
         fun koi_system_info(): CPointer<ByteVar>? {
             return interpretCPointer<ByteVar>(kniBridge1())
         }
@@ -103,6 +110,15 @@ class JniMarshallingTest {
         assertEquals(listOf(ParamKind.BYTE_ARRAY), kinds[3], "struct returns are written through an out pointer")
         assertEquals(listOf(ParamKind.RAW, ParamKind.BYTE_ARRAY), kinds[4], "opaque handle stays an address")
         assertEquals(listOf(ParamKind.RAW, ParamKind.STRING, ParamKind.FLOAT_ARRAY, ParamKind.RAW), kinds[5])
+    }
+
+    @Test
+    fun `a const void buffer crosses as a byte array`() {
+        // load(const void* data, int size) is a common shape; cinterop writes it CValuesRef<*>.
+        // Leaving it as an address would make the caller find off-heap memory for a ByteArray.
+        val kinds = parseBridgeKinds(rawKotlin)
+
+        assertEquals(listOf(ParamKind.BYTE_ARRAY, ParamKind.RAW), kinds[9])
     }
 
     @Test

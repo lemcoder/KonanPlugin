@@ -49,6 +49,7 @@ private val CSTR_ARG = Regex("""^(\w+)\??\.cstr\??\.getPointer\(memScope\)\.rawV
 private val PTR_ARG = Regex("""^(\w+)\??\.getPointer\(memScope\)\.rawValue$""")
 private val STRUCT_RETURN_ARG = Regex("""^kniRetVal\.rawPtr$""")
 private val VAR_ELEMENT = Regex("""^CValuesRef<(\w+)Var>\??$""")
+private val VOID_BUFFER = Regex("""^CValuesRef<\*>\??$""")
 private val STRUCT_VALUE = Regex("""^CValue<\w+>$""")
 
 /**
@@ -94,6 +95,11 @@ private fun classify(arg: String, paramTypes: Map<String, String>): ParamKind {
     val pointee = PTR_ARG.find(arg)?.groupValues?.get(1) ?: return ParamKind.RAW
     val type = paramTypes[pointee] ?: return ParamKind.RAW
     if (STRUCT_VALUE.matches(type)) return ParamKind.BYTE_ARRAY
+    // `const void*` arrives as CValuesRef<*>: bytes the callee reads, which on the JVM is a
+    // ByteArray. A non-const `void*` is a COpaquePointer and stays an address — that is a handle,
+    // not data. Without this, an API shaped like load(const void* data, int size) forces the caller
+    // to find off-heap memory, which is the thing these bindings exist to avoid.
+    if (VOID_BUFFER.matches(type)) return ParamKind.BYTE_ARRAY
     val element = VAR_ELEMENT.find(type)?.groupValues?.get(1) ?: return ParamKind.RAW
     return when (element) {
         "Byte" -> ParamKind.BYTE_ARRAY
