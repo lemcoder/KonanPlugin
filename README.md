@@ -145,7 +145,10 @@ externalNativeBuild {
 ```
 
 Each ABI gets its own configure/build pair, the libraries land in `jniLibs/<abi>/`, and the plugin
-wires that directory into the Android variants so they are packaged into the AAR. The plugin sets
+wires that directory into the Android variants so they are packaged into the AAR. The Android
+toolchain comes from the NDK the plugin finds — `ANDROID_NDK_HOME`, then `ndk.dir` or `sdk.dir` in
+`local.properties`, then `ANDROID_HOME` — unless the build passes `-DCMAKE_TOOLCHAIN_FILE` itself.
+`platform.set(26)` inside an `abi` block chooses the minimum API; it is `android-21` otherwise. The plugin sets
 `CMAKE_LIBRARY_OUTPUT_DIRECTORY`, so the CMakeLists needs no knowledge of the layout.
 
 The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` reads:
@@ -154,6 +157,7 @@ The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` r
 |---|---|
 | `KONAN_JNI_STUB_DIR` | directory holding the generated `.c` stub |
 | `KONAN_JNI_LIB_NAME` | the name the generated bindings will `System.loadLibrary` |
+| `KONAN_JNI_INCLUDE_DIRS` | include roots for `jni.h` and its platform header, `;`-separated |
 
 It also points `JAVA_HOME` at a JDK that ships `include/jni.h` — the one running Gradle often does
 not, since IDE-bundled JBRs strip the headers — and locates `cmake` itself, because the Gradle daemon
@@ -162,12 +166,17 @@ does not inherit a login shell's PATH.
 ```cmake
 set(KONAN_JNI_STUB_DIR "" CACHE PATH "")
 set(KONAN_JNI_LIB_NAME "" CACHE STRING "")
+set(KONAN_JNI_INCLUDE_DIRS "" CACHE STRING "")
 
 file(GLOB JNI_SOURCES "${KONAN_JNI_STUB_DIR}/*.c")
 add_library(mylib-jni SHARED ${JNI_SOURCES})
 set_target_properties(mylib-jni PROPERTIES OUTPUT_NAME "${KONAN_JNI_LIB_NAME}")
+target_include_directories(mylib-jni PRIVATE ${KONAN_JNI_INCLUDE_DIRS})
 target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arrive transitively
 ```
+
+`find_package(JNI)` would work too, but it is free to pick a different JDK from the one the plugin
+chose for the bindings; the cache variable is the JDK that generated them.
 
 ### Generated bindings
 One `external fun kniBridgeN(...)` per C function, in header order, each carrying its C-derived
