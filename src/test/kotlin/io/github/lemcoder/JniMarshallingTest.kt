@@ -3,6 +3,7 @@ package io.github.lemcoder
 import io.github.lemcoder.util.ParamKind
 import io.github.lemcoder.util.marshalStub
 import io.github.lemcoder.util.parseBridgeKinds
+import io.github.lemcoder.util.parseBridgeNames
 import io.github.lemcoder.util.stripCinterop
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -155,6 +156,62 @@ class JniMarshallingTest {
         assertContains(kotlin, "external fun kniBridge2(p0: String?): Long")
         assertFalse(kotlin.contains("internal external"))
         assertFalse(kotlin.contains("@JvmName(\"kniBridge"))
+    }
+
+    // ---- naming ----------------------------------------------------------------------------
+
+    @Test
+    fun `each bridge is named for the C function its wrapper calls`() {
+        val names = parseBridgeNames(rawKotlin)
+
+        assertEquals("koi_backend_init", names[0])
+        assertEquals("koi_system_info", names[1])
+        assertEquals("koi_model_load", names[2])
+        assertEquals("koi_default_session_params", names[3])
+        assertEquals("koi_session_create", names[4])
+        assertEquals("koi_embed", names[5])
+        assertEquals("koi_model_load_mem", names[9])
+    }
+
+    @Test
+    fun `named declarations carry the name as their JvmName too`() {
+        val kotlin = stripCinterop(rawKotlin, kinds, internalBindings = true, names = parseBridgeNames(rawKotlin))
+
+        assertContains(kotlin, "@JvmName(\"koi_model_load\")\ninternal external fun koi_model_load(p0: String?): Long")
+        assertContains(kotlin, "/** C: koi_model_load(path: String?): CPointer<KoiModel>? */")
+        assertFalse(kotlin.contains("external fun kniBridge"), "no bridge should be left numbered here")
+    }
+
+    @Test
+    fun `the JNI symbol escapes the underscores in the name`() {
+        val c = marshalStub(rawC, kinds, parseBridgeNames(rawKotlin))
+
+        // Java_<pkg>_<class>_<method>, so an underscore inside the method name has to become _1 or the
+        // symbol reads as a different class entirely and the binding resolves as unimplemented.
+        assertContains(c, "Java_probe_probe_koi_1model_1load ")
+        assertContains(c, "Java_probe_probe_koi_1embed ")
+        // A bridge with nothing to marshal is renamed as well, or its symbol stops matching @JvmName.
+        assertContains(c, "Java_probe_probe_koi_1backend_1init ")
+        assertFalse(c.contains("kniBridge"), "every symbol should have been renamed")
+    }
+
+    @Test
+    fun `a name two bridges share is left numbered`() {
+        val clashing = rawKotlin.replace("fun koi_system_info(", "fun koi_model_load(")
+        val names = parseBridgeNames(clashing)
+
+        assertFalse(names.containsKey(1), "koi_model_load now names two bridges, so neither may take it")
+        assertFalse(names.containsKey(2))
+        assertEquals("koi_embed", names[5], "unrelated bridges keep their names")
+    }
+
+    @Test
+    fun `without names the bridges stay numbered`() {
+        val kotlin = stripCinterop(rawKotlin, kinds, internalBindings = true)
+        val c = marshalStub(rawC, kinds)
+
+        assertContains(kotlin, "internal external fun kniBridge2(p0: String?): Long")
+        assertContains(c, "Java_probe_probe_kniBridge2 ")
     }
 
     @Test

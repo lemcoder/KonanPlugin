@@ -179,8 +179,20 @@ target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arriv
 chose for the bindings; the cache variable is the JDK that generated them.
 
 ### Generated bindings
-One `external fun kniBridgeN(...)` per C function, in header order, each carrying its C-derived
-signature as a doc comment. Parameters are marshalled by shape:
+One `external fun` per C function, in header order, named for the function it calls and carrying its
+C-derived signature as a doc comment:
+
+```kotlin
+/** C: FPDFText_CountChars(text_page: FPDF_TEXTPAGE?): Int */
+@JvmName("FPDFText_CountChars")
+internal external fun FPDFText_CountChars(p0: Long): Int
+```
+
+cinterop numbers the bridges `kniBridge0…N`; the plugin renames them, so a binding reads as the C API
+does and a linker error or stack frame names something searchable. A bridge keeps its number when the
+rename would be ambiguous — two bridges sharing a name, or a name the generated file already uses.
+
+Parameters are marshalled by shape:
 
 | C parameter                        | Kotlin parameter | Crosses as                                    |
 |------------------------------------|------------------|------------------------------------------------|
@@ -190,7 +202,7 @@ signature as a doc comment. Parameters are marshalled by shape:
 | opaque handle, pointer to struct   | `Long`           | raw address                                    |
 
 The bridges are `internal` by default — they are an implementation detail of the module that writes
-the idiomatic API over them, and this keeps `kniBridge0…N` out of its published surface. Each carries
+the idiomatic API over them, and this keeps them out of its published surface. Each carries
 `@JvmName`, because Kotlin mangles internal functions on the JVM and JNI resolves the symbol from the
 unmangled method name. Set `visibility.set(BindingVisibility.PUBLIC)` if the wrapper is in a
 different Gradle module.

@@ -6,6 +6,7 @@ import io.github.lemcoder.util.ParamKind
 import io.github.lemcoder.util.execCapture
 import io.github.lemcoder.util.marshalStub
 import io.github.lemcoder.util.parseBridgeKinds
+import io.github.lemcoder.util.parseBridgeNames
 import io.github.lemcoder.util.stripCinterop
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
@@ -138,10 +139,12 @@ abstract class GenerateJvmInteropTask @Inject constructor(
         val kinds = kotlinFiles.fold(emptyMap<Int, List<ParamKind>>()) { acc, kt ->
             acc + parseBridgeKinds(kt.readText())
         }
+        // cinterop numbers the bridges; the wrappers beside them name the C function each one calls.
+        val names = kotlinFiles.fold(emptyMap<Int, String>()) { acc, kt -> acc + parseBridgeNames(kt.readText()) }
         val internal = internalBindings.getOrElse(true)
-        kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds, internal)) }
+        kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds, internal, names)) }
         out.resolve(C_DIR).walkTopDown().filter { it.extension == "c" }
-            .forEach { c -> c.writeText(marshalStub(c.readText(), kinds)) }
+            .forEach { c -> c.writeText(marshalStub(c.readText(), kinds, names)) }
     }
 
     private companion object {

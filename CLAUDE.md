@@ -61,6 +61,18 @@ Bindings are `internal` by default and each carries **`@JvmName`**. Without it K
 internal functions (`kniBridge0$module`) while JNI resolves the C symbol from the unmangled method
 name: it compiles, links, and dies on the first call.
 
+**The bridges are renamed to the C function they call.** cinterop numbers them; `parseBridgeNames`
+recovers the name from the wrapper cinterop generated beside each one — the same place the doc comment
+comes from — and `stripCinterop`/`marshalStub` rename both sides together. The rename is skipped, and
+the number kept, when two bridges would share a name, when one bridge is reached from wrappers that
+disagree, or when the name collides with `kniCString`/`nativeLibrary`.
+
+**JNI escapes `_` in a method name as `_1`.** The symbol is `Java_<package>_<class>_<method>` with
+`_` as the separator, so `FPDFText_CountChars` has to emit `Java_pdfium_pdfium_FPDFText_1CountChars`.
+Get this wrong and the symbol reads as method `CountChars` on class `FPDFText`: it compiles, links,
+and dies on the first call, exactly like a missing `@JvmName`. Almost every C API worth binding has
+underscores in it, so this is the failure mode to check first after touching the naming.
+
 ## Kotlin DSL gotchas
 
 - The `kotlin-dsl` plugin adds a `T.() -> Unit` overload of `whenObjectAdded`, making the SAM form

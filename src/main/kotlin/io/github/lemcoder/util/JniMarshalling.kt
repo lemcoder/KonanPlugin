@@ -125,10 +125,16 @@ private val C_RETURN = Regex("""(?s)^(.*?)\breturn\s+(.*?);\s*$""")
  * The incoming object is renamed to `j<n>` and the marshalled pointer keeps the original `p<n>` name,
  * so the generated call expression — casts and all — is reused verbatim.
  */
-fun marshalStub(cSource: String, kinds: Map<Int, List<ParamKind>>): String {
+fun marshalStub(cSource: String, kinds: Map<Int, List<ParamKind>>, names: Map<Int, String> = emptyMap()): String {
     val rewritten = C_FUNCTION.replace(cSource) { m ->
-        val (returnType, jniName, indexText, paramText, body) = m.destructured
-        val bridgeKinds = kinds[indexText.toInt()] ?: return@replace m.value
+        val (returnType, numberedName, indexText, paramText, body) = m.destructured
+        val jniName = names[indexText.toInt()]?.let { "${numberedName.substringBeforeLast("_kniBridge")}_${jniMangle(it)}" }
+            ?: numberedName
+        val bridgeKinds = kinds[indexText.toInt()]
+        // A bridge with nothing to marshal still gets renamed, so the symbol matches the @JvmName.
+        if (bridgeKinds == null) {
+            return@replace if (jniName == numberedName) m.value else m.value.replace(numberedName, jniName)
+        }
 
         val params = splitTopLevel(paramText).map { it.trim() }
         val fixed = params.take(2) // JNIEnv*, jclass
@@ -193,6 +199,15 @@ fun marshalStub(cSource: String, kinds: Map<Int, List<ParamKind>>): String {
         appendLine("}")
     }
 }
+
+/**
+ * JNI's own mangling of a method name into a C symbol.
+ *
+ * The symbol is `Java_<package>_<class>_<method>` with `_` as the separator, so an underscore inside
+ * the method name has to be escaped as `_1` — without it `FPDFText_CountChars` resolves as a method
+ * `CountChars` in a class `FPDFText`, and the runtime reports the binding as unimplemented.
+ */
+private fun jniMangle(name: String): String = name.replace("_", "_1")
 
 /** Index of the `)` matching the `(` at [open], or -1. */
 private fun matchingParen(text: String, open: Int): Int {
