@@ -45,6 +45,7 @@ abstract class JvmInteropRegistry @Inject constructor(
          */
         const val STUB_DIR_VARIABLE = "KONAN_JNI_STUB_DIR"
         const val LIB_NAME_VARIABLE = "KONAN_JNI_LIB_NAME"
+        const val JNI_INCLUDE_VARIABLE = "KONAN_JNI_INCLUDE_DIRS"
     }
 
     /** How a declaration site takes the generated Kotlin; keeps KGP types out of this class. */
@@ -283,6 +284,39 @@ abstract class JvmInteropRegistry @Inject constructor(
                     generate.flatMap { it.stubSourceDirectory }.map { it.asFile.absolutePath },
                 )
                 cacheEntries.put(LIB_NAME_VARIABLE, generate.flatMap { it.stubLibraryBaseName })
+                // The stub includes jni.h, and the JDK running Gradle often has no headers — an
+                // IDE-bundled JBR strips them. JAVA_HOME alone does not reach the compiler, so the
+                // include roots are passed too; find_package(JNI) would be free to pick another JDK.
+                cacheEntries.put(
+                    JNI_INCLUDE_VARIABLE,
+                    project.provider {
+                        val home = settings.jniHome.orNull?.let { java.io.File(it) } ?: JvmInteropSupport.detectJniHome()
+                        val include = home.resolve("include")
+                        val platform = include.listFiles()?.firstOrNull { it.isDirectory }
+                        listOfNotNull(include, platform).joinToString(";") { it.absolutePath }
+                    },
+                )
+                // An ABI is an Android ABI, and building for one means cross-compiling: without the
+                // NDK toolchain CMake uses the host compiler, and the failure is a linker complaining
+                // about an unknown file type rather than anything mentioning Android. Skipped when the
+                // build names a toolchain itself.
+                if (abi != null) {
+                    val named = cmake.arguments.get() + abi.arguments.get()
+                    if (named.none { it.startsWith("-DCMAKE_TOOLCHAIN_FILE") }) {
+                        val ndk = JvmInteropSupport.findNdk(project.projectDir)
+                        checkNotNull(ndk) {
+                            "No Android NDK found for ABI '${abi.name}'. Set ANDROID_NDK_HOME, or ndk.dir " +
+                                "in local.properties, or pass -DCMAKE_TOOLCHAIN_FILE yourself."
+                        }
+                        cacheEntries.put(
+                            "CMAKE_TOOLCHAIN_FILE",
+                            ndk.resolve("build/cmake/android.toolchain.cmake").absolutePath,
+                        )
+                        cacheEntries.put("ANDROID_ABI", abi.name)
+                        cacheEntries.put("ANDROID_PLATFORM", abi.platform.map { "android-$it" }.orElse("android-21"))
+                    }
+                }
+
                 // Land the library where the plugin says, so a consumer never guesses the build
                 // layout and Android gets the jniLibs/<abi>/ shape AGP packages.
                 cacheEntries.put(

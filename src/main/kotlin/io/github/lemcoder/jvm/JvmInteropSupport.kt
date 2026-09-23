@@ -60,6 +60,30 @@ internal object JvmInteropSupport {
         ?: error("No JDK with include/jni.h found. Set the interop's jniHome.")
 
     /** The home of the JDK [detectJniIncludeDirs] would use. */
+    /**
+     * The Android NDK, for cross-compiling a stub per ABI.
+     *
+     * Checked in the order a developer would expect to win: an explicit environment variable, then
+     * `ndk.dir` or an SDK in `local.properties`, then `ANDROID_HOME`. The newest installed NDK is
+     * taken when a directory holds several.
+     */
+    fun findNdk(projectDir: File): File? {
+        System.getenv("ANDROID_NDK_HOME")?.let { return File(it).takeIf { home -> home.isDirectory } }
+        System.getenv("ANDROID_NDK_ROOT")?.let { return File(it).takeIf { root -> root.isDirectory } }
+
+        val properties = generateSequence(projectDir) { it.parentFile }
+            .map { it.resolve("local.properties") }
+            .firstOrNull { it.isFile }
+            ?.let { file -> file.readLines().mapNotNull { line -> line.split("=", limit = 2).takeIf { it.size == 2 } } }
+            ?.associate { (key, value) -> key.trim() to value.trim() }
+            .orEmpty()
+
+        properties["ndk.dir"]?.let { return File(it).takeIf { dir -> dir.isDirectory } }
+
+        val sdk = properties["sdk.dir"]?.let(::File) ?: System.getenv("ANDROID_HOME")?.let(::File)
+        return sdk?.resolve("ndk")?.listFiles()?.filter { it.isDirectory }?.maxByOrNull { it.name }
+    }
+
     fun detectJniHome(): File = jdkCandidates()
         .flatMap { listOf(it, it.resolve("Contents/Home")) }
         .firstOrNull { it.resolve("include/jni.h").isFile }

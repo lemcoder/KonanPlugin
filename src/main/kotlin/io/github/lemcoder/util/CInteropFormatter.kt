@@ -6,6 +6,40 @@ private val LOAD_LIB = Regex("""loadKonanLibrary\("([^"]+)"\)""")
 // Captures each friendly wrapper's name/params/return and the kniBridge it delegates to, so we can keep
 // the original C-derived signature as documentation next to the otherwise opaque bridge.
 private val WRAPPER = Regex("""(?s)fun\s+(\w+)\(([^)]*)\)\s*:\s*([^{]+?)\s*\{[^}]*?kniBridge(\d+)""")
+private val IDENTIFIER = Regex("""[A-Za-z_]\w*""")
+
+/** Names the generated file already uses, which a bridge must not take. */
+private val RESERVED = setOf(C_STRING_HELPER, "nativeLibrary")
+
+/**
+ * Bridge index -> the name of the C function it calls, taken from the wrapper cinterop generated
+ * beside it.
+ *
+ * cinterop numbers the bridges, so a binding reads `kniBridge54(handle)` where the C API says
+ * `FPDFText_CountChars(text_page)`. The number is an implementation detail of the generator and
+ * carries nothing for a reader: renaming the bridge to the function it calls is what makes a
+ * hand-written `expect`/`actual` on top legible, and it keeps stack traces and linker errors
+ * pointing at something searchable.
+ *
+ * A bridge is left numbered whenever the rename would be unsafe: two bridges sharing a name, one
+ * bridge reached from wrappers that disagree, a name the generated file already uses, or anything
+ * that is not a plain identifier.
+ */
+fun parseBridgeNames(rawKotlin: String): Map<Int, String> {
+    val pairs =
+        WRAPPER.findAll(rawKotlin).mapNotNull { m -> m.groupValues[4].toIntOrNull()?.to(m.groupValues[1]) }.toList()
+    val timesUsed = pairs.groupingBy { it.second }.eachCount()
+
+    return pairs
+        .groupBy({ it.first }, { it.second })
+        .mapNotNull { (index, names) ->
+            val name = names.distinct().singleOrNull() ?: return@mapNotNull null
+            if (timesUsed.getValue(name) != names.size) return@mapNotNull null
+            if (name in RESERVED || !IDENTIFIER.matches(name)) return@mapNotNull null
+            index to name
+        }
+        .toMap()
+}
 
 /**
  * Rewrites a cinterop-generated JVM `.kt` into a runtime-free form: keeps `@file:JvmName` + package +
@@ -21,6 +55,7 @@ fun stripCinterop(
     src: String,
     kinds: Map<Int, List<ParamKind>> = emptyMap(),
     internalBindings: Boolean = false,
+    names: Map<Int, String> = emptyMap(),
 ): String {
     val jvmName = JVM_NAME.find(src)?.groupValues?.get(1)
     val pkg = src.lineSequence().firstOrNull { it.trimStart().startsWith("package ") }?.trim()
@@ -47,10 +82,11 @@ fun stripCinterop(
         }.joinToString(", ")
         val ret = m.groupValues[3].replace("NativePtr", "Long")
         val doc = origByBridge[idx]?.let { "/** C: $it */\n" } ?: ""
+        val name = names[idx.toIntOrNull()] ?: bridge
         // @JvmName because Kotlin mangles internal functions on the JVM ("kniBridge0${'$'}module"),
         // and JNI resolves the C symbol from the unmangled method name.
-        val jvmNameAnnotation = if (internalBindings) "@JvmName(\"$bridge\")\n" else ""
-        "$doc$jvmNameAnnotation${modifier}external fun $bridge($params): $ret"
+        val jvmNameAnnotation = if (internalBindings) "@JvmName(\"$name\")\n" else ""
+        "$doc$jvmNameAnnotation${modifier}external fun $name($params): $ret"
     }.toList()
 
     return buildString {

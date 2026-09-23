@@ -37,9 +37,10 @@ application { mainClass.set("example.MainKt") }
 
 tasks.named<JavaExec>("run") {
     dependsOn("linkJvmInteropMymath")
-    // loadLibrary() resolves the stub from java.library.path.
+    // loadLibrary() resolves the stub from java.library.path. Host libraries live under lib/, not
+    // jniLibs/ — only ABI-named directories may sit under the latter, which is AGP's contract.
     jvmArgs(
         "-Djava.library.path=" +
-            layout.buildDirectory.dir("jvmInterop/mymath/jniLibs/${host.abiDir}").get().asFile.absolutePath
+            layout.buildDirectory.dir("jvmInterop/mymath/lib/${host.abiDir}").get().asFile.absolutePath
     )
 }

@@ -145,7 +145,10 @@ externalNativeBuild {
 ```
 
 Each ABI gets its own configure/build pair, the libraries land in `jniLibs/<abi>/`, and the plugin
-wires that directory into the Android variants so they are packaged into the AAR. The plugin sets
+wires that directory into the Android variants so they are packaged into the AAR. The Android
+toolchain comes from the NDK the plugin finds — `ANDROID_NDK_HOME`, then `ndk.dir` or `sdk.dir` in
+`local.properties`, then `ANDROID_HOME` — unless the build passes `-DCMAKE_TOOLCHAIN_FILE` itself.
+`platform.set(26)` inside an `abi` block chooses the minimum API; it is `android-21` otherwise. The plugin sets
 `CMAKE_LIBRARY_OUTPUT_DIRECTORY`, so the CMakeLists needs no knowledge of the layout.
 
 The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` reads:
@@ -154,6 +157,7 @@ The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` r
 |---|---|
 | `KONAN_JNI_STUB_DIR` | directory holding the generated `.c` stub |
 | `KONAN_JNI_LIB_NAME` | the name the generated bindings will `System.loadLibrary` |
+| `KONAN_JNI_INCLUDE_DIRS` | include roots for `jni.h` and its platform header, `;`-separated |
 
 It also points `JAVA_HOME` at a JDK that ships `include/jni.h` — the one running Gradle often does
 not, since IDE-bundled JBRs strip the headers — and locates `cmake` itself, because the Gradle daemon
@@ -162,16 +166,33 @@ does not inherit a login shell's PATH.
 ```cmake
 set(KONAN_JNI_STUB_DIR "" CACHE PATH "")
 set(KONAN_JNI_LIB_NAME "" CACHE STRING "")
+set(KONAN_JNI_INCLUDE_DIRS "" CACHE STRING "")
 
 file(GLOB JNI_SOURCES "${KONAN_JNI_STUB_DIR}/*.c")
 add_library(mylib-jni SHARED ${JNI_SOURCES})
 set_target_properties(mylib-jni PROPERTIES OUTPUT_NAME "${KONAN_JNI_LIB_NAME}")
+target_include_directories(mylib-jni PRIVATE ${KONAN_JNI_INCLUDE_DIRS})
 target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arrive transitively
 ```
 
+`find_package(JNI)` would work too, but it is free to pick a different JDK from the one the plugin
+chose for the bindings; the cache variable is the JDK that generated them.
+
 ### Generated bindings
-One `external fun kniBridgeN(...)` per C function, in header order, each carrying its C-derived
-signature as a doc comment. Parameters are marshalled by shape:
+One `external fun` per C function, in header order, named for the function it calls and carrying its
+C-derived signature as a doc comment:
+
+```kotlin
+/** C: FPDFText_CountChars(text_page: FPDF_TEXTPAGE?): Int */
+@JvmName("FPDFText_CountChars")
+internal external fun FPDFText_CountChars(p0: Long): Int
+```
+
+cinterop numbers the bridges `kniBridge0…N`; the plugin renames them, so a binding reads as the C API
+does and a linker error or stack frame names something searchable. A bridge keeps its number when the
+rename would be ambiguous — two bridges sharing a name, or a name the generated file already uses.
+
+Parameters are marshalled by shape:
 
 | C parameter                        | Kotlin parameter | Crosses as                                    |
 |------------------------------------|------------------|------------------------------------------------|
@@ -181,7 +202,7 @@ signature as a doc comment. Parameters are marshalled by shape:
 | opaque handle, pointer to struct   | `Long`           | raw address                                    |
 
 The bridges are `internal` by default — they are an implementation detail of the module that writes
-the idiomatic API over them, and this keeps `kniBridge0…N` out of its published surface. Each carries
+the idiomatic API over them, and this keeps them out of its published surface. Each carries
 `@JvmName`, because Kotlin mangles internal functions on the JVM and JNI resolves the symbol from the
 unmangled method name. Set `visibility.set(BindingVisibility.PUBLIC)` if the wrapper is in a
 different Gradle module.

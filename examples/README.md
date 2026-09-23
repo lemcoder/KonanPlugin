@@ -42,8 +42,8 @@ expect fun add(a: Int, b: Int): Int
 // nativeMain  — over the cinterop binding
 actual fun add(a: Int, b: Int): Int = mymath.my_add(a, b)
 
-// jvmMain / androidMain  — over the generated JNI bridge
-actual fun add(a: Int, b: Int): Int = example.kniBridge0(a, b)
+// jvmMain / androidMain  — over the generated JNI bridge, which carries the same name
+actual fun add(a: Int, b: Int): Int = example.my_add(a, b)
 ```
 
 Pointer/string params arrive at the JNI bridge as a raw address (`Long`); convert in your `actual`.
@@ -51,5 +51,6 @@ Pointer/string params arrive at the JNI bridge as a raw address (`Long`); conver
 ## What's verified here vs. needs a device
 
 - `jvm` and `native` run to completion and print `5` / `40.0`.
-- `android` produces and verifies the `.so` (ELF + exported `Java_..._kniBridgeN` symbols). Running it
+- `android` produces and verifies the `.so` (ELF + exported `Java_..._my_1add` symbols, JNI escaping
+  each `_` in the name as `_1`). Running it
   on Android needs an emulator/device and an AGP module — see [`android/README.md`](android/README.md).
