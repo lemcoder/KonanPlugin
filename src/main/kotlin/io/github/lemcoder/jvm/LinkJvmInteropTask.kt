@@ -23,15 +23,17 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 
 /** Compiles the generated `.c` and statically links the target's `.a` into a shared JNI library. */
+@DisableCachingByDefault(because = "Native link output depends on the local toolchain; cheap to rebuild")
 abstract class LinkJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:Input @get:Optional abstract val konanPath: Property<String>
     @get:Input abstract val target: Property<KonanTarget>
     @get:Input abstract val stubBaseName: Property<String>
-    @get:InputFile abstract val stubCFile: RegularFileProperty
+    @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE) abstract val stubCFile: RegularFileProperty
     /** Include roots for the stub compile: the def's directory plus whatever the interop declared. */
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection

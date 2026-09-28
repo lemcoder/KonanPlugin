@@ -17,10 +17,12 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 import java.io.File
 import javax.inject.Inject
 
 /** Configures the external CMake build that compiles the generated JNI stub. */
+@DisableCachingByDefault(because = "CMake configure writes machine-specific absolute paths")
 abstract class CMakeConfigureTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
@@ -68,6 +70,7 @@ abstract class CMakeConfigureTask @Inject constructor(
 }
 
 /** Runs the external CMake build for the generated JNI stub. */
+@DisableCachingByDefault(because = "External build; CMake does its own incremental tracking")
 abstract class CMakeBuildTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {

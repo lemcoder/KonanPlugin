@@ -27,6 +27,7 @@ import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 import javax.inject.Inject
 
 /**
@@ -35,6 +36,7 @@ import javax.inject.Inject
  * The same def feeds the native targets' cinterop, so the two legs cannot drift: only `package` is
  * overridden here, since the JVM bindings live in their own package.
  */
+@DisableCachingByDefault(because = "Output depends on the local Kotlin/Native distribution, which is not a tracked input")
 abstract class GenerateJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
@@ -127,6 +129,10 @@ abstract class GenerateJvmInteropTask @Inject constructor(
             )
             args(includes); args(extraOpts)
             environment("LIBCLANG_DISABLE_CRASH_RECOVERY", "1")
+            // Since 2.4 the generator looks for jni.h itself, under its own java.home and then
+            // JAVA_HOME. The `java` on PATH is often a JBR with include/ stripped, so point it at the
+            // JDK whose headers were resolved for the stub.
+            jniIncludeDirs.get().firstOrNull()?.let { environment("JAVA_HOME", File(it).parent) }
         }
         logger.lifecycle(result.output)
         result.assertNormalExitValue()

@@ -1,10 +1,9 @@
-import io.github.lemcoder.abiDir
 import io.github.lemcoder.hostKonanTarget
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import io.github.lemcoder.interop.jvmInterops
 
 plugins {
-    kotlin("jvm") version "2.3.10"
+    kotlin("jvm") version "2.4.20"
     id("io.github.lemcoder.konanplugin")
     application
 }
@@ -19,6 +18,8 @@ konanConfig {
     libName.set("mymath")
 }
 
+lateinit var mymathLibDir: Provider<Directory>
+
 kotlin {
     jvmToolchain(17)
 
@@ -29,6 +30,7 @@ kotlin {
         create("mymath") {
             defFile(project.file("src/main/nativeInterop/mymath.def"))
             includeDirs.from(file("native"))
+            mymathLibDir = resolvedLibraryDirectory
         }
     }
 }
@@ -38,8 +40,6 @@ application { mainClass.set("example.MainKt") }
 tasks.named<JavaExec>("run") {
     dependsOn("linkJvmInteropMymath")
     // loadLibrary() resolves the stub from java.library.path.
-    jvmArgs(
-        "-Djava.library.path=" +
-            layout.buildDirectory.dir("jvmInterop/mymath/jniLibs/${host.abiDir}").get().asFile.absolutePath
-    )
+    val libDir = mymathLibDir
+    jvmArgumentProviders.add { listOf("-Djava.library.path=${libDir.get().asFile.absolutePath}") }
 }

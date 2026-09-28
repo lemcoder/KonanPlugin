@@ -5,7 +5,7 @@
 import org.jetbrains.kotlin.konan.target.KonanTarget
 
 plugins {
-    kotlin("multiplatform") version "2.3.10"
+    kotlin("multiplatform") version "2.4.20"
     id("io.github.lemcoder.konanplugin")
 }
 

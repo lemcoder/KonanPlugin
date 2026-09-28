@@ -23,6 +23,7 @@ import org.gradle.api.tasks.PathSensitivity.NAME_ONLY
 import org.gradle.api.tasks.PathSensitivity.RELATIVE
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
+import org.gradle.work.DisableCachingByDefault
 import javax.inject.Inject
 
 /**
@@ -30,6 +31,7 @@ import javax.inject.Inject
  * [`run_konan`](https://github.com/JetBrains/kotlin/blob/v1.9.0/kotlin-native/HACKING.md#running-clang-the-same-way-kotlinnative-compiler-does)
  * utility.
  */
+@DisableCachingByDefault(because = "Output depends on the local Kotlin/Native toolchain, which is not a tracked input")
 abstract class RunKonanClangTask @Inject constructor(
     private val exec: ExecOperations,
     private val fs: FileSystemOperations,
