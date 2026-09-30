@@ -1,0 +1,4 @@
+[submodule "third_party/kotlin"]
+	path = third_party/kotlin
+	url = https://github.com/JetBrains/kotlin.git
+	shallow = true
