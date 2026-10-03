@@ -317,4 +317,8 @@ Alpha, and the interop DSL moved wholesale — there is no compatibility shim.
 ## License
 This project is licensed under the Apache 2.0 License. For more details, see the `LICENSE` file.
 
+`NativeIndex.kt` and `HeaderToIdMapper.kt` under `src/main/kotlin/org/jetbrains/kotlin/native/interop/indexer`
+are copied unmodified from [JetBrains/kotlin](https://github.com/JetBrains/kotlin) (Apache 2.0); each
+file names the version it came from.
+
 Happy coding! 😊

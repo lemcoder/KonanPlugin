@@ -71,6 +71,24 @@ name: it compiles, links, and dies on the first call.
 - A nested settings object must be created through `ObjectFactory`; Gradle will not synthesise
   `abstract val cmake: CMakeSettings`.
 
+## The vendored NativeIndex
+
+cinterop's C model (`NativeIndex`) is read on both sides of a process boundary: the index exporter
+builds it inside the Kotlin/Native distribution's JVM, and the plugin reads the file back into its own
+copy of the classes, vendored into `src/main` from JetBrains/kotlin.
+
+- **One version everywhere.** `kotlinNativeVersion` in `gradle.properties` sets `kotlin-native-utils`,
+  the vendored model, the exporter's compile-only compiler jar, and the distribution the indexer runs
+  in. After changing it, run `./gradlew updateNativeIndexModel`; `check` fails while the stamps
+  disagree. The wiring lives in `buildSrc/src/main/kotlin/native-index.gradle.kts`.
+- **The exporter is its own source set** because its compiler jar carries a second copy of the model
+  classes, and anything it links against exists only in the distribution.
+- **It runs through `javaexec`, not the Worker API.** A process-isolated worker puts Gradle's Kotlin
+  stdlib and the plugin's classes next to the compiler jar: the compiler then ran on Gradle 9.8's
+  stdlib 2.4.10 instead of its bundled 2.4.20, and picked the real `buildNativeIndex` over the vendored
+  one only by classpath order. The daemon is out too: KGP's cinterop may already have loaded libclang
+  there, and a native library loads in one classloader per JVM.
+
 ## Testing and publishing
 
 The TestKit functional tests are what catch decoration and classloading failures, because they apply
