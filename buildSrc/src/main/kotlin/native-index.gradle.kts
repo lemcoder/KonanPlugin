@@ -11,6 +11,8 @@
 // Everything follows kotlinNativeVersion in gradle.properties; after changing it, run
 // updateNativeIndexModel.
 
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 val kotlinNativeVersion = providers.gradleProperty("kotlinNativeVersion")
 val vendoredModel = layout.projectDirectory.dir("src/main/kotlin/org/jetbrains/kotlin/native/interop/indexer")
 
@@ -25,6 +27,17 @@ pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
     dependencies {
         // compileOnly: at run time the distribution's own copy of this jar is the classpath.
         "indexExporterCompileOnly"(kotlinNativeVersion.map { "org.jetbrains.kotlin:kotlin-native-compiler-embeddable:$it" })
+    }
+
+    // The exporter calls cinterop's prepareTool and buildNativeLibrary, which are internal to the compiler
+    // jar. Compiling against that jar as a friend module makes them visible, still type-checked: a
+    // signature change in a Kotlin release fails this compilation at the kotlinNativeVersion bump.
+    tasks.named<KotlinCompile>("compileIndexExporterKotlin") {
+        friendPaths.from(
+            configurations.named("indexExporterCompileClasspath").map { classpath ->
+                classpath.filter { it.name.startsWith("kotlin-native-compiler-embeddable-") }
+            }
+        )
     }
 
     // The exporter ships inside the plugin jar as a nested jar, extracted when ExportNativeIndexTask runs.

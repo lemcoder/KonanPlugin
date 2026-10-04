@@ -83,6 +83,11 @@ copy of the classes, vendored into `src/main` from JetBrains/kotlin.
   disagree. The wiring lives in `buildSrc/src/main/kotlin/native-index.gradle.kts`.
 - **The exporter is its own source set** because its compiler jar carries a second copy of the model
   classes, and anything it links against exists only in the distribution.
+- **The exporter calls cinterop's `internal` functions** (`prepareTool`, `buildNativeLibrary`) by
+  compiling with the compiler jar as a friend module (`friendPaths` in the buildSrc plugin). Java is not
+  a way around `internal` here: `native` is a Java keyword, so Java cannot import any
+  `org.jetbrains.kotlin.native.…` class. And Kotlin cannot see the jar's types through Java sources in
+  the same source set.
 - **It runs through `javaexec`, not the Worker API.** A process-isolated worker puts Gradle's Kotlin
   stdlib and the plugin's classes next to the compiler jar: the compiler then ran on Gradle 9.8's
   stdlib 2.4.10 instead of its bundled 2.4.20, and picked the real `buildNativeIndex` over the vendored

@@ -71,13 +71,15 @@ abstract class ExportNativeIndexTask @Inject constructor(
         check(compilerJar.isFile) { "Not a Kotlin/Native distribution: $home" }
 
         val arguments = buildList {
-            add("--konan-home"); add(home.absolutePath)
-            add("--def"); add(defFile.get().asFile.absolutePath)
-            add("--target"); add(target.get().name)
             add("--out"); add(outputFile.get().asFile.absolutePath)
             dumpFile.orNull?.let { add("--dump"); add(it.asFile.absolutePath) }
-            includeDirs.files.forEach { add("--compiler-option"); add("-I${it.absolutePath}") }
-            compilerOptions.getOrElse(emptyList()).forEach { add("--compiler-option"); add(it) }
+            // From here on, a cinterop command line.
+            add("--")
+            add("-def"); add(defFile.get().asFile.absolutePath)
+            add("-target"); add(target.get().name)
+            add("-Xkonan-home"); add(home.absolutePath)
+            includeDirs.files.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
+            compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
         }
         val exporterJar = temporaryDir.resolve(EXPORTER_JAR)
         javaClass.getResourceAsStream("/io/github/lemcoder/index/$EXPORTER_JAR").use { input ->
