@@ -41,16 +41,45 @@ class GenerateFromNativeIndexTest {
     }
 
     @Test
+    fun `the jni generator binds each C function under its own name`() {
+        val kotlin = jni().resolve("kotlin/sample/sample.kt").readText()
+        assertContains(kotlin, "private val nativeLibrary: Unit = System.loadLibrary(\"samplestubs\")")
+        assertContains(kotlin, "@JvmName(\"sample_sum\")\ninternal external fun sample_sum(values: IntArray?, count: Long): Int")
+        assertContains(kotlin, "internal external fun sample_name(): String?")
+        assertContains(kotlin, "internal external fun sample_buffer(handle: Long, c: Int, s: Int): ByteArray")
+        assertContains(kotlin, "internal external fun sample_bits(f: ByteArray): ByteArray")
+        assertContains(kotlin, "internal external fun sample_sort(base: Long, n: Long, cmp: Long): Unit")
+        assertContains(kotlin, "// - sample_log: variadic")
+    }
+
+    @Test
+    fun `the jni stub marshals each parameter and escapes the JNI symbol`() {
+        val c = jni().resolve("c/samplestubs.c").readText()
+        assertContains(c, "#include <sample.h>")
+        assertContains(c, "Java_sample_sample_sample_1sum(JNIEnv* env, jclass cls, jintArray p0, jlong p1)")
+        // const int*: pinned for the call, not copied back.
+        assertContains(c, "if (p0) (*env)->ReleaseIntArrayElements(env, p0, a0, JNI_ABORT);")
+        assertContains(c, "jstring result = r ? (*env)->NewStringUTF(env, r) : 0;")
+        assertContains(c, "if (!p0 || (*env)->GetArrayLength(env, p0) < (jsize)sizeof(struct flags)) {")
+        assertContains(c, "sample_sort((void *)(intptr_t)p0, p1, (compare_fn)(intptr_t)p2);")
+    }
+
+    @Test
     fun `an unknown generator fails with the ones that exist`() {
         assumeInstalled()
         val projectDir = project(exportTask("bogus", "mymath", mymathDef, mymathHeaders))
         val result = runner(projectDir, "generate_mymath").buildAndFail()
-        assertContains(result.output, "Unknown generator 'bogus'. Known: dump")
+        assertContains(result.output, "Unknown generator 'bogus'. Known: dump, jni")
     }
 
     private fun dump(name: String): String {
         assumeInstalled()
         return generated.getValue(name).resolve("index.txt").readText()
+    }
+
+    private fun jni(): File {
+        assumeInstalled()
+        return generated.getValue("jni_sample")
     }
 
     private fun assumeInstalled() =
@@ -61,22 +90,25 @@ class GenerateFromNativeIndexTest {
         val mymathDef = File("examples/jvm/src/main/nativeInterop/mymath.def").absoluteFile
         val mymathHeaders = File("examples/jvm/native").absoluteFile
 
-        /** One build runs the dump generator for every header the tests read: output directory by name. */
+        /** One build runs every generator the tests read: output directory by task name. */
         val generated: Map<String, File> by lazy {
             val projectDir = project(
                 exportTask("dump", "mymath", mymathDef, mymathHeaders),
                 exportTask("dump", "sample", sampleDef, sampleDef.parentFile),
+                exportTask("jni", "jni_sample", sampleDef, sampleDef.parentFile, "stubLibrary" to "samplestubs"),
             )
-            runner(projectDir, "generate_mymath", "generate_sample").build()
-            listOf("mymath", "sample").associateWith { projectDir.resolve("build/generated/$it") }
+            val names = listOf("mymath", "sample", "jni_sample")
+            runner(projectDir, *names.map { "generate_$it" }.toTypedArray()).build()
+            names.associateWith { projectDir.resolve("build/generated/$it") }
         }
 
-        fun exportTask(generator: String, name: String, def: File, includeDir: File) = """
+        fun exportTask(generator: String, name: String, def: File, includeDir: File, vararg options: Pair<String, String>) = """
             tasks.register<GenerateFromNativeIndexTask>("generate_$name") {
                 defFile.set(file("${path(def)}"))
                 includeDirs.from("${path(includeDir)}")
                 target.set(hostKonanTarget())
                 this.generator.set("$generator")
+                generatorOptions.set(mapOf(${options.joinToString { (k, v) -> "\"$k\" to \"$v\"" }}))
                 outputDirectory.set(layout.buildDirectory.dir("generated/$name"))
             }
         """.trimIndent()

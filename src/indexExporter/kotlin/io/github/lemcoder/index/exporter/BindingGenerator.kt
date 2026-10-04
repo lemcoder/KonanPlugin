@@ -10,12 +10,26 @@ import java.io.File
  * the index crosses into the Gradle daemon, only what the generator writes.
  */
 interface BindingGenerator {
-    /** How the exporter's command line and the Gradle task name this generator. */
+    /** How the exporter's command line and the Gradle tasks name this generator. */
     val name: String
 
-    /** Writes this generator's output for [index] into [outputDirectory], which starts out empty. */
-    fun generate(index: NativeIndex, outputDirectory: File)
+    /** Writes this generator's output into [outputDirectory], which starts out empty. */
+    fun generate(context: GenerationContext, outputDirectory: File)
 }
 
+/** What a generator gets: the index, and the facts about the library cinterop derived it from. */
+class GenerationContext(
+    val index: NativeIndex,
+    /** The bindings' package, decided the way cinterop decides it: `-pkg`, the `.def`'s `package`, or its file name. */
+    val packageName: String,
+    /** The headers the library includes, as the `.def` (or `-header`) names them. */
+    val headers: List<String>,
+    /** The `.def`'s lines after `---`: C code every translation unit of the library sees. */
+    val preambleLines: List<String>,
+    /** `--option key=value` pairs from the exporter's command line, for the generator to interpret. */
+    val options: Map<String, String>,
+)
+
 /** Every generator the exporter can run, by [BindingGenerator.name]. */
-val bindingGenerators: Map<String, BindingGenerator> = listOf<BindingGenerator>(DumpGenerator).associateBy { it.name }
+val bindingGenerators: Map<String, BindingGenerator> =
+    listOf(DumpGenerator, JniGenerator).associateBy { it.name }

@@ -52,14 +52,13 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 
 ## The generated bindings
 
-cinterop's JVM flavor emits **address-only** bridges: every pointer is a raw `Long`, which assumes a
-caller that can allocate native memory. The marshalling in `util/JniMarshalling.kt` rewrites both
-sides so strings and primitive buffers cross as Kotlin types — that transform is the plugin's main
-reason to exist, and it is driven by parsing cinterop's own wrapper output.
+The `jni` generator (`src/indexExporter/.../JniGenerator.kt`) writes both sides of each bridge from
+cinterop's `NativeIndex`: the Kotlin `external fun` named after the C function, and the `JNIEXPORT`
+function that marshals strings, primitive buffers and structs by value. cinterop's own JVM flavor is
+not used — it emits address-only bridges, every pointer a raw `Long`.
 
-Bindings are `internal` by default and each carries **`@JvmName`**. Without it Kotlin mangles
-internal functions (`kniBridge0$module`) while JNI resolves the C symbol from the unmangled method
-name: it compiles, links, and dies on the first call.
+Bindings are `internal` by default and each carries **`@JvmName`**. JNI resolves the C symbol from the
+unmangled method name, so a mangled internal name compiles, links, and dies on the first call.
 
 ## Kotlin DSL gotchas
 

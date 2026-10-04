@@ -1,22 +1,15 @@
 package io.github.lemcoder.jvm
 
-import org.jetbrains.kotlin.konan.target.KonanTarget
-import io.github.lemcoder.interop.DefFile
-import io.github.lemcoder.util.ParamKind
-import io.github.lemcoder.util.execCapture
-import io.github.lemcoder.util.marshalStub
-import io.github.lemcoder.util.parseBridgeKinds
-import io.github.lemcoder.util.stripCinterop
+import io.github.lemcoder.index.runIndexExporter
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
 import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.file.RegularFile
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
-import org.gradle.api.provider.Provider
 import org.gradle.api.provider.Property
-import java.io.File
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
@@ -28,20 +21,21 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import javax.inject.Inject
 
 /**
- * Generates the JNI `.c` stub and the runtime-free Kotlin bindings from a cinterop `.def`.
+ * Generates the JNI `.c` stub and the Kotlin bindings from a cinterop `.def`, with the index exporter's
+ * `jni` generator: cinterop's own indexer reads the headers, and the generator writes both sides of each
+ * bridge from the C declarations.
  *
- * The same def feeds the native targets' cinterop, so the two legs cannot drift: only `package` is
+ * The same def feeds the native targets' cinterop, so the two legs cannot drift: only the package is
  * overridden here, since the JVM bindings live in their own package.
  */
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native distribution, which is not a tracked input")
 abstract class GenerateJvmInteropTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
-    @get:Input @get:Optional abstract val konanPath: Property<String>
-
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val defFile: RegularFileProperty
 
@@ -51,11 +45,11 @@ abstract class GenerateJvmInteropTask @Inject constructor(
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection
 
+    /** The headers are indexed once, for the host; the bridges are the same on every target. */
     @get:Input abstract val hostTarget: Property<KonanTarget>
-    @get:Input abstract val jniIncludeDirs: ListProperty<String>
     @get:Input @get:Optional abstract val additionalCompilerArgs: ListProperty<String>
 
-    /** Emit the bridges as `internal`, keeping them out of the module's published API. */
+    /** Emit the bindings as `internal`, keeping them out of the module's published API. */
     @get:Input abstract val internalBindings: Property<Boolean>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
@@ -84,73 +78,28 @@ abstract class GenerateJvmInteropTask @Inject constructor(
 
     @TaskAction
     fun run() {
-        // Resolved here rather than through the property's convention: that is queried while the
-        // configuration cache is stored, which is before the Kotlin plugin has downloaded the
-        // distribution, and an absent value would then be cached for the run that needs it.
-        val konanHome = konanPath.orNull?.let(::File)
-            ?: JvmInteropSupport.findKonanHome()
-            ?: error(JvmInteropSupport.MISSING_KONAN)
-        val embeddableJar = konanHome.resolve("konan/lib/kotlin-native-compiler-embeddable.jar")
-        check(embeddableJar.isFile) { "Embeddable compiler jar not found: $embeddableJar" }
-        val nativeLibDir = konanHome.resolve("konan/nativelib")
-
-        val out = outputDirectory.get().asFile
-        out.deleteRecursively(); out.mkdirs()
-
-        val userDef = defFile.get().asFile
-        val parsed = DefFile.parse(userDef)
-        val pkg = packageName.orNull ?: parsed.packageName ?: error(
-            "jvmInterops: neither packageName nor a `package =` line in ${userDef.name}."
+        val def = defFile.get().asFile
+        val includes = listOf(def.parentFile) + includeDirs.files
+        exec.runIndexExporter(
+            generator = "jni",
+            outputDirectory = outputDirectory.get().asFile,
+            cinteropArgs = buildList {
+                add("-def"); add(def.absolutePath)
+                add("-pkg"); add(packageName.get())
+                add("-target"); add(hostTarget.get().name)
+                includes.filter { it.exists() }.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
+                additionalCompilerArgs.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
+            },
+            generatorOptions = mapOf(
+                "stubLibrary" to stubLibraryBaseName.get(),
+                "visibility" to if (internalBindings.getOrElse(true)) "internal" else "public",
+            ),
+            workDir = temporaryDir,
         )
-
-        // The generator wants a def of its own: same contents, our package.
-        val effectiveDef = out.resolve("${name}.def")
-        effectiveDef.writeText(parsed.render(pkg))
-
-        val includes = (listOf(userDef.parentFile) + includeDirs.files + jniIncludeDirs.get().map(::File))
-            .filter { it.exists() }
-            .flatMap { listOf("-compiler-option", "-I${it.absolutePath}") }
-        val extraOpts = additionalCompilerArgs.getOrElse(emptyList()).flatMap { listOf("-compiler-option", it) }
-
-        val result = exec.execCapture {
-            executable("java")
-            args(
-                "-ea",
-                "-Dkonan.home=${konanHome.absolutePath}",
-                "-Djava.library.path=${nativeLibDir.absolutePath}",
-                "-cp", embeddableJar.absolutePath,
-                "org.jetbrains.kotlin.native.interop.gen.jvm.MainKt",
-                "-flavor", "jvm",
-                "-def", effectiveDef.absolutePath,
-                "-generated", out.resolve(KOTLIN_DIR).absolutePath,
-                "-Xtemporary-files-dir", out.resolve(C_DIR).absolutePath,
-                // The generator indexes headers once on the host; the bridges are platform-independent.
-                "-target", hostTarget.get().name,
-            )
-            args(includes); args(extraOpts)
-            environment("LIBCLANG_DISABLE_CRASH_RECOVERY", "1")
-            // Since 2.4 the generator looks for jni.h itself, under its own java.home and then
-            // JAVA_HOME. The `java` on PATH is often a JBR with include/ stripped, so point it at the
-            // JDK whose headers were resolved for the stub.
-            jniIncludeDirs.get().firstOrNull()?.let { environment("JAVA_HOME", File(it).parent) }
-        }
-        logger.lifecycle(result.output)
-        result.assertNormalExitValue()
-
-        // Strip kotlinx.cinterop from the generated Kotlin so it ships on plain JVM / Android, and
-        // marshal strings/primitive buffers on both sides of the bridge — the raw output passes them
-        // as addresses, which only a Kotlin/Native caller can produce.
-        val kotlinFiles = out.resolve(KOTLIN_DIR).walkTopDown().filter { it.extension == "kt" }.toList()
-        val kinds = kotlinFiles.fold(emptyMap<Int, List<ParamKind>>()) { acc, kt ->
-            acc + parseBridgeKinds(kt.readText())
-        }
-        val internal = internalBindings.getOrElse(true)
-        kotlinFiles.forEach { kt -> kt.writeText(stripCinterop(kt.readText(), kinds, internal)) }
-        out.resolve(C_DIR).walkTopDown().filter { it.extension == "c" }
-            .forEach { c -> c.writeText(marshalStub(c.readText(), kinds)) }
     }
 
     private companion object {
+        // The jni generator's layout: kotlin/<package>/<facade>.kt and c/<stubLibrary>.c.
         const val C_DIR = "c"
         const val KOTLIN_DIR = "kotlin"
     }

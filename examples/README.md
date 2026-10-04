@@ -33,7 +33,7 @@ native/*.c ──(konanConfig: runKonanClang)──> libmymath.a   per target
 ## The expect/actual split (you write tier 2)
 
 The plugin generates the **low-level** tier per platform. You write the idiomatic `expect`/`actual`
-on top — because how strings/pointers are marshalled is your call:
+on top:
 
 ```kotlin
 // commonMain
@@ -42,14 +42,15 @@ expect fun add(a: Int, b: Int): Int
 // nativeMain  — over the cinterop binding
 actual fun add(a: Int, b: Int): Int = mymath.my_add(a, b)
 
-// jvmMain / androidMain  — over the generated JNI bridge
-actual fun add(a: Int, b: Int): Int = example.kniBridge0(a, b)
+// jvmMain / androidMain  — over the generated JNI binding
+actual fun add(a: Int, b: Int): Int = example.my_add(a, b)
 ```
 
-Pointer/string params arrive at the JNI bridge as a raw address (`Long`); convert in your `actual`.
+Strings and primitive buffers are marshalled by the binding; opaque pointers arrive as an address
+(`Long`). See the README's "Generated bindings".
 
 ## What's verified here vs. needs a device
 
-- `jvm` and `native` run to completion and print `5` / `40.0`.
-- `android` produces and verifies the `.so` (ELF + exported `Java_..._kniBridgeN` symbols). Running it
+- `jvm` and `native` run to completion; `jvm` also round-trips strings and primitive buffers.
+- `android` produces and verifies the `.so` (ELF + exported `Java_example_example_my_1add`-style symbols). Running it
   on Android needs an emulator/device and an AGP module — see [`android/README.md`](android/README.md).

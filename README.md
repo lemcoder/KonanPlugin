@@ -170,25 +170,30 @@ target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arriv
 ```
 
 ### Generated bindings
-One `external fun kniBridgeN(...)` per C function, in header order, each carrying its C-derived
-signature as a doc comment. Parameters are marshalled by shape:
+One `external fun` per C function, named after it and carrying its C signature as a doc comment.
+cinterop's own indexer reads the headers — the same `.def` the Kotlin/Native targets use — and the
+plugin writes both sides of each JNI bridge from the C declarations:
 
-| C parameter                        | Kotlin parameter | Crosses as                                    |
-|------------------------------------|------------------|------------------------------------------------|
-| `const char*` input                | `String?`        | `GetStringUTFChars`                            |
-| `char*` / `float*` / … buffer      | `ByteArray?` / `FloatArray?` / … | `Get<Type>ArrayElements` (writes copied back) |
-| struct by value, struct return     | `ByteArray?`     | raw struct bytes                               |
-| opaque handle, pointer to struct   | `Long`           | raw address                                    |
+| C type                                       | Kotlin type                      | Crosses as                                         |
+|----------------------------------------------|----------------------------------|----------------------------------------------------|
+| integers, `char`, `bool`, floating point, enums | `Int`, `Long`, `Byte`, `Boolean`, `Double`, … | the JNI primitive of the same size |
+| `const char*` (argument or result)           | `String?`                        | `GetStringUTFChars` / `NewStringUTF`               |
+| `int*`, `uint8_t*`, `float*`, … buffer       | `IntArray?`, `ByteArray?`, `FloatArray?`, … | pinned for the call; written back unless `const` |
+| struct by value (argument or result)         | `ByteArray`                      | the struct's bytes                                 |
+| opaque handle, `void*`, struct or function pointer | `Long`                     | the address                                        |
 
-The bridges are `internal` by default — they are an implementation detail of the module that writes
-the idiomatic API over them, and this keeps `kniBridge0…N` out of its published surface. Each carries
-`@JvmName`, because Kotlin mangles internal functions on the JVM and JNI resolves the symbol from the
-unmangled method name. Set `visibility.set(BindingVisibility.PUBLIC)` if the wrapper is in a
-different Gradle module.
+Functions that cannot be bound — variadic ones, `long double` — are listed with the reason at the end of
+the generated file. Unsigned integers cross as the signed Kotlin type of the same size. Struct bytes are
+in native order, so read them with `ByteBuffer.order(ByteOrder.nativeOrder())` and the layout from the
+C header.
 
-Functions returning `const char*` return the address; read it with the generated
-`kniCString(ptr: Long): String?`. Struct arguments are raw bytes, so the caller writes the fields —
-`ByteBuffer.order(ByteOrder.nativeOrder())` with the layout from the C header.
+The bindings are `internal` by default — they are an implementation detail of the module that writes
+the idiomatic API over them. Each carries `@JvmName`, because JNI resolves the symbol from the
+unmangled method name. Set `visibility.set(BindingVisibility.PUBLIC)` if the wrapper is in a different
+Gradle module.
+
+Generating needs the Kotlin/Native distribution the plugin was built against (2.4.20) in `~/.konan`;
+any Kotlin Multiplatform build of that version with a native target downloads it.
 
 Platform-specific link arguments go in `linkerArgsFor`; `-framework` in `additionalLinkerArgs` would
 reach the Android linker, which rejects it.

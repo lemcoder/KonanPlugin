@@ -2,7 +2,7 @@ package io.github.lemcoder.jvm
 
 import java.io.File
 
-/** Pure helpers for the JVM/JNI interop leg: toolchain discovery, naming, and the cinterop strip transform. */
+/** Pure helpers for the JVM/JNI interop leg: toolchain discovery and naming. */
 internal object JvmInteropSupport {
 
     // --- toolchain discovery -------------------------------------------------
@@ -14,9 +14,6 @@ internal object JvmInteropSupport {
         return konanDir.listFiles { f -> f.isDirectory && f.name.startsWith("kotlin-native-prebuilt-") }
             ?.maxByOrNull { it.name }
     }
-
-    /** As [findKonanHome], failing with the message a build needs when there is none. */
-    fun detectKonanHome(): File = findKonanHome() ?: error(MISSING_KONAN)
 
     const val MISSING_KONAN: String =
         "No Kotlin/Native distribution found. The Kotlin plugin downloads one when it first compiles " +

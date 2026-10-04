@@ -118,12 +118,10 @@ abstract class JvmInteropRegistry @Inject constructor(
             group = "interop"
             description = "Generate JNI bindings for '${settings.name}' from its .def."
             mustRunAfter(project.cleanTask())
-            konanPath.set(konanConfig.konanPath)
             defFile.set(settings.defFile)
             this.packageName.set(packageName)
             includeDirs.from(settings.includeDirs)
             hostTarget.set(hostKonanTarget())
-            this.jniIncludeDirs.set(jniIncludeDirs.map { dirs -> dirs.map { it.absolutePath } })
             additionalCompilerArgs.set(settings.additionalCompilerArgs)
             internalBindings.set(settings.visibility.map { it == BindingVisibility.INTERNAL })
             outputDirectory.set(generatedRoot)

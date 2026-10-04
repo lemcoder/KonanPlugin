@@ -12,8 +12,8 @@ import java.io.File
 object DumpGenerator : BindingGenerator {
     override val name = "dump"
 
-    override fun generate(index: NativeIndex, outputDirectory: File) {
-        outputDirectory.resolve("index.txt").writeText(dumpNativeIndex(index))
+    override fun generate(context: GenerationContext, outputDirectory: File) {
+        outputDirectory.resolve("index.txt").writeText(dumpNativeIndex(context.index))
     }
 }
 

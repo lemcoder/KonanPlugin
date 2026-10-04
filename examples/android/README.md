@@ -74,7 +74,7 @@ directory and the per-ABI `jniLibs/` as native libraries (via the AGP variant AP
 `dependsOn` boilerplate needed.
 
 `MainActivity` calls `example.add/scale` (in `src/main/kotlin/example/Api.kt`), which call the
-generated `kniBridgeN`. `System.loadLibrary("examplestubs")` loads the `.so` from the APK — no
+generated `my_add` / `my_scale`. `System.loadLibrary("examplestubs")` loads the `.so` from the APK — no
 `java.library.path` on Android.
 
 The `.so` gets `jni.h` from the NDK sysroot; the bridges are runtime-free (no `kotlinx.cinterop`), so
