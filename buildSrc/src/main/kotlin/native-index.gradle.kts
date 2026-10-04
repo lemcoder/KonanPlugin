@@ -44,7 +44,7 @@ pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
         // The distribution the plugin looks for at run time is the one the exporter was compiled against.
         val version = kotlinNativeVersion
         inputs.property("kotlinNativeVersion", version)
-        filesMatching("io/github/lemcoder/index/native-index.properties") {
+        filesMatching("io/github/lemcoder/index/kotlin-native.properties") {
             expand("kotlinNativeVersion" to version.get())
         }
     }

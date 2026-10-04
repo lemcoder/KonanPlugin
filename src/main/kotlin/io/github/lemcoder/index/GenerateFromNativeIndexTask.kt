@@ -51,7 +51,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @get:Input
     abstract val target: Property<KonanTarget>
 
-    /** Defaults to the installed distribution of [NativeIndexer.kotlinNativeVersion], found at execution. */
+    /** Defaults to the installed distribution of [PinnedKotlinNative.version], found at execution. */
     @get:Internal
     abstract val konanHome: DirectoryProperty
 
@@ -65,8 +65,8 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
 
     @TaskAction
     fun export() {
-        val home = konanHome.orNull?.asFile ?: NativeIndexer.pinnedKonanHome() ?: error(
-            "Kotlin/Native ${NativeIndexer.kotlinNativeVersion} is not installed; the native index needs exactly that version."
+        val home = konanHome.orNull?.asFile ?: PinnedKotlinNative.home() ?: error(
+            "Kotlin/Native ${PinnedKotlinNative.version} is not installed; the native index needs exactly that version."
         )
         val compilerJar = home.resolve("konan/lib/kotlin-native-compiler-embeddable.jar")
         check(compilerJar.isFile) { "Not a Kotlin/Native distribution: $home" }

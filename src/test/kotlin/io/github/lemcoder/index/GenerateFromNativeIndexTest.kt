@@ -12,7 +12,7 @@ import kotlin.test.assertContains
  * distribution, then the `dump` generator over the index it built.
  *
  * Skipped when that distribution is not installed; any Kotlin Multiplatform build of
- * [NativeIndexer.kotlinNativeVersion] downloads it.
+ * [PinnedKotlinNative.version] downloads it.
  */
 class GenerateFromNativeIndexTest {
 
@@ -54,7 +54,7 @@ class GenerateFromNativeIndexTest {
     }
 
     private fun assumeInstalled() =
-        assumeTrue(NativeIndexer.pinnedKonanHome() != null, "Kotlin/Native ${NativeIndexer.kotlinNativeVersion} is not installed")
+        assumeTrue(PinnedKotlinNative.home() != null, "Kotlin/Native ${PinnedKotlinNative.version} is not installed")
 
     private companion object {
         val sampleDef = File(checkNotNull(GenerateFromNativeIndexTest::class.java.classLoader.getResource("nativeindex/sample.def")).toURI())
