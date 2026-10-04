@@ -1,6 +1,5 @@
 package io.github.lemcoder.index.exporter
 
-import io.github.lemcoder.index.dumpNativeIndex
 import kotlinx.cinterop.JvmCInteropCallbacks
 import org.jetbrains.kotlin.konan.util.DefFile
 import org.jetbrains.kotlin.native.interop.gen.ImportsImpl
@@ -16,10 +15,10 @@ import java.io.File
 
 /**
  * Entry point run in the Kotlin/Native distribution's JVM: indexes headers with cinterop's own code and
- * writes the resulting [NativeIndex].
+ * hands the resulting [NativeIndex] to a [BindingGenerator].
  *
  * ```
- * --out <json> [--dump <txt>] -- <cinterop command line>
+ * --generator <name> --output <dir> -- <cinterop command line>
  * ```
  */
 fun main(args: Array<String>) {
@@ -27,14 +26,19 @@ fun main(args: Array<String>) {
     require(separator >= 0) { "Expected '--' before the cinterop command line: ${args.joinToString(" ")}" }
     val options = parseOptions(args.copyOfRange(0, separator))
     val cinteropArgs = args.copyOfRange(separator + 1, args.size)
+    val generatorName = options.getValue("generator")
+    val generator = bindingGenerators[generatorName]
+        ?: error("Unknown generator '$generatorName'. Known: ${bindingGenerators.keys.sorted().joinToString()}")
+    val output = File(options.getValue("output"))
 
     // As cinterop's own entry point does around its run.
     NativeMemoryAllocator.init()
     JvmCInteropCallbacks.init()
     try {
         val index = index(cinteropArgs)
-        File(options.getValue("out")).writeText(NativeIndexWriter().write(index))
-        options["dump"]?.let { File(it).writeText(dumpNativeIndex(index)) }
+        output.deleteRecursively()
+        output.mkdirs()
+        generator.generate(index, output)
     } finally {
         JvmCInteropCallbacks.dispose()
         NativeMemoryAllocator.dispose()

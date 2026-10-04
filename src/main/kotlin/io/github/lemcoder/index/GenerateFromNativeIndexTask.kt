@@ -13,7 +13,7 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
-import org.gradle.api.tasks.OutputFile
+import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -25,8 +25,8 @@ import java.nio.file.StandardCopyOption
 import javax.inject.Inject
 
 /**
- * Indexes the headers a `.def` names with cinterop's own indexer and writes the `NativeIndex` as JSON,
- * for [NativeIndexReader].
+ * Indexes the headers a `.def` names with cinterop's own indexer and runs a [generator] over the
+ * resulting `NativeIndex`, in the exporter's process, writing into [outputDirectory].
  *
  * The indexer runs in a JVM of its own whose classpath is only the distribution's compiler jar and the
  * exporter. Not in the daemon: a native library such as libclang can be loaded by one classloader per
@@ -35,7 +35,7 @@ import javax.inject.Inject
  * classes bundled in the compiler jar.
  */
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native distribution, which is not a tracked input")
-abstract class ExportNativeIndexTask @Inject constructor(
+abstract class GenerateFromNativeIndexTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -55,12 +55,13 @@ abstract class ExportNativeIndexTask @Inject constructor(
     @get:Internal
     abstract val konanHome: DirectoryProperty
 
-    @get:OutputFile
-    abstract val outputFile: RegularFileProperty
+    /** A generator the exporter knows by name, e.g. `dump`. */
+    @get:Input
+    abstract val generator: Property<String>
 
-    /** The exporter's text rendering of the index it built; for tests comparing it with what reads back. */
-    @get:OutputFile @get:Optional
-    abstract val dumpFile: RegularFileProperty
+    /** Replaced on every run with the generator's output. */
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun export() {
@@ -71,8 +72,8 @@ abstract class ExportNativeIndexTask @Inject constructor(
         check(compilerJar.isFile) { "Not a Kotlin/Native distribution: $home" }
 
         val arguments = buildList {
-            add("--out"); add(outputFile.get().asFile.absolutePath)
-            dumpFile.orNull?.let { add("--dump"); add(it.asFile.absolutePath) }
+            add("--generator"); add(generator.get())
+            add("--output"); add(outputDirectory.get().asFile.absolutePath)
             // From here on, a cinterop command line.
             add("--")
             add("-def"); add(defFile.get().asFile.absolutePath)

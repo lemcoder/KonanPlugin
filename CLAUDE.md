@@ -71,28 +71,26 @@ name: it compiles, links, and dies on the first call.
 - A nested settings object must be created through `ObjectFactory`; Gradle will not synthesise
   `abstract val cmake: CMakeSettings`.
 
-## The vendored NativeIndex
+## The index exporter
 
-cinterop's C model (`NativeIndex`) is read on both sides of a process boundary: the index exporter
-builds it inside the Kotlin/Native distribution's JVM, and the plugin reads the file back into its own
-copy of the classes, vendored into `src/main` from JetBrains/kotlin.
+Bindings are generated from cinterop's own C model (`NativeIndex`), inside the Kotlin/Native
+distribution's JVM: the exporter (`src/indexExporter`) indexes headers with cinterop's code and runs a
+`BindingGenerator` over the index in the same process. Only generated files leave it; the plugin never
+holds a `NativeIndex`.
 
 - **One version everywhere.** `kotlinNativeVersion` in `gradle.properties` sets `kotlin-native-utils`,
-  the vendored model, the exporter's compile-only compiler jar, and the distribution the indexer runs
-  in. After changing it, run `./gradlew updateNativeIndexModel`; `check` fails while the stamps
-  disagree. The wiring lives in `buildSrc/src/main/kotlin/native-index.gradle.kts`.
-- **The exporter is its own source set** because its compiler jar carries a second copy of the model
-  classes, and anything it links against exists only in the distribution.
-- **The exporter calls cinterop's `internal` functions** (`prepareTool`, `buildNativeLibrary`) by
-  compiling with the compiler jar as a friend module (`friendPaths` in the buildSrc plugin). Java is not
-  a way around `internal` here: `native` is a Java keyword, so Java cannot import any
-  `org.jetbrains.kotlin.native.…` class. And Kotlin cannot see the jar's types through Java sources in
-  the same source set.
+  the compiler jar the exporter compiles against, and the distribution it must run in. The wiring lives
+  in `buildSrc/src/main/kotlin/native-index.gradle.kts`.
+- **The exporter is its own source set** because it compiles against the compiler jar, and anything it
+  links against exists only in the distribution.
+- **It calls cinterop's `internal` functions** (`prepareTool`, `buildNativeLibrary`) by compiling with
+  the compiler jar as a friend module (`friendPaths` in the buildSrc plugin). Java is not a way around
+  `internal` here: `native` is a Java keyword, so Java cannot import any `org.jetbrains.kotlin.native.…`
+  class. And Kotlin cannot see the jar's types through Java sources in the same source set.
 - **It runs through `javaexec`, not the Worker API.** A process-isolated worker puts Gradle's Kotlin
   stdlib and the plugin's classes next to the compiler jar: the compiler then ran on Gradle 9.8's
-  stdlib 2.4.10 instead of its bundled 2.4.20, and picked the real `buildNativeIndex` over the vendored
-  one only by classpath order. The daemon is out too: KGP's cinterop may already have loaded libclang
-  there, and a native library loads in one classloader per JVM.
+  stdlib 2.4.10 instead of its bundled 2.4.20. The daemon is out too: KGP's cinterop may already have
+  loaded libclang there, and a native library loads in one classloader per JVM.
 
 ## Testing and publishing
 

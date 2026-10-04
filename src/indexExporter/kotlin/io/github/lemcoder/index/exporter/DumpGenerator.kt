@@ -1,17 +1,23 @@
-package io.github.lemcoder.index
+package io.github.lemcoder.index.exporter
 
 import org.jetbrains.kotlin.native.interop.indexer.*
+import java.io.File
 
 /**
- * Renders a [NativeIndex] as deterministic text, for tests only — it is not a format anything reads.
- *
- * Compiled twice: into the index exporter against the Kotlin/Native distribution's classes, and into
- * the tests against the plugin's copy of the model. The exporter dumps the index it built, the test
- * dumps the one it read back, and equal text means the file carried everything.
+ * Renders the [NativeIndex] as deterministic text into `index.txt`: what cinterop sees in the headers,
+ * for reading, diffing across Kotlin versions, and tests.
  *
  * Declarations referenced from a type are rendered by name, not expanded, so cycles terminate.
  */
-fun dumpNativeIndex(index: NativeIndex): String = buildString {
+object DumpGenerator : BindingGenerator {
+    override val name = "dump"
+
+    override fun generate(index: NativeIndex, outputDirectory: File) {
+        outputDirectory.resolve("index.txt").writeText(dumpNativeIndex(index))
+    }
+}
+
+internal fun dumpNativeIndex(index: NativeIndex): String = buildString {
     index.includedHeaders.map { it.value }.sorted().forEach { appendLine("header $it") }
     index.structs.sortedBy { it.spelling }.forEach { appendStruct(it) }
     index.enums.sortedBy { it.spelling }.forEach { appendEnum(it) }

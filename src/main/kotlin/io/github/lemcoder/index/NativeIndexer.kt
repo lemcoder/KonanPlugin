@@ -3,15 +3,13 @@ package io.github.lemcoder.index
 import java.io.File
 
 /**
- * Where cinterop's header indexer runs: inside a Kotlin/Native distribution, whose compiler jar must be
- * the Kotlin version the plugin's copy of the model was vendored from — [kotlinNativeVersion] — or the
- * index may not read back. [ExportNativeIndexTask] runs it.
+ * Where cinterop's header indexer runs: inside a Kotlin/Native distribution of exactly
+ * [kotlinNativeVersion]. The exporter is compiled against that version's compiler jar — its internal
+ * functions and the `NativeIndex` model the generators read — so another version may not link.
+ * [GenerateFromNativeIndexTask] runs it.
  */
 object NativeIndexer {
-    /**
-     * The Kotlin version the model was vendored from — `kotlinNativeVersion` in the plugin build —
-     * and so the distribution the indexer must run in.
-     */
+    /** `kotlinNativeVersion` in the plugin build: the compiler jar the exporter was compiled against. */
     val kotlinNativeVersion: String by lazy {
         java.util.Properties().apply {
             NativeIndexer::class.java.getResourceAsStream("native-index.properties").use { load(checkNotNull(it)) }

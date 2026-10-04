@@ -1,7 +1,7 @@
 plugins {
     `kotlin-dsl`
     id("com.gradle.plugin-publish") version "2.2.1"
-    // cinterop's NativeIndex exporter and the vendored model: buildSrc/src/main/kotlin/native-index.gradle.kts
+    // The index exporter and its generators: buildSrc/src/main/kotlin/native-index.gradle.kts
     id("native-index")
 }
 
