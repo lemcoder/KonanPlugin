@@ -139,7 +139,7 @@ abstract class JvmInteropRegistry @Inject constructor(
             project.tasks.matching { it.name.contains("ArtProfile") }
                 .configureEach { dependsOn(generate) }
         } else {
-            wireIntoAndroid(settings, generate.get().kotlinSourceDirectory, jniLibsRoot)
+            wireIntoAndroid(settings, generate.get().kotlinSourceDirectory)
         }
 
         // One link task per target. Whether it does anything depends on the def naming a library; a
@@ -344,24 +344,21 @@ abstract class JvmInteropRegistry @Inject constructor(
     }
 
     /**
-     * AGP has no Kotlin compilation to attach to, so the generated sources and the per-ABI `jniLibs`
-     * go in through the variant API. Registered at configuration time — the variant API rejects
-     * callbacks added later — and the directories must exist by then.
+     * AGP has no Kotlin compilation to attach to, so the generated sources go in through the variant
+     * API. Registered at configuration time — the variant API rejects callbacks added later — and the
+     * directory must exist by then. The per-ABI `jniLibs` are wired by [wireJniLibsIntoAndroid];
+     * adding them here too fails the merge with "Duplicate resources".
      */
     private fun wireIntoAndroid(
         settings: JvmInteropSettings,
         kotlinSources: org.gradle.api.provider.Provider<org.gradle.api.file.Directory>,
-        jniLibsRoot: org.gradle.api.provider.Provider<org.gradle.api.file.Directory>,
     ) {
         project.plugins.withId("com.android.base") {
             val kotlinDir = kotlinSources.get().asFile.apply { mkdirs() }
-            val jniLibsDir = jniLibsRoot.get().asFile.apply { mkdirs() }
             val kotlinRel = kotlinDir.relativeTo(project.projectDir).path
-            val jniRel = jniLibsDir.relativeTo(project.projectDir).path
 
             project.extensions.findByType(AndroidComponentsExtension::class.java)?.onVariants { variant ->
                 variant.sources.kotlin?.addStaticSourceDirectory(kotlinRel)
-                variant.sources.jniLibs?.addStaticSourceDirectory(jniRel)
             }
 
             val suffix = settings.name.replaceFirstChar { it.uppercase() }
