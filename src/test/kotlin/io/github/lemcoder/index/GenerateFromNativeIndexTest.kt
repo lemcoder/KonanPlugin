@@ -6,6 +6,7 @@ import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertTrue
 
 /**
  * Runs [GenerateFromNativeIndexTask] in a TestKit build: cinterop's own indexer in the pinned Kotlin/Native
@@ -65,11 +66,29 @@ class GenerateFromNativeIndexTest {
     }
 
     @Test
+    fun `the jextract generator binds what cinterop indexed, typedef'd records included`() {
+        val jextract = System.getenv("JEXTRACT")
+        assumeTrue(jextract != null && File(jextract).canExecute(), "Set JEXTRACT to a jextract executable")
+        assumeInstalled()
+        val projectDir = project(
+            exportTask("jextract", "ffm_sample", sampleDef, sampleDef.parentFile, "library" to "sample", "jextract" to path(File(jextract))),
+        )
+        runner(projectDir, "generate_ffm_sample").build()
+
+        val java = projectDir.resolve("build/generated/ffm_sample/java/sample")
+        // cinterop folds `typedef union { … } bits_t` into a record; jextract only binds it as a typedef.
+        assertTrue(java.resolve("bits_t.java").isFile, "bits_t, returned by sample_bits, must be bound")
+        val header = java.resolve("sample.java").readText()
+        listOf("sample_sum", "sample_name", "sample_bits", "sample_log", "SAMPLE_VERSION", "RED", "sample_global")
+            .forEach { assertContains(header, it) }
+    }
+
+    @Test
     fun `an unknown generator fails with the ones that exist`() {
         assumeInstalled()
         val projectDir = project(exportTask("bogus", "mymath", mymathDef, mymathHeaders))
         val result = runner(projectDir, "generate_mymath").buildAndFail()
-        assertContains(result.output, "Unknown generator 'bogus'. Known: dump, jni")
+        assertContains(result.output, "Unknown generator 'bogus'. Known: dump, jextract, jni")
     }
 
     private fun dump(name: String): String {

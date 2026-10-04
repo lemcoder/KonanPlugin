@@ -26,10 +26,15 @@ class GenerationContext(
     val headers: List<String>,
     /** The `.def`'s lines after `---`: C code every translation unit of the library sees. */
     val preambleLines: List<String>,
+    /**
+     * The clang arguments cinterop parsed the headers with: the `.def`'s and the command line's
+     * `compilerOpts`, plus the target's own (`-target`, sysroot, builtin includes).
+     */
+    val compilerArgs: List<String>,
     /** `--option key=value` pairs from the exporter's command line, for the generator to interpret. */
     val options: Map<String, String>,
 )
 
 /** Every generator the exporter can run, by [BindingGenerator.name]. */
 val bindingGenerators: Map<String, BindingGenerator> =
-    listOf(DumpGenerator, JniGenerator).associateBy { it.name }
+    listOf(DumpGenerator, JniGenerator, JextractGenerator).associateBy { it.name }

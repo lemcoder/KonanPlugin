@@ -86,6 +86,7 @@ private fun index(cinteropArgs: Array<String>, generatorOptions: Map<String, Str
         packageName = packageName,
         headers = library.includes.map { it.headerPath },
         preambleLines = def.defHeaderLines,
+        compilerArgs = library.compilerArgs,
         options = generatorOptions,
     )
 }
