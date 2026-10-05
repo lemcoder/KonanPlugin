@@ -109,6 +109,51 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `prebuilt archives are placed where every provider puts them`() {
+        File(projectDir, "libs").mkdirs()
+        File(projectDir, "libs/libmymath-linux.a").writeText("linux")
+        File(projectDir, "libs/mymath.lib").writeText("windows")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    prebuilt {
+                        archive(KonanTarget.LINUX_X64, file("libs/libmymath-linux.a"))
+                        archive(KonanTarget.MINGW_X64, file("libs/mymath.lib"))
+                    }
+                }
+            }
+            """,
+        )
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        assertEquals("linux", File(projectDir, "build/konan/libraries/mymath/linux_x64/libmymath.a").readText())
+        assertEquals("windows", File(projectDir, "build/konan/libraries/mymath/mingw_x64/libmymath.a").readText())
+        assertFalse(":konanClangMymath" in result.output, result.output)
+    }
+
+    @Test
+    fun `a prebuilt library names the targets it has no archive for, and archives that do not exist`() {
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    targets(KonanTarget.LINUX_X64, KonanTarget.MACOS_ARM64)
+                    prebuilt { archive(KonanTarget.LINUX_X64, file("libs/absent.a")) }
+                }
+            }
+            """,
+        )
+        assertTrue("has no archive for macos_arm64" in runner("compileNativeLibraryMymath").buildAndFail().output)
+
+        File(projectDir, "build.gradle.kts").writeText(File(projectDir, "build.gradle.kts").readText().replace(", KonanTarget.MACOS_ARM64", ""))
+        assertTrue("no such archive" in runner("compileNativeLibraryMymath").buildAndFail().output)
+    }
+
+    @Test
     fun `zig builds each target's archive where every provider puts it`() {
         val zig = System.getenv("ZIG")
         assumeTrue(zig != null && File(zig).canExecute(), "Set ZIG to a zig executable")

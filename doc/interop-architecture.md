@@ -107,7 +107,7 @@ flowchart TD
 | 1 | **DSL** | Declares libraries, bindings, toolchains and packaging; validates; no work of its own | Build script → model objects | `konan { libraries; bindings }` (section A) |
 | 2 | **Target model** | The plugin's own target type (OS, architecture, ABI) with mappings to every ecosystem's name | — | `KonanTarget` today, mapped to Android ABI and JVM library paths |
 | 3 | **Toolchain** | Compile, archive and link C/C++ for one target | Sources + flags → `.o`, `.a`, `.so`/`.dylib`/`.dll` | Konan (clang + downloaded sysroots) today; Xcode, Android NDK, system clang/GCC/MSVC, Zig later |
-| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`, sealed: **KonanClang** (default, `konanClang<Name>`) or **External** — one `ExternalBuildTask` per target with the `ExternalLibraryVariable` contract: **Zig** (`zig { }`) and **Generic** (`external { step { } }`, any build system); all behind `compileNativeLibrary<Name>`; **Prebuilt** not yet |
+| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`, sealed: **KonanClang** (default, `konanClang<Name>`) or **External** — one `ExternalBuildTask` per target with the `ExternalLibraryVariable` contract: **Zig** (`zig { }`) and **Generic** (`external { step { } }`, any build system); or **Prebuilt** (`prebuilt { archive(target, file) }`, placed by `prebuilt<Name>`); all behind `compileNativeLibrary<Name>` |
 | 5 | **Binding spec** | What to bind | `.def` + cinterop command line → cinterop's `NativeIndex` | cinterop itself, in the index exporter (section B) |
 | 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KgpWiring.declareCinterops`) |
 | 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `JniStubBuild`, a sealed hierarchy: **KonanLink** (`LinkSharedLibraryTask`) or **External** — the project's own build, one `ExternalBuildTask` per target running a list of commands with the `ExternalStubVariable` contract as environment: **Generic** (`jni { external { step { } } }`, any build system) and the **CMake** preset (configure + build, contract also as cache entries); FFM links the library itself, no glue |
@@ -205,8 +205,12 @@ Bazel would slot in the same way: `bazel build //target --platforms=…` per Kot
 platform per target and the output copied to the archive path. Its cost is the platforms and C
 toolchains a Bazel workspace must declare to cross-compile, which Zig brings built in.
 
-Still open: a **Prebuilt** library provider (binaries and headers per target from paths or a Maven
-artifact), FFM in multiplatform projects, and publishing a library's bindings and binaries.
+A **Prebuilt** provider takes an archive per target from local paths — a vendor drop — and places
+each as `lib<name>.a`, so a Windows `name.lib` works unchanged; the library's targets default to the
+ones it has archives for. It is not an `External`: there is nothing to run.
+
+Still open: prebuilt archives from a Maven artifact, FFM in multiplatform projects, and publishing a
+library's bindings and binaries.
 
 ## B. Generator model
 
@@ -330,8 +334,8 @@ Still undecided:
 
 - How a toolchain is chosen per target: a default per host and target (Konan where available),
   overridable per library.
-- How prebuilt binaries arrive: local paths per target, a Maven artifact with a classifier per
-  target, or an archive to unpack; and how their headers travel with them.
+- How prebuilt binaries arrive beyond local paths (done, `prebuilt { }`): a Maven artifact with a
+  classifier per target, or an archive to unpack; and how their headers travel with them.
 - What a published library carries for its own consumers.
 
 ## Open questions

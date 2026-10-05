@@ -74,6 +74,7 @@ either way.
 | `outputDirectory` | `Directory`         | `build/konan/libraries/<name>`   | Root of the per-target archives; `archive(target)` gives one. |
 | `zig { }`         |                     | —                                | Build with the project's `build.zig` instead; below. |
 | `external { }`    |                     | —                                | Build with any other build system, as commands; below. |
+| `prebuilt { }`    |                     | —                                | Use archives built elsewhere; below. |
 
 #### Building with Zig — `zig { }`
 ```kotlin
@@ -97,6 +98,20 @@ library (`b.addLibrary(.{ .linkage = .static, … })`).
 | `artifactName`     | `String`       | the library's name  | The static library `build.zig` installs. |
 
 Android targets need a libc file for the NDK's bionic, which Zig does not bundle.
+
+#### Archives built elsewhere — `prebuilt { }`
+```kotlin
+create("mymath") {
+    prebuilt {
+        archive(KonanTarget.MACOS_ARM64, file("vendor/macos/libmymath.a"))
+        archive(KonanTarget.MINGW_X64, file("vendor/windows/mymath.lib"))
+    }
+}
+```
+
+`prebuilt<Name>` places each archive as `<target>/lib<name>.a`, whatever it was called, and fails naming
+any that does not exist. `targets` default to the ones with an archive; declaring a target without one
+fails configuration. The headers stay the binding's business: point its `includeDirs` at them.
 
 #### Building with anything else — `external { }`
 The same block as `jni { external { } }`, below: a list of `step { }`s run in order once per target by
@@ -291,7 +306,7 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 | Task                          | Description |
 |-------------------------------|-------------|
 | `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` per target, with whichever provider it uses. |
-| `konanClang<Name>`, `zigBuild<Name><Target>`, `externalBuild<Name><Target>` | The provider doing it: Kotlin/Native's clang, `zig build`, or the library's own steps. |
+| `konanClang<Name>`, `zigBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, the library's own steps, or placing prebuilt archives. |
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
 | `linkJni<Name><Target>`       | Links it for one target. |

@@ -30,6 +30,12 @@ internal sealed interface LibraryProvider {
             listOf(registerKonanClang(project, konan, library))
     }
 
+    /** `prebuilt { }`: archives built elsewhere, one per target, copied into place. */
+    data object Prebuilt : LibraryProvider {
+        override fun register(project: Project, konan: KonanExtension, library: NativeLibrarySpec) =
+            listOf(registerPrebuilt(project, library))
+    }
+
     /**
      * The project's own build makes the archive: one [ExternalBuildTask] per target, run with the
      * [LibraryContract] as its environment, its archive copied to `lib<name>.a`. A build system only

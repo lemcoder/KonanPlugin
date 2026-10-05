@@ -20,6 +20,7 @@ import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import io.github.lemcoder.library.NativeArtifacts
 import org.jetbrains.kotlin.konan.target.KonanTarget
+import java.io.File
 import javax.inject.Inject
 
 /**
@@ -64,7 +65,8 @@ abstract class KonanExtension @Inject constructor(objects: ObjectFactory) {
 
 /**
  * A C/C++ library built into a static archive per target, `<outputDirectory>/<target>/lib<name>.a`: by
- * Kotlin/Native's clang from [sourceDirectory], or by the project's own build ([zig], [external]).
+ * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([zig], [external]), or built
+ * elsewhere ([prebuilt]).
  */
 abstract class NativeLibrarySpec @Inject constructor(private val name: String, objects: ObjectFactory) : Named {
     override fun getName(): String = name
@@ -119,13 +121,34 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
         action.execute(external)
     }
 
+    /** Archives built elsewhere, one per target; [targets] default to the targets they are declared for. */
+    val prebuilt: PrebuiltSettings = objects.newInstance(PrebuiltSettings::class.java)
+
+    fun prebuilt(action: Action<in PrebuiltSettings>) {
+        selectedProviders += LibraryProvider.Prebuilt
+        action.execute(prebuilt)
+    }
+
     /** The provider blocks this library's script called; at most one may be. */
     internal val selectedProviders = mutableSetOf<LibraryProvider>()
 
     init {
         zig.projectDirectory.convention(sourceDirectory)
         zig.artifactName.convention(name)
+        targets.convention(prebuilt.archives.keySet().map { it.toList() })
     }
+}
+
+/**
+ * A library's archives built elsewhere — a vendor drop, another repository's CI. Each is copied to
+ * `<target>/lib<name>.a`, so a Windows `name.lib` works as it is.
+ */
+abstract class PrebuiltSettings {
+    /** The archive for each target. */
+    abstract val archives: MapProperty<KonanTarget, File>
+
+    /** The static archive built for [target]. */
+    fun archive(target: KonanTarget, file: File) = archives.put(target, file)
 }
 
 /**
