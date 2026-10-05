@@ -1,11 +1,13 @@
 package io.github.lemcoder.jni
 
 import io.github.lemcoder.abiDir
-import io.github.lemcoder.cleanTask
 import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.dsl.JniSpec
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.external.ExternalBuildVariable
+import io.github.lemcoder.external.addSteps
+import io.github.lemcoder.external.registerExternalBuild
 import io.github.lemcoder.hostKonanTarget
 import io.github.lemcoder.library.NativeArtifacts
 import io.github.lemcoder.sharedLibraryName
@@ -66,15 +68,15 @@ internal sealed interface JniStubBuild {
             val targets = targets(binding, inputs)
             val tasks = targets.map { target ->
                 val contract = ExternalContract(target, jni.stubDirectory, jni.stubLibraryName, jni.libraryDirectoryFor(target), javaHome, project.providers)
-                project.tasks.register("$taskPrefix${bindingName.capitalized()}${target.taskSuffix}", ExternalBuildTask::class.java) {
-                    group = "konan"
-                    description = "Build the '$bindingName' JNI library for ${target.name} with $toolName."
+                project.registerExternalBuild(
+                    taskName = "$taskPrefix${bindingName.capitalized()}${target.taskSuffix}",
+                    taskDescription = "Build the '$bindingName' JNI library for ${target.name} with $toolName.",
+                    environment = contract.environment(),
+                    outputDirectory = contract.outputDirectory,
+                    libraryFileName = contract.libraryName.map { target.sharedLibraryName(it) },
+                ) {
                     dependsOn(inputs.generate)
-                    mustRunAfter(project.cleanTask())
-                    contract.environment().forEach { (variable, value) -> environment.put(variable.variableName, value) }
                     generatedSources.from(contract.stubDirectory)
-                    libraryFileName.set(contract.libraryName.map { target.sharedLibraryName(it) })
-                    outputDirectory.set(contract.outputDirectory)
                     addCommands(this, project, binding, contract)
                 }
             }
@@ -89,7 +91,7 @@ internal sealed interface JniStubBuild {
             override val toolName = "its external build"
             override fun targets(binding: BindingSpec, inputs: JniStubInputs) = inputs.targets
             override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, contract: ExternalContract) =
-                addGenericCommands(task, binding, contract)
+                task.addSteps(binding.jni.external, contract.target, "konan.bindings.${binding.name}.jni")
         }
 
         /** `jni { cmake { } }`: a CMakeLists, configured with the contract as cache entries, then built. */
@@ -129,7 +131,7 @@ internal class ExternalContract(
  * The environment of every external build — the names are the public contract, read the way an AGP
  * project reads `ANDROID_ABI`.
  */
-internal enum class ExternalStubVariable(val variableName: String) {
+internal enum class ExternalStubVariable(override val variableName: String) : ExternalBuildVariable {
     /** The directory holding the generated `.c` stub. */
     STUB_DIR("KONAN_JNI_STUB_DIR"),
 

@@ -68,8 +68,44 @@ class KonanPluginFunctionalTest {
 
         val result = runner("compileNativeLibraryMymath", "--dry-run").build()
 
-        assertTrue(":zigBuildMymath SKIPPED" in result.output && ":compileNativeLibraryMymath SKIPPED" in result.output, result.output)
+        assertTrue(":zigBuildMymathMacos_arm64 SKIPPED" in result.output && ":compileNativeLibraryMymath SKIPPED" in result.output, result.output)
         assertFalse(":konanClangMymath" in result.output, result.output)
+    }
+
+    @Test
+    fun `a library built by any build system lands where every provider puts it`() {
+        assumeTrue(File("/bin/sh").canExecute(), "needs /bin/sh")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    targets(KonanTarget.LINUX_X64, KonanTarget.MINGW_X64)
+                    external {
+                        step {
+                            executable.set(io.github.lemcoder.dsl.Executable.OnPath("sh"))
+                            arguments.add("build.sh")
+                            workingDirectory.set(layout.projectDirectory)
+                        }
+                        sources.from("build.sh")
+                    }
+                }
+            }
+            """,
+        )
+        // Writes straight into the output directory the contract names.
+        File(projectDir, "build.sh").writeText(
+            "printf '%s' \"${'$'}KONAN_TARGET\" > \"${'$'}KONAN_LIBRARY_OUTPUT_DIR/lib${'$'}KONAN_LIBRARY_NAME.a\"\n"
+        )
+
+        val first = runner("compileNativeLibraryMymath").build()
+        val second = runner("compileNativeLibraryMymath").build()
+
+        listOf("linux_x64", "mingw_x64").forEach { target ->
+            assertEquals(target, File(projectDir, "build/konan/libraries/mymath/$target/libmymath.a").readText())
+            assertEquals(TaskOutcome.UP_TO_DATE, second.task(":externalBuildMymath${target.replaceFirstChar { it.uppercase() }}")?.outcome, second.output)
+        }
+        assertFalse(":konanClangMymath" in first.output, first.output)
     }
 
     @Test

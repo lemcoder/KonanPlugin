@@ -3,7 +3,6 @@ package io.github.lemcoder.wiring
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.NativeLibrarySpec
 import io.github.lemcoder.library.NativeArtifacts
-import io.github.lemcoder.library.libraryProviders
 import io.github.lemcoder.library.providerFor
 import org.gradle.api.Action
 import org.gradle.api.Project
@@ -25,7 +24,6 @@ internal fun Project.registerLibraries(konan: KonanExtension) {
 private fun Project.registerLibrary(konan: KonanExtension, library: NativeLibrarySpec) {
     library.sourceDirectory.convention(layout.projectDirectory.dir("native"))
     library.outputDirectory.convention(layout.buildDirectory.dir("konan/libraries/${library.name}"))
-    libraryProviders.forEach { it.conventions(this, library) }
 
     val lifecycle = tasks.register(NativeArtifacts.taskName(library.name)) {
         group = "konan"

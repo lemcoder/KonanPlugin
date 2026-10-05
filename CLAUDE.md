@@ -30,9 +30,13 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 - **`all`/`whenObjectAdded` fires before `create(name) { … }` runs its configure block.** Reading a
   binding's `library` or a library's `targets` there gives the default, not what the build declared —
   per-target tasks, consumer detection and KGP's cinterops are deferred to `afterEvaluate` (KGP
-  accepts cinterops declared there). Both sides follow this split: a `LibraryProvider` sets
-  conventions eagerly and registers later; a `BindingConsumer` (`consumer/`) has `prepare()` for the
-  eager part, then `isUsed()` and `register()` after evaluation.
+  accepts cinterops declared there). Both sides follow this split: a `LibraryProvider` registers
+  after evaluation (its block's conventions are set in the DSL constructors); a `BindingConsumer`
+  (`consumer/`) has `prepare()` for the eager part, then `isUsed()` and `register()` after evaluation.
+- **Build systems are sealed hierarchies with a shared `External` branch** — `LibraryProvider` for
+  libraries, `JniStubBuild` for the JNI stub. Every external one is `ExternalBuildTask` per target
+  (`external/ExternalBuilds.kt`); a preset (Zig, CMake) only adds commands. Prefer a preset over a new
+  task type.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
   binding-registration time and tolerates an empty directory.

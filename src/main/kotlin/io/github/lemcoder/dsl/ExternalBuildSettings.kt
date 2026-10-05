@@ -13,11 +13,10 @@ import java.io.File
 import javax.inject.Inject
 
 /**
- * Any build system, as a list of commands run once per JNI target. Each run gets the plugin's contract
- * as environment variables — `KONAN_JNI_STUB_DIR`, `KONAN_JNI_LIB_NAME`, `KONAN_JNI_OUTPUT_DIR`,
- * `KONAN_TARGET`, `KONAN_JNI_ABI`, `JAVA_HOME` — and the same values are on `jni` as providers, for
- * arguments. The build writes the library into `KONAN_JNI_OUTPUT_DIR`, or names where it leaves it with
- * [producedLibrary].
+ * Any build system, as a list of commands run once per target — for a library (`libraries { external
+ * { } }`) or a JNI stub (`jni { external { } }`). Each run gets the plugin's contract as environment
+ * variables, documented on the block that owns this one. The build writes its library where the contract
+ * says, or names where it leaves it with [producedLibrary], and the plugin copies it into place.
  */
 abstract class ExternalBuildSettings @Inject constructor(private val objects: ObjectFactory) {
     /**

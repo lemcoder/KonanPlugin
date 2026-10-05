@@ -4,7 +4,7 @@ import io.github.lemcoder.abiDir
 import io.github.lemcoder.androidKonanTargets
 import io.github.lemcoder.isAndroid
 import io.github.lemcoder.jni.JniStubBuild
-import io.github.lemcoder.library.LibraryProviderKind
+import io.github.lemcoder.library.LibraryProvider
 import org.gradle.api.Action
 import org.gradle.api.Named
 import org.gradle.api.NamedDomainObjectContainer
@@ -64,7 +64,7 @@ abstract class KonanExtension @Inject constructor(objects: ObjectFactory) {
 
 /**
  * A C/C++ library built into a static archive per target, `<outputDirectory>/<target>/lib<name>.a`: by
- * Kotlin/Native's clang from [sourceDirectory], or by the project's own build ([zig]).
+ * Kotlin/Native's clang from [sourceDirectory], or by the project's own build ([zig], [external]).
  */
 abstract class NativeLibrarySpec @Inject constructor(private val name: String, objects: ObjectFactory) : Named {
     override fun getName(): String = name
@@ -102,12 +102,30 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
     val zig: ZigSettings = objects.newInstance(ZigSettings::class.java)
 
     fun zig(action: Action<in ZigSettings>) {
-        selectedProviders += LibraryProviderKind.ZIG
+        selectedProviders += LibraryProvider.External.Zig
         action.execute(zig)
     }
 
+    /**
+     * Builds the library with any other build system, as a list of commands run once per target. Each run
+     * gets `KONAN_LIBRARY_NAME`, `KONAN_LIBRARY_OUTPUT_DIR`, `KONAN_LIBRARY_SOURCE_DIR` and `KONAN_TARGET`;
+     * the build writes `lib<name>.a` into the output directory, or names where it leaves its archive with
+     * `producedLibrary`.
+     */
+    val external: ExternalBuildSettings = objects.newInstance(ExternalBuildSettings::class.java)
+
+    fun external(action: Action<in ExternalBuildSettings>) {
+        selectedProviders += LibraryProvider.External.Generic
+        action.execute(external)
+    }
+
     /** The provider blocks this library's script called; at most one may be. */
-    internal val selectedProviders = mutableSetOf<LibraryProviderKind>()
+    internal val selectedProviders = mutableSetOf<LibraryProvider>()
+
+    init {
+        zig.projectDirectory.convention(sourceDirectory)
+        zig.artifactName.convention(name)
+    }
 }
 
 /**
@@ -115,6 +133,11 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
  * Kotlin/Native's sysroot. The `build.zig` must install a static library ([artifactName]).
  */
 abstract class ZigSettings {
+    init {
+        executable.convention(Executable.OnPath("zig"))
+        optimize.convention(ZigOptimize.RELEASE_FAST)
+    }
+
     /** The directory holding `build.zig`. Defaults to the library's `sourceDirectory`. */
     abstract val projectDirectory: DirectoryProperty
 

@@ -66,8 +66,10 @@ internal fun registerKonanLink(
                 }
             )
             outputDirectory.set(binding.jni.libraryDirectoryFor(target))
+            // From the task's own property: a closure over the artifacts would drag their TaskProvider into
+            // the configuration cache.
             onlyIf {
-                archive(binding, artifacts, target) != null || run {
+                staticLibrary.isPresent || run {
                     logger.lifecycle(
                         "konan.bindings.$bindingName: no library(), jni.archive or staticLibraries in the .def, so only " +
                             "the JNI bindings and the .c stub were generated — link them from your own build."

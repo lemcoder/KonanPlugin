@@ -107,7 +107,7 @@ flowchart TD
 | 1 | **DSL** | Declares libraries, bindings, toolchains and packaging; validates; no work of its own | Build script → model objects | `konan { libraries; bindings }` (section A) |
 | 2 | **Target model** | The plugin's own target type (OS, architecture, ABI) with mappings to every ecosystem's name | — | `KonanTarget` today, mapped to Android ABI and JVM library paths |
 | 3 | **Toolchain** | Compile, archive and link C/C++ for one target | Sources + flags → `.o`, `.a`, `.so`/`.dylib`/`.dll` | Konan (clang + downloaded sysroots) today; Xcode, Android NDK, system clang/GCC/MSVC, Zig later |
-| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`: **KonanClangProvider** (default, `konanClang<Name>`) and **ZigProvider** (`zig { }`, `zigBuild<Name>`), both behind `compileNativeLibrary<Name>`; CMake only for the JNI stub; **Prebuilt** not yet |
+| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`, sealed: **KonanClang** (default, `konanClang<Name>`) or **External** — one `ExternalBuildTask` per target with the `ExternalLibraryVariable` contract: **Zig** (`zig { }`) and **Generic** (`external { step { } }`, any build system); all behind `compileNativeLibrary<Name>`; **Prebuilt** not yet |
 | 5 | **Binding spec** | What to bind | `.def` + cinterop command line → cinterop's `NativeIndex` | cinterop itself, in the index exporter (section B) |
 | 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KgpWiring.declareCinterops`) |
 | 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `JniStubBuild`, a sealed hierarchy: **KonanLink** (`LinkSharedLibraryTask`) or **External** — the project's own build, one `ExternalBuildTask` per target running a list of commands with the `ExternalStubVariable` contract as environment: **Generic** (`jni { external { step { } } }`, any build system) and the **CMake** preset (configure + build, contract also as cache entries); FFM links the library itself, no glue |
@@ -175,7 +175,7 @@ Choices made:
 - **No compatibility shim** for `konanConfig`/`jvmInterops`/`kotlinNativeInterop`: a major version.
 
 **A second library provider: Zig.** `libraries { create(…) { zig { } } }` runs the project's own
-`build.zig` once per target. Adding it touched only the library side — a `ZigBuildTask`, a `zig { }`
+`build.zig` once per target. Adding it touched only the library side — a build task, a `zig { }`
 block on the library, a Kotlin/Native → Zig triple mapping — and left bindings, generators and consumer
 wiring unchanged. One Zig-built archive was then consumed by all three consumers: JNI and KGP's
 cinterop in one multiplatform build (`jvm()` + `macosArm64()`), FFM in a `kotlin("jvm")` build, and a
@@ -186,10 +186,12 @@ cinterop in one multiplatform build (`jvm()` + `macosArm64()`), FFM in a `kotlin
   and `builtBy`, the lifecycle task `compileNativeLibrary<Name>`. Bindings and consumers take a
   `NativeArtifacts` and never learn which provider ran. Zig names Windows archives `mymath.lib`; its
   provider renames on copy.
-- **A provider is an implementation of `LibraryProvider`**: its DSL block name, its conventions, and
-  the tasks that leave the archives in place. A library selects one by calling its block — two is an
-  error, none means `KonanClangProvider`. A new build system is a settings class with its block on the
-  library, a `LibraryProvider`, and an entry in `libraryProviders`; nothing on the consumer side.
+- **A provider is a case of the sealed `LibraryProvider`**, and the selection is the provider itself:
+  a library's block adds it, two is an error, none means `KonanClang`. Every build system other than
+  konan's clang is an `External` — the generic `external { step { } }` one, or a preset such as Zig —
+  sharing `ExternalBuildTask` with the JNI stub builds: commands per target, the contract as
+  environment, the produced archive copied to `lib<name>.a`. A new preset is a nested object that adds
+  its commands; nothing on the consumer side.
 - **The target model has to map to each toolchain's triple.** Kotlin/Native targets become Zig triples
   pinned to konan's sysroots (glibc 2.19, macOS 12.0, iOS 14.0). The glibc pin is defensive: in this
   test, unpinned Zig also produced plain `strtol`. Android needs bionic, which Zig does not bundle.

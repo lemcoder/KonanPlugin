@@ -62,7 +62,8 @@ A binding is consumed wherever the project's Kotlin targets need it, with nothin
 
 ### `libraries { }`
 A C/C++ library built to `<outputDirectory>/<target>/lib<name>.a` for each target: by Kotlin/Native's
-clang from `sourceDirectory`, or by Zig. Bindings see the same archives either way.
+clang from `sourceDirectory`, by Zig, or by any other build system. Bindings see the same archives
+either way.
 
 | Property          | Type                | Default                          | Description |
 |-------------------|---------------------|----------------------------------|-------------|
@@ -72,6 +73,7 @@ clang from `sourceDirectory`, or by Zig. Bindings see the same archives either w
 | `compilerOptions` | `List<String>`      | —                                | Appended to `-fno-sanitize=undefined -fPIC`. Put `-std=…` here — C and C++ sources share one invocation. |
 | `outputDirectory` | `Directory`         | `build/konan/libraries/<name>`   | Root of the per-target archives; `archive(target)` gives one. |
 | `zig { }`         |                     | —                                | Build with the project's `build.zig` instead; below. |
+| `external { }`    |                     | —                                | Build with any other build system, as commands; below. |
 
 #### Building with Zig — `zig { }`
 ```kotlin
@@ -81,7 +83,7 @@ create("mymath") {
 }
 ```
 
-`zig build` runs once per target, with `-Dtarget` set to the Zig triple matching Kotlin/Native's
+`zigBuild<Name><Target>` runs `zig build` once per target, with `-Dtarget` set to the Zig triple matching Kotlin/Native's
 sysroot (glibc 2.19 on Linux, macOS 12.0, iOS 14.0), and its static library is copied to where the
 plugin's own build would put it — Windows' `mymath.lib` included. The `build.zig` must install a static
 library (`b.addLibrary(.{ .linkage = .static, … })`).
@@ -95,6 +97,33 @@ library (`b.addLibrary(.{ .linkage = .static, … })`).
 | `artifactName`     | `String`       | the library's name  | The static library `build.zig` installs. |
 
 Android targets need a libc file for the NDK's bionic, which Zig does not bundle.
+
+#### Building with anything else — `external { }`
+The same block as `jni { external { } }`, below: a list of `step { }`s run in order once per target by
+`externalBuild<Name><Target>`, with `sources` for up-to-date checks and `producedLibrary(target, file)`
+when the build leaves its archive somewhere of its own. Each run gets:
+
+| variable | meaning |
+|---|---|
+| `KONAN_LIBRARY_NAME` | the library's name: the archive becomes `lib<name>.a` |
+| `KONAN_LIBRARY_OUTPUT_DIR` | where this target's archive must land |
+| `KONAN_LIBRARY_SOURCE_DIR` | the library's `sourceDirectory` |
+| `KONAN_TARGET` | the Kotlin/Native target, e.g. `linux_x64` |
+
+```kotlin
+create("mymath") {
+    targets(KonanTarget.LINUX_X64)
+    external {
+        step {
+            executable.set(Executable.OnPath("cargo"))
+            arguments.addAll("build", "--release", "--target", "x86_64-unknown-linux-gnu")
+            workingDirectory.set(layout.projectDirectory.dir("native"))
+        }
+        sources.from("native/src", "native/Cargo.toml")
+        producedLibrary(KonanTarget.LINUX_X64, file("native/target/x86_64-unknown-linux-gnu/release/libmymath.a"))
+    }
+}
+```
 
 ### `bindings { }`
 A C API described by a cinterop `.def`.
@@ -262,7 +291,7 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 | Task                          | Description |
 |-------------------------------|-------------|
 | `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` per target, with whichever provider it uses. |
-| `konanClang<Name>`, `zigBuild<Name>` | The provider doing it: Kotlin/Native's clang, or `zig build`. |
+| `konanClang<Name>`, `zigBuild<Name><Target>`, `externalBuild<Name><Target>` | The provider doing it: Kotlin/Native's clang, `zig build`, or the library's own steps. |
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
 | `linkJni<Name><Target>`       | Links it for one target. |
