@@ -1,6 +1,7 @@
 package io.github.lemcoder.library
 
 import io.github.lemcoder.cleanTask
+import io.github.lemcoder.dsl.Executable
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.NativeLibrarySpec
 import io.github.lemcoder.dsl.ZigOptimize
@@ -14,6 +15,7 @@ internal object ZigProvider : LibraryProvider {
     override fun conventions(project: Project, library: NativeLibrarySpec) {
         val zig = library.zig
         zig.projectDirectory.convention(library.sourceDirectory)
+        zig.executable.convention(Executable.OnPath("zig"))
         zig.optimize.convention(ZigOptimize.RELEASE_FAST)
         zig.artifactName.convention(library.name)
     }
@@ -26,7 +28,7 @@ internal object ZigProvider : LibraryProvider {
             val zig = library.zig
             projectDirectory.set(zig.projectDirectory)
             sources.from(zig.projectDirectory.map { dir -> dir.asFileTree.matching { exclude(".zig-cache/**", "zig-out/**") } })
-            executable.set(zig.executable.map { it.asFile.absolutePath }.orElse("zig"))
+            executable.set(zig.executable)
             targets.set(library.targets)
             optimize.set(zig.optimize)
             arguments.set(zig.arguments)

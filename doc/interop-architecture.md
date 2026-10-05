@@ -110,8 +110,8 @@ flowchart TD
 | 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`: **KonanClangProvider** (default, `konanClang<Name>`) and **ZigProvider** (`zig { }`, `zigBuild<Name>`), both behind `compileNativeLibrary<Name>`; CMake only for the JNI stub; **Prebuilt** not yet |
 | 5 | **Binding spec** | What to bind | `.def` + cinterop command line → cinterop's `NativeIndex` | cinterop itself, in the index exporter (section B) |
 | 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KgpWiring.declareCinterops`) |
-| 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `LinkJvmInteropTask`, or an external build through the `KONAN_JNI_STUB_DIR` contract; a no-glue shared library for FFM is missing (section D) |
-| 8 | **Packaging and wiring** | Picks static or shared linkage per consumer and puts bindings and binaries where that consumer loads them | Bindings + binaries → source sets, `jniLibs`, cinterop declarations, publications | JVM and Android for JNI; Kotlin/Native through the KGP adapter; FFM and publications not yet (section D) |
+| 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `JniStubBuild`, a sealed hierarchy: **KonanLink** (`LinkSharedLibraryTask`) or **External** — the project's own build, one `ExternalBuildTask` per target running a list of commands with the `ExternalStubVariable` contract as environment: **Generic** (`jni { external { step { } } }`, any build system) and the **CMake** preset (configure + build, contract also as cache entries); FFM links the library itself, no glue |
+| 8 | **Packaging and wiring** | Picks static or shared linkage per consumer and puts bindings and binaries where that consumer loads them | Bindings + binaries → source sets, `jniLibs`, cinterop declarations, publications | `BindingConsumer`: **KotlinNativeConsumer** (the KGP adapter), **JniConsumer** (JVM, multiplatform JVM, Android; own link or CMake), **FfmConsumer** (`kotlin("jvm")` only); publications not yet (section D) |
 
 How the two paths use them:
 
@@ -303,7 +303,11 @@ Partly settled by what exists:
 ## D. Toolchains, prebuilt binaries and packaging
 
 What the generators showed each consumer needs. The plugin wires every row today, FFM only in a
-`kotlin("jvm")` project:
+`kotlin("jvm")` project. Each row is a `BindingConsumer`, the binding-side counterpart of
+`LibraryProvider`: `prepare()` runs when the binding is added, for wiring that must be eager (AGP's
+variant callbacks, the multiplatform source directory); `isUsed()` decides from the project's plugins
+and the binding's settings once the build script has run; `register()` then adds the tasks. Consumers
+take the library only as `NativeArtifacts`. A new consumer is one more entry in `bindingConsumers`.
 
 | Consumer | Binary | Glue | Wiring |
 | --- | --- | --- | --- |

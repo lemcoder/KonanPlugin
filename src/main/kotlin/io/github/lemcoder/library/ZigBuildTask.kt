@@ -1,6 +1,8 @@
 package io.github.lemcoder.library
 
+import io.github.lemcoder.dsl.Executable
 import io.github.lemcoder.dsl.ZigOptimize
+import io.github.lemcoder.toolchain.command
 import io.github.lemcoder.toolchain.zigTriple
 import io.github.lemcoder.util.ExecCaptureResult
 import io.github.lemcoder.util.execCapture
@@ -36,7 +38,7 @@ internal abstract class ZigBuildTask @Inject constructor(
     /** What the build reads: the project directory, less Zig's own cache and output. */
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) abstract val sources: ConfigurableFileCollection
 
-    @get:Input abstract val executable: Property<String>
+    @get:Input abstract val executable: Property<Executable>
     @get:Input abstract val targets: ListProperty<KonanTarget>
     @get:Input abstract val optimize: Property<ZigOptimize>
     @get:Input abstract val arguments: ListProperty<String>
@@ -53,7 +55,7 @@ internal abstract class ZigBuildTask @Inject constructor(
     fun build() {
         val artifact = artifactName.get()
         // Read before exec's block: inside it, `executable` is the ExecSpec's own.
-        val zig = executable.get()
+        val zig = executable.get().command()
         val directory = projectDirectory.get().asFile
         val extra = arguments.get()
         targets.get().forEach { target ->

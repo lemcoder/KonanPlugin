@@ -24,11 +24,11 @@ internal val KonanTarget.taskSuffix: String get() = name.replaceFirstChar { it.u
 
 /** `jniLibs/` subdirectory: Android ABI names, otherwise the target name. */
 internal val KonanTarget.abiDir: String
-    get() = when (name) {
-        "android_arm64" -> "arm64-v8a"
-        "android_arm32" -> "armeabi-v7a"
-        "android_x64" -> "x86_64"
-        "android_x86" -> "x86"
+    get() = when (this) {
+        KonanTarget.ANDROID_ARM64 -> "arm64-v8a"
+        KonanTarget.ANDROID_ARM32 -> "armeabi-v7a"
+        KonanTarget.ANDROID_X64 -> "x86_64"
+        KonanTarget.ANDROID_X86 -> "x86"
         else -> name
     }
 

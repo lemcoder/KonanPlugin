@@ -1,6 +1,9 @@
 package io.github.lemcoder.dsl
 
+import io.github.lemcoder.abiDir
 import io.github.lemcoder.androidKonanTargets
+import io.github.lemcoder.isAndroid
+import io.github.lemcoder.jni.JniStubBuild
 import io.github.lemcoder.library.LibraryProviderKind
 import org.gradle.api.Action
 import org.gradle.api.Named
@@ -115,8 +118,8 @@ abstract class ZigSettings {
     /** The directory holding `build.zig`. Defaults to the library's `sourceDirectory`. */
     abstract val projectDirectory: DirectoryProperty
 
-    /** The `zig` executable. When absent, `zig` on the PATH. */
-    abstract val executable: RegularFileProperty
+    /** The `zig` program. Defaults to `zig` on the PATH or in the usual install locations. */
+    abstract val executable: Property<Executable>
 
     /**
      * `-Doptimize`. Defaults to [ZigOptimize.RELEASE_FAST]: Zig's `DEBUG` and `RELEASE_SAFE` compile C with
@@ -226,12 +229,39 @@ abstract class JniSpec @Inject constructor(objects: ObjectFactory) {
     /** An external CMake build that compiles the stub; declaring it replaces the plugin's own link. */
     val cmake: CMakeSettings = objects.newInstance(CMakeSettings::class.java)
 
-    internal var usesCMake: Boolean = false
-
     fun cmake(action: Action<in CMakeSettings>) {
-        usesCMake = true
+        selectedStubBuilds += JniStubBuild.External.CMake
         action.execute(cmake)
     }
+
+    /** Any other build system that compiles the stub, as a list of commands; replaces the plugin's own link. */
+    val external: ExternalBuildSettings = objects.newInstance(ExternalBuildSettings::class.java)
+
+    fun external(action: Action<in ExternalBuildSettings>) {
+        selectedStubBuilds += JniStubBuild.External.Generic
+        action.execute(external)
+    }
+
+    /** The directory holding the generated `.c` stub — what an external build compiles. */
+    val stubDirectory: Provider<Directory> get() = stubDirectoryProperty
+
+    /** The library name the generated bindings load: an external build must produce exactly that. */
+    val stubLibraryName: Provider<String> get() = stubLibraryNameProperty
+
+    /** Where [target]'s JNI library must land: `jniLibs/<abi>/` for Android, a per-target directory otherwise. */
+    fun libraryDirectoryFor(target: KonanTarget): Provider<Directory> =
+        if (target.isAndroid) jniLibsRoot.dir(target.abiDir) else hostLibRoot.dir(target.name)
+
+    internal val stubDirectoryProperty: DirectoryProperty = objects.directoryProperty()
+    internal val stubLibraryNameProperty: Property<String> = objects.property(String::class.java)
+
+    // Only per-ABI libraries may live under jniLibs: AGP reads each subdirectory name as an ABI, and a
+    // host library sitting in the root fails its merge with "… is not an ABI".
+    internal val jniLibsRoot: DirectoryProperty = objects.directoryProperty()
+    internal val hostLibRoot: DirectoryProperty = objects.directoryProperty()
+
+    /** The stub build blocks this binding's script called; at most one may be. */
+    internal val selectedStubBuilds = mutableSetOf<JniStubBuild>()
 }
 
 /** How the FFM bindings are generated. The generated Java needs a JDK 22+ toolchain. */

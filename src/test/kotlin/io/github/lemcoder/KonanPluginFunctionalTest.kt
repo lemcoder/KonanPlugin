@@ -96,7 +96,7 @@ class KonanPluginFunctionalTest {
             libraries {
                 create("mymath") {
                     targets(KonanTarget.MACOS_ARM64, KonanTarget.LINUX_X64, KonanTarget.MINGW_X64)
-                    zig { executable.set(file("${zig.replace("\\", "/")}")) }
+                    zig { executable.set(io.github.lemcoder.dsl.Executable.File(file("${zig.replace("\\", "/")}"))) }
                 }
             }
             """,
@@ -156,7 +156,7 @@ class KonanPluginFunctionalTest {
                     jni {
                         cmake {
                             path.set(file("CMakeLists.txt"))
-                            targets.add("mymath-jni")
+                            buildTargets.add("mymath-jni")
                         }
                     }
                 }
@@ -167,8 +167,77 @@ class KonanPluginFunctionalTest {
 
         val result = runner("linkJniMymath", "--dry-run").withPluginClasspathAndKgp().build()
 
-        assertTrue(":cmakeConfigureMymath SKIPPED" in result.output && ":cmakeBuildMymath SKIPPED" in result.output, result.output)
+        assertTrue(":cmakeBuildMymath$hostSuffix SKIPPED" in result.output, result.output)
         assertFalse(":linkJniMymath$hostSuffix" in result.output, "no plugin link with an external build:\n${result.output}")
+    }
+
+    @Test
+    fun `CMake receives the contract as cache entries and builds into the plugin's directory`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            """
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    jni { cmake { path.set(file("CMakeLists.txt")) } }
+                }
+            }
+            """,
+        )
+        File(projectDir, "CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.16)
+            project(contract NONE)
+            file(WRITE "${'$'}{CMAKE_LIBRARY_OUTPUT_DIRECTORY}/contract.txt" "${'$'}{KONAN_JNI_LIB_NAME}|${'$'}{KONAN_JNI_STUB_DIR}")
+            """.trimIndent()
+        )
+
+        runner("linkJniMymath").withPluginClasspathAndKgp().build()
+
+        val contract = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.name}/contract.txt").readText().split('|')
+        assertTrue(contract[0].isNotEmpty(), "library name: $contract")
+        assertTrue(File(contract[1]).isDirectory, "stub directory: $contract")
+    }
+
+    @Test
+    fun `a generic external build runs its steps with the contract and its library is copied into place`() {
+        assumeTrue(File("/bin/sh").canExecute(), "needs /bin/sh")
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            """
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    jni {
+                        external {
+                            step {
+                                executable.set(io.github.lemcoder.dsl.Executable.File(file("/bin/sh")))
+                                arguments.add("build.sh")
+                                workingDirectory.set(layout.projectDirectory)
+                            }
+                            producedLibrary(KonanTarget.${host.name.uppercase()}, file("out/built"))
+                        }
+                    }
+                }
+            }
+            """,
+        )
+        // Leaves its library somewhere of its own, as most build systems do.
+        File(projectDir, "build.sh").writeText(
+            "mkdir -p out && printf '%s|%s|%s' \"\$KONAN_TARGET\" \"\$KONAN_JNI_LIB_NAME\" \"\$KONAN_JNI_STUB_DIR\" > out/built\n"
+        )
+
+        val result = runner("linkJniMymath").withPluginClasspathAndKgp().build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":externalBuildMymath$hostSuffix")?.outcome, result.output)
+        val libraries = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.name}").listFiles().orEmpty()
+        val library = libraries.singleOrNull() ?: error("expected one library, got ${libraries.toList()}")
+        val (target, name, stubDirectory) = library.readText().split('|')
+        assertEquals(host.name, target)
+        assertTrue(library.name.contains(name), "${library.name} is named after $name")
+        assertTrue(File(stubDirectory).isDirectory, "stub directory: $stubDirectory")
     }
 
     @Test

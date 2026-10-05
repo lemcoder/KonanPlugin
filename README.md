@@ -15,7 +15,7 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
 - Speaks Kotlin/Native's own `KonanTarget`: pass `kotlinNativeTarget.konanTarget` straight in, and new
   targets arrive with the Kotlin version.
 - Wires generated sources, `jniLibs` and task order into Kotlin and Android builds; can hand the JNI
-  stub to an external CMake build instead.
+  stub to the project's own build — CMake, or any build system as a list of commands — instead.
 - Auto-detects the Kotlin/Native distribution, the JDK that supplies `jni.h`, and the compiler-rt
   builtins each target needs (NDK on Android, Xcode on macOS).
 
@@ -89,7 +89,7 @@ library (`b.addLibrary(.{ .linkage = .static, … })`).
 | Property           | Type           | Default             | Description |
 |--------------------|----------------|---------------------|-------------|
 | `projectDirectory` | `Directory`    | `sourceDirectory`   | Where `build.zig` is. |
-| `executable`       | `File`         | `zig` on the PATH   | The `zig` executable. |
+| `executable`       | `Executable`   | `OnPath("zig")`     | The `zig` program: `Executable.File(file(…))`, or `Executable.OnPath(name)`. |
 | `optimize`         | `ZigOptimize`  | `RELEASE_FAST`      | `-Doptimize`. Zig's `DEBUG` and `RELEASE_SAFE` compile C with UBSan traps, whose runtime the Kotlin/Native and JNI links do not have. |
 | `arguments`        | `List<String>` | —                   | Further `zig build` arguments. |
 | `artifactName`     | `String`       | the library's name  | The static library `build.zig` installs. |
@@ -121,16 +121,38 @@ A C API described by a cinterop `.def`.
 | `linkerOptionsFor(target, …)` |                 | — | Extra options for one target's link; `-framework` belongs here, since the Android linker rejects it. |
 | `libraryDirectory`   | `Directory`              | output | Where the host's JNI library ends up: put it on `java.library.path`. |
 | `cmake { }`          |                          | — | An external CMake build that compiles the stub instead; below. |
+| `external { }`       |                          | — | Any other build system that compiles the stub, as commands; below. |
+| `stubDirectory`, `stubLibraryName`, `libraryDirectoryFor(target)` | read-only | — | The external-build contract as providers, for arguments. |
 
 Without a library, `jni.archive` or `staticLibraries` in the `.def`, the plugin stops after the Kotlin
 bindings and the `.c` stub, for another build system to compile. That is the mode for a native library
 owned by CMake, Bazel or a vendor: linking an archive built by a foreign toolchain with konan's linker
 is what produces mismatched C++ runtimes and missing compiler-rt.
 
-#### Letting CMake link it — `jni { cmake { } }`
-When the native library belongs to a CMake project, the plugin drives that build instead of linking
-anything itself, the way AGP's `externalNativeBuild` hands a module's native code to CMake:
+#### Letting your own build link it
+When the native library belongs to another build system, the plugin drives that build instead of
+linking anything itself, the way AGP's `externalNativeBuild` hands a module's native code to CMake. No
+link task is registered: one build task per target takes its place, ordered after generation, and
+`linkJni<Name>` depends on them, so "make the JNI library exist" means the same thing either way. A
+binding selects at most one of `cmake { }` and `external { }`.
 
+Every run gets the plugin's contract — what only it knows — as environment variables:
+
+| variable | meaning |
+|---|---|
+| `KONAN_JNI_STUB_DIR` | directory holding the generated `.c` stub |
+| `KONAN_JNI_LIB_NAME` | the name the generated bindings will `System.loadLibrary` |
+| `KONAN_JNI_OUTPUT_DIR` | where this target's library must land: `jniLibs/<abi>/` on Android, which the plugin packages |
+| `KONAN_TARGET` | the Kotlin/Native target, e.g. `android_arm64` |
+| `KONAN_JNI_ABI` | its Android ABI, e.g. `arm64-v8a`; the target's name elsewhere |
+| `JAVA_HOME` | `jni.jdkHome`, else a JDK that ships `include/jni.h` — IDE-bundled JBRs strip the headers |
+
+The same values are on `jni` as providers — `stubDirectory`, `stubLibraryName`,
+`libraryDirectoryFor(target)` — for building arguments. Programs are an `Executable`: `File(file)`, or
+`OnPath(name)`, looked up when the build runs on the `PATH` and in the usual install locations, because
+the Gradle daemon does not inherit a login shell's `PATH`.
+
+##### CMake — `jni { cmake { } }`
 ```kotlin
 create("koinference") {
     packageName.set("com.example.native")
@@ -138,30 +160,18 @@ create("koinference") {
         cmake {
             path.set(file("native/CMakeLists.txt"))
             preset.set("macosArm64")          // or buildDirectory, for preset-less projects
-            targets.add("koinference-jni")
+            buildTargets.add("koinference-jni")
             arguments.add("-DMY_OWN_SWITCH=ON")
         }
     }
 }
 ```
 
-No link task is registered; `cmakeConfigure<Name>` and `cmakeBuild<Name>` take its place, ordered
-after generation, and `linkJni<Name>` depends on the build so "make the JNI library exist" means the
-same thing either way. Android needs a library per ABI, so declare them:
-`abi("arm64-v8a") { preset.set("androidNativeArm64") }`. Each ABI gets its own configure/build pair and
-lands in `jniLibs/<abi>/`, which the plugin packages; it sets `CMAKE_LIBRARY_OUTPUT_DIRECTORY`, so the
-CMakeLists needs no knowledge of the layout.
-
-The plugin supplies what only it knows, as cache entries your `CMakeLists.txt` reads:
-
-| variable | meaning |
-|---|---|
-| `KONAN_JNI_STUB_DIR` | directory holding the generated `.c` stub |
-| `KONAN_JNI_LIB_NAME` | the name the generated bindings will `System.loadLibrary` |
-
-It also points `JAVA_HOME` at a JDK that ships `include/jni.h` — the one running Gradle often does
-not, since IDE-bundled JBRs strip the headers — and locates `cmake` itself, because the Gradle daemon
-does not inherit a login shell's PATH.
+`cmakeBuild<Name><Target>` configures, then builds. It always runs and leaves incrementality to CMake,
+so a changed configure argument always reaches the build. Android needs a library per ABI, so declare
+targets: `target(KonanTarget.ANDROID_ARM64) { preset.set("androidNativeArm64") }`; without any, it
+builds once for the host. The contract also arrives as cache entries, and `CMAKE_LIBRARY_OUTPUT_DIRECTORY`
+is set to `KONAN_JNI_OUTPUT_DIR`, so the CMakeLists needs no knowledge of the layout:
 
 ```cmake
 set(KONAN_JNI_STUB_DIR "" CACHE PATH "")
@@ -172,6 +182,47 @@ add_library(mylib-jni SHARED ${JNI_SOURCES})
 set_target_properties(mylib-jni PROPERTIES OUTPUT_NAME "${KONAN_JNI_LIB_NAME}")
 target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arrive transitively
 ```
+
+| Property         | Type             | Default            | Description |
+|------------------|------------------|--------------------|-------------|
+| `path`           | `File`           | —                  | The `CMakeLists.txt`. Required unless `preset` is set. |
+| `preset`         | `String`         | —                  | A configure preset from `CMakePresets.json`. |
+| `buildDirectory` | `Directory`      | `<source>/build/<preset>`, else under `build/` | Where CMake builds. |
+| `buildTargets`   | `List<String>`   | the default target | `--target`s to build. |
+| `arguments`      | `List<String>`   | —                  | Extra configure arguments. |
+| `libraryDirectory` | `Directory`    | `KONAN_JNI_OUTPUT_DIR` | Where the library is, if the build ignores `CMAKE_LIBRARY_OUTPUT_DIRECTORY`. |
+| `executable`     | `Executable`     | `OnPath("cmake")`  | The `cmake` program. |
+| `target(t) { }`  |                  | the host           | A per-target build with its own `preset`, `buildDirectory`, `arguments`. |
+
+##### Any build system — `jni { external { } }`
+A list of commands, run in order once per JNI target (`jni.targets`):
+
+```kotlin
+jni {
+    external {
+        step {
+            executable.set(Executable.OnPath("make"))
+            arguments.addAll("-C", "native/jni")
+            argumentsFor(KonanTarget.ANDROID_ARM64, "ARCH=arm64")
+        }
+        sources.from("native")                       // what it reads; omit to always run
+        producedLibrary(KonanTarget.MACOS_ARM64, file("native/jni/out/libstub.dylib"))
+    }
+}
+```
+
+`externalBuild<Name><Target>` runs the steps. The build writes the library into `KONAN_JNI_OUTPUT_DIR`,
+or names where it leaves it with `producedLibrary(target, file)`, and the plugin copies it into place
+under the name the bindings load. With `sources` declared the task is up to date while they and the
+steps are unchanged; without, the plugin cannot know what the build reads, so it always runs.
+
+| Step property      | Type                | Description |
+|--------------------|---------------------|-------------|
+| `executable`       | `Executable`        | The program. Required. |
+| `arguments`        | `List<String>`      | Arguments for every target; `add(provider)` composes the contract providers. |
+| `argumentsFor(target, …)` |              | Arguments for one target, after `arguments`. |
+| `environment`      | `Map<String, String>` | Variables beyond the contract; these win over it. |
+| `workingDirectory` | `Directory`         | Where it runs. |
 
 ### The generated JNI bindings
 One `external fun` per C function, named after it and carrying its C signature as a doc comment.
@@ -215,7 +266,7 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
 | `linkJni<Name><Target>`       | Links it for one target. |
-| `cmakeConfigure<Name>`, `cmakeBuild<Name>` | The external CMake build, in place of the link. |
+| `cmakeBuild<Name><Target>`, `externalBuild<Name><Target>` | The project's own build, in place of the link. |
 | `generateFfm<Name>`, `linkFfm<Name>` | jextract's bindings, and the shared library they load. |
 | `cinterop<Name><Target>`      | KGP's own cinterop, declared by the plugin. |
 
@@ -238,7 +289,9 @@ The DSL is new and there is no compatibility shim.
 - `jvmInterops { create(…) { … } }` — on a compilation or on the project — becomes
   `konan { bindings { create(…) { … } } }`, with the JNI-only settings in `jni { }`: `jniHome` →
   `jdkHome`, `library` → `archive`, `additionalLinkerArgs` → `linkerOptions`, `linkerArgsFor` →
-  `linkerOptionsFor`, `externalNativeBuild { cmake { } }` → `cmake { }`, `resolvedLibraryDirectory` →
+  `linkerOptionsFor`, `externalNativeBuild { cmake { } }` → `cmake { }` (`targets` → `buildTargets`,
+  `abi("arm64-v8a")` → `target(KonanTarget.ANDROID_ARM64)`, `executable` → an `Executable`, no `$CMAKE`),
+  `resolvedLibraryDirectory` →
   `libraryDirectory`. `additionalCompilerArgs` becomes `compilerOptions`. Bindings are wired into the
   project's JVM and Android targets automatically.
 - Refer to the library instead of naming the archive: `library(mymath)`, where

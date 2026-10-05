@@ -30,13 +30,20 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 - **`all`/`whenObjectAdded` fires before `create(name) { … }` runs its configure block.** Reading a
   binding's `library` or a library's `targets` there gives the default, not what the build declared —
   per-target tasks, consumer detection and KGP's cinterops are deferred to `afterEvaluate` (KGP
-  accepts cinterops declared there).
+  accepts cinterops declared there). Both sides follow this split: a `LibraryProvider` sets
+  conventions eagerly and registers later; a `BindingConsumer` (`consumer/`) has `prepare()` for the
+  eager part, then `isUsed()` and `register()` after evaluation.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
   binding-registration time and tolerates an empty directory.
-- **A CMake build task needs `CMakeCache.txt` as an input.** Otherwise changing a configure argument
-  re-runs configure, leaves the build `UP-TO-DATE`, and silently keeps the previous library — a
-  linker flag appears to do nothing.
+- **An external build's configure and build steps are one task.** As two tasks, changing a configure
+  argument re-ran configure, left the build `UP-TO-DATE`, and silently kept the previous library — a
+  linker flag appeared to do nothing. `ExternalBuildTask` runs every step, and without declared
+  `sources` it always runs, leaving incrementality to the build system.
+- **External-build steps stay lazy.** The stub directory comes from the generator's
+  `@OutputDirectory`, so steps are `@Nested` `ExternalCommand` beans whose arguments are composed from
+  providers (`add(provider.map { … })`); never `provider { x.get() }`. Executables are resolved in the
+  task action (`Executable.command()`), not at configuration.
 
 ## Layout and naming contracts
 
@@ -48,7 +55,10 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 - **The stub library name is derived from the binding package** and baked into the generated
   `System.loadLibrary`. It, and the stub directory, are reported by the task
   (`stubLibraryBaseName`, `stubSourceDirectory`, `kotlinSourceDirectory`) — consumers must never
-  reconstruct them, and `KONAN_JNI_STUB_DIR` / `KONAN_JNI_LIB_NAME` are the external-build contract.
+  reconstruct them. The external-build contract is `ExternalStubVariable` (`KONAN_JNI_STUB_DIR`,
+  `KONAN_JNI_LIB_NAME`, `KONAN_JNI_OUTPUT_DIR`, `KONAN_TARGET`, `KONAN_JNI_ABI`, `JAVA_HOME`): every
+  `JniStubBuild.External` gets it as environment in `External.register`; a subclass only adds commands
+  (CMake also passes it as cache entries). The same values are on `JniSpec` as providers.
 - **`cmake --preset` resolves `CMakePresets.json` from the working directory**, so configure runs
   from the CMakeLists directory rather than the project root.
 
