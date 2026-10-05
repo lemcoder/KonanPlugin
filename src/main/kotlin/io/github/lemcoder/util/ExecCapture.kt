@@ -6,7 +6,7 @@ import org.gradle.process.ExecSpec
 import org.gradle.process.JavaExecSpec
 import java.io.ByteArrayOutputStream
 
-fun ExecOperations.execCapture(
+internal fun ExecOperations.execCapture(
     configure: ExecSpec.() -> Unit,
 ): ExecCaptureResult = capture { os ->
     exec {
@@ -17,7 +17,7 @@ fun ExecOperations.execCapture(
     }
 }
 
-fun ExecOperations.javaExecCapture(
+internal fun ExecOperations.javaExecCapture(
     configure: JavaExecSpec.() -> Unit,
 ): ExecCaptureResult = capture { os ->
     javaexec {
@@ -39,7 +39,7 @@ private fun capture(run: (ByteArrayOutputStream) -> ExecResult): ExecCaptureResu
 }
 
 
-sealed class ExecCaptureResult(
+internal sealed class ExecCaptureResult(
     val output: String,
     private val result: ExecResult,
 ) : ExecResult by result {

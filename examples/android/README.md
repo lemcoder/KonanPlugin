@@ -56,21 +56,25 @@ my_scale(4.0) = 40.0
 One config block — the plugin does the wiring:
 
 ```kotlin
-konanConfig {
-    targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64)
-    libName.set("mymath")
-    jvmInterop { packageName.set("example") }
+konan {
+    val mymath = libraries.create("mymath") { targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64) } // device + emulator
+    bindings {
+        create("mymath") {
+            defFile.set(file("src/main/nativeInterop/mymath.def"))
+            includeDirs.from("native")
+            library(mymath)
+        }
+    }
 }
 ```
 
-- `targets` + `libName` → the per-ABI `.a`s, from `sourceDir` (default `native`).
-- the nested `jvmInterop` → bridges + `.so`s. It inherits the targets, header dir and static library
-  from the enclosing block, and is enabled automatically because Android targets are present; the
-  Kotlin/Native distribution is auto-detected from `$KONAN_HOME` / `~/.konan`.
+- the library → `libmymath.a` per ABI, from `native/`, in `build/konan/libraries/mymath/<target>/`.
+- the binding → Kotlin bindings and a `.so` per ABI the library is built for: an Android app gets JNI.
+  The Kotlin/Native distribution is auto-detected from `$KONAN_HOME` / `~/.konan`.
 
 When AGP is present the plugin **automatically** adds the generated Kotlin bridges as a source
 directory and the per-ABI `jniLibs/` as native libraries (via the AGP variant API), and orders
-`generateJvmInterop` / `linkJvmInterop` / `runKonanClang` ahead of the build. No `sourceSets` or
+`compileNativeLibraryMymath` / `generateJniMymath` / `linkJniMymath` ahead of the build. No `sourceSets` or
 `dependsOn` boilerplate needed.
 
 `MainActivity` calls `example.add/scale` (in `src/main/kotlin/example/Api.kt`), which call the

@@ -5,7 +5,6 @@ import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
-import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
@@ -22,7 +21,7 @@ import org.jetbrains.kotlin.konan.target.KonanTarget
 import javax.inject.Inject
 
 /**
- * Indexes the headers a `.def` names with cinterop's own indexer and runs a [generator] over the
+ * Indexes the headers a `.def` names with cinterop's own indexer and runs the generator [request] asks for over the
  * resulting `NativeIndex`, in the exporter's process, writing into [outputDirectory]. See
  * [runIndexExporter] for where that process runs.
  */
@@ -33,7 +32,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val defFile: RegularFileProperty
 
-    /** Each directory becomes an `-I` for the indexer's clang. */
+    /** Each directory becomes an `-I` for the indexer's clang, after the `.def`'s own directory. */
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection
 
@@ -51,13 +50,9 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @get:Internal
     abstract val konanHome: DirectoryProperty
 
-    /** A generator the exporter knows by name: `dump`, `jni` or `jextract`. */
+    /** What to generate, with that generator's settings, e.g. `GeneratorRequest.Dump`. */
     @get:Input
-    abstract val generator: Property<String>
-
-    /** Passed to the generator as `key=value` options. */
-    @get:Input @get:Optional
-    abstract val generatorOptions: MapProperty<String, String>
+    abstract val request: Property<GeneratorRequest>
 
     /** Replaced on every run with the generator's output. */
     @get:OutputDirectory
@@ -66,16 +61,19 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @TaskAction
     fun generate() {
         exec.runIndexExporter(
-            generator = generator.get(),
+            request = request.get(),
             outputDirectory = outputDirectory.get().asFile,
             cinteropArgs = buildList {
-                add("-def"); add(defFile.get().asFile.absolutePath)
+                val def = defFile.get().asFile
+                add("-def"); add(def.absolutePath)
+                // The .def's own directory, as cinterop users expect; a path rather than an input, so a .def
+                // at the project root does not make the whole project one.
+                add("-compiler-option"); add("-I${def.parentFile.absolutePath}")
                 add("-target"); add(target.get().name)
                 includeDirs.files.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
                 compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
                 addAll(extraCinteropArgs.getOrElse(emptyList()))
             },
-            generatorOptions = generatorOptions.getOrElse(emptyMap()),
             konanHome = konanHome.orNull?.asFile,
             workDir = temporaryDir,
         )

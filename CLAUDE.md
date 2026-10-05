@@ -9,10 +9,11 @@ Any type appearing in a **decorated signature** — extension properties, task p
 resolved the moment the plugin is applied, in *every* project that applies it.
 
 - `KotlinCompilation` and `KotlinTarget` are neither `ExtensionAware` nor open to third-party DSL
-  blocks, which is why `jvmInterops` is an extension function over a project-scoped registry rather
-  than a real extension. Putting a KGP type in a registry method signature fails with
-  *"Could not generate a decorated class … KotlinCompilation"* in any project without KGP. The
-  registry takes a `SourceWiring` callback instead.
+  blocks, which is why the whole DSL is one project extension, `konan`, and consumers are found from
+  the project's plugins and targets. No KGP or AGP type may appear in the DSL classes: putting one in a
+  decorated signature fails with *"Could not generate a decorated class … KotlinCompilation"* in any
+  project without KGP. All KGP and AGP code lives in `wiring/KgpWiring` and `wiring/AgpWiring`, reached
+  only from `plugins.withId` callbacks or once the plugin is known to be applied.
 - `kotlin-native-utils` is an `implementation` dependency, not the compile-only it arrives as
   transitively: `KonanTarget` appears in decorated DSL signatures, and the published POM previously
   declared no dependencies at all.
@@ -23,15 +24,16 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 
 ## Ordering rules that are not obvious
 
-- **Configuration cache resolves conventions when it stores.** A `konanPath` convention that threw
+- **Configuration cache resolves conventions when it stores.** A `konanHome` convention that threw
   broke *configuration*; one that returned absent got the absent value cached before KGP had
   downloaded the distribution. Toolchain detection happens in the task action.
-- **`whenObjectAdded` fires before `create(name) { … }` runs its configure block.** Reading
-  `settings.targets` there gives the default, not what the build declared — per-target task
-  registration is deferred to `afterEvaluate`.
+- **`all`/`whenObjectAdded` fires before `create(name) { … }` runs its configure block.** Reading a
+  binding's `library` or a library's `targets` there gives the default, not what the build declared —
+  per-target tasks, consumer detection and KGP's cinterops are deferred to `afterEvaluate` (KGP
+  accepts cinterops declared there).
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
-  interop-registration time and tolerates an empty directory.
+  binding-registration time and tolerates an empty directory.
 - **A CMake build task needs `CMakeCache.txt` as an input.** Otherwise changing a configure argument
   re-runs configure, leaves the build `UP-TO-DATE`, and silently keeps the previous library — a
   linker flag appears to do nothing.
@@ -40,7 +42,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 
 - **Only ABI-named directories may sit under `jniLibs`.** AGP reads each subdirectory as an ABI, so
   a host library in the root fails the merge with *"… is not an ABI"*. Host builds write to
-  `jvmInterop/<name>/lib/`. This only reproduces on Linux: AGP ignores `.dylib`.
+  `konan/bindings/<name>/jni/lib/`. This only reproduces on Linux: AGP ignores `.dylib`.
 - **`Family.dynamicSuffix` has no leading dot.** `"${prefix}$name${suffix}"` yields
   `libfoostubsdylib`.
 - **The stub library name is derived from the binding package** and baked into the generated
@@ -64,9 +66,14 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 
 - The `kotlin-dsl` plugin adds a `T.() -> Unit` overload of `whenObjectAdded`, making the SAM form
   ambiguous — use an object expression.
-- Do not expose both a function and a property with the same name (`jvmInterops`): `x.jvmInterops {}`
-  then reads as either the call or property-plus-`invoke`, and the IDE flags a suspicious receiver.
-  The read-back accessor is `jvmInteropsContainer()`.
+- Do not add an *extension* function and a property of the same name on a foreign receiver: `x.foo {}`
+  then reads as either the call or property-plus-`invoke`, and the IDE flags a suspicious receiver (the
+  old `KotlinCompilation.jvmInterops`). Members `val jni` plus `fun jni(Action)` are Gradle's own
+  pattern for nested objects and are fine.
+- Receivers shadow: `name` inside a `tasks.register(…) { }` block is the task's name, not the enclosing
+  object's (a path built from it landed in `generated/konan/generateJniMymath/…`), and `executable`
+  inside `exec { }` is the `ExecSpec`'s, not the task's. Read such values into differently named locals
+  before the block.
 - A nested settings object must be created through `ObjectFactory`; Gradle will not synthesise
   `abstract val cmake: CMakeSettings`.
 
@@ -86,11 +93,15 @@ holds a `NativeIndex`.
   the compiler jar as a friend module (`friendPaths` in the buildSrc plugin). Java is not a way around
   `internal` here: `native` is a Java keyword, so Java cannot import any `org.jetbrains.kotlin.native.…`
   class. And Kotlin cannot see the jar's types through Java sources in the same source set.
-- **Kotlin/Native bindings are not an exporter generator.** `kotlinNativeInterop` adapts a binding to
-  KGP's own `cinterops {}`, so the klib comes from the consumer's Kotlin version — a klib is a compiler
+- **Kotlin/Native bindings are not an exporter generator.** `KgpWiring.declareCinterops` adapts a
+  binding to KGP's own `cinterops {}`, so the klib comes from the consumer's Kotlin version — a klib is a compiler
   artifact, unlike the sources the exporter writes. Running cinterop's pipeline in the exporter works
   (`Interop().interop("native", …)`), but would pin the klib to `kotlinNativeVersion`; and its native
   allocator setup must not nest inside the exporter's, which is why the index is built lazily.
+- **The request is typed on both sides.** `src/exporterProtocol` (`GeneratorRequest`,
+  `ExporterInvocation`) is compiled into both main and the exporter, so the command line is encoded and
+  decoded by the same code. Add a generator by adding a request subclass; the `when` dispatch is
+  exhaustive.
 - **It runs through `javaexec`, not the Worker API.** A process-isolated worker puts Gradle's Kotlin
   stdlib and the plugin's classes next to the compiler jar: the compiler then ran on Gradle 9.8's
   stdlib 2.4.10 instead of its bundled 2.4.20. The daemon is out too: KGP's cinterop may already have
@@ -104,7 +115,7 @@ the plugin to a project with neither KGP nor AGP. Keep at least one fixture like
 `withPluginClasspath()` loads the plugin under test where a plugin the test build applies on its own
 (`kotlin("multiplatform") version …`) cannot see it: code reaching KGP's types fails with
 `NoClassDefFoundError`, though a real build loads both together. A test that needs KGP passes it on the
-plugin-under-test classpath itself (`kgp.classpath`, see `KotlinNativeInteropTest`); never add KGP to
+plugin-under-test classpath itself (`withPluginClasspathAndKgp()` in `TestKitSupport.kt`); never add KGP to
 the shared metadata, or the no-KGP fixtures stop proving anything.
 
 Portal versions are immutable — bump and publish, never reuse an alpha. Consumers with `mavenLocal()`

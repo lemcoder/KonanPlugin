@@ -1,4 +1,4 @@
-package io.github.lemcoder.interop
+package io.github.lemcoder.wiring
 
 import java.io.File
 
@@ -11,7 +11,7 @@ import java.io.File
  *   these into the klib; here they decide whether there is anything to link at all — a def without
  *   them yields bindings and a `.c` stub for someone else's build to compile.
  */
-data class DefFile(
+internal data class DefFile(
     val packageName: String?,
     val staticLibraries: List<String>,
     val libraryPaths: List<String>,

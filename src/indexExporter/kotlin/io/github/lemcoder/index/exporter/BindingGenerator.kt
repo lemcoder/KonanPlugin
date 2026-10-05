@@ -1,5 +1,6 @@
 package io.github.lemcoder.index.exporter
 
+import io.github.lemcoder.index.GeneratorRequest
 import org.jetbrains.kotlin.native.interop.indexer.NativeIndex
 import java.io.File
 
@@ -9,12 +10,16 @@ import java.io.File
  * Runs in the exporter's process, next to the index, so it reads upstream's model directly: nothing about
  * the index crosses into the Gradle daemon, only what the generator writes.
  */
-interface BindingGenerator {
-    /** How the exporter's command line and the Gradle tasks name this generator. */
-    val name: String
+interface BindingGenerator<in R : GeneratorRequest> {
+    /** Writes the output [request] asks for into [outputDirectory], which starts out empty. */
+    fun generate(request: R, context: GenerationContext, outputDirectory: File)
+}
 
-    /** Writes this generator's output into [outputDirectory], which starts out empty. */
-    fun generate(context: GenerationContext, outputDirectory: File)
+/** Runs the generator [request] is for. A new request type does not compile until it is handled here. */
+fun generate(request: GeneratorRequest, context: GenerationContext, outputDirectory: File) = when (request) {
+    GeneratorRequest.Dump -> DumpGenerator.generate(GeneratorRequest.Dump, context, outputDirectory)
+    is GeneratorRequest.Jni -> JniGenerator.generate(request, context, outputDirectory)
+    is GeneratorRequest.Jextract -> JextractGenerator.generate(request, context, outputDirectory)
 }
 
 /**
@@ -28,8 +33,6 @@ class GenerationContext(
     val packageName: String,
     /** The `.def`'s lines after `---`: C code every translation unit of the library sees. */
     val preambleLines: List<String>,
-    /** `--option key=value` pairs from the exporter's command line, for the generator to interpret. */
-    val options: Map<String, String>,
     indexLibrary: () -> IndexedLibrary,
 ) {
     private val indexed by lazy(indexLibrary)
@@ -49,6 +52,3 @@ class GenerationContext(
 /** cinterop's view of the library: its index, and what it was built from. */
 class IndexedLibrary(val index: NativeIndex, val headers: List<String>, val compilerArgs: List<String>)
 
-/** Every generator the exporter can run, by [BindingGenerator.name]. */
-val bindingGenerators: Map<String, BindingGenerator> =
-    listOf(DumpGenerator, JniGenerator, JextractGenerator).associateBy { it.name }

@@ -1,4 +1,4 @@
-package io.github.lemcoder
+package io.github.lemcoder.library
 
 import org.jetbrains.kotlin.konan.target.KonanTarget
 
@@ -32,7 +32,7 @@ import javax.inject.Inject
  * utility.
  */
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native toolchain, which is not a tracked input")
-abstract class RunKonanClangTask @Inject constructor(
+internal abstract class CompileNativeLibraryTask @Inject constructor(
     private val exec: ExecOperations,
     private val fs: FileSystemOperations,
     private val objects: ObjectFactory,
@@ -73,7 +73,7 @@ abstract class RunKonanClangTask @Inject constructor(
     abstract val libName: Property<String>
 
     private val libFileName: Provider<String>
-        get() = libName.map { "lib${it}.a" }
+        get() = libName.map { NativeArtifacts.archiveFileName(it) }
 
     @TaskAction
     fun compileAndLink() {

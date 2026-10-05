@@ -1,6 +1,6 @@
 package io.github.lemcoder
 
-import io.github.lemcoder.jvm.JvmInteropSupport
+import io.github.lemcoder.toolchain.NativeToolchain
 
 /**
  * A JDK home that ships `include/jni.h`, for a build that compiles the generated JNI stub itself.
@@ -12,4 +12,4 @@ import io.github.lemcoder.jvm.JvmInteropSupport
  *
  * @throws IllegalStateException when no installed JDK ships the header.
  */
-fun jniHome(): String = JvmInteropSupport.detectJniHome().absolutePath
+fun jniHome(): String = NativeToolchain.detectJniHome().absolutePath

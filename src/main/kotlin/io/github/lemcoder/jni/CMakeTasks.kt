@@ -1,4 +1,4 @@
-package io.github.lemcoder.interop
+package io.github.lemcoder.jni
 
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
@@ -23,7 +23,7 @@ import javax.inject.Inject
 
 /** Configures the external CMake build that compiles the generated JNI stub. */
 @DisableCachingByDefault(because = "CMake configure writes machine-specific absolute paths")
-abstract class CMakeConfigureTask @Inject constructor(
+internal abstract class CMakeConfigureTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:Input abstract val executable: Property<String>
@@ -71,7 +71,7 @@ abstract class CMakeConfigureTask @Inject constructor(
 
 /** Runs the external CMake build for the generated JNI stub. */
 @DisableCachingByDefault(because = "External build; CMake does its own incremental tracking")
-abstract class CMakeBuildTask @Inject constructor(
+internal abstract class CMakeBuildTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:Input abstract val executable: Property<String>

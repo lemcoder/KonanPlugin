@@ -1,5 +1,6 @@
 package io.github.lemcoder.index.exporter
 
+import io.github.lemcoder.index.GeneratorRequest
 import java.io.File
 import java.nio.file.Files
 
@@ -14,17 +15,14 @@ import java.nio.file.Files
  * Only the user-level `-I`, `-D` and `-U` options reach jextract: it brings its own clang and builtin
  * headers, so the target flags cinterop parsed with do not apply.
  *
- * Options: `library` (required) is the shared library the bindings load with `System.loadLibrary`, so
- * from `java.library.path`; `jextract` is the jextract executable (default: `jextract` on the PATH);
- * `headerClass` names the class holding the functions (default: the package's last segment).
+ * The bindings load the request's library with `System.loadLibrary`, so from `java.library.path`; see
+ * [GeneratorRequest.Jextract] for the rest.
  */
-object JextractGenerator : BindingGenerator {
-    override val name = "jextract"
-
-    override fun generate(context: GenerationContext, outputDirectory: File) {
-        val library = requireNotNull(context.options["library"]) { "The jextract generator needs --option library=<name>" }
-        val jextract = context.options["jextract"] ?: "jextract"
-        val headerClass = context.options["headerClass"] ?: context.packageName.substringAfterLast('.')
+object JextractGenerator : BindingGenerator<GeneratorRequest.Jextract> {
+    override fun generate(request: GeneratorRequest.Jextract, context: GenerationContext, outputDirectory: File) {
+        val library = request.library
+        val jextract = request.jextract?.absolutePath ?: "jextract"
+        val headerClass = request.headerClass ?: context.packageName.substringAfterLast('.')
 
         val scratch = Files.createTempDirectory("jextract").toFile()
         try {

@@ -1,6 +1,9 @@
-package io.github.lemcoder.jvm
+package io.github.lemcoder.jni
 
+import io.github.lemcoder.index.GeneratedVisibility
+import io.github.lemcoder.index.GeneratorRequest
 import io.github.lemcoder.index.runIndexExporter
+import io.github.lemcoder.toolchain.NativeToolchain
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
@@ -33,7 +36,7 @@ import javax.inject.Inject
  * overridden here, since the JVM bindings live in their own package.
  */
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native distribution, which is not a tracked input")
-abstract class GenerateJvmInteropTask @Inject constructor(
+internal abstract class GenerateJniBindingsTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -47,10 +50,10 @@ abstract class GenerateJvmInteropTask @Inject constructor(
 
     /** The headers are indexed once, for the host; the bridges are the same on every target. */
     @get:Input abstract val hostTarget: Property<KonanTarget>
-    @get:Input @get:Optional abstract val additionalCompilerArgs: ListProperty<String>
+    @get:Input @get:Optional abstract val compilerOptions: ListProperty<String>
 
-    /** Emit the bindings as `internal`, keeping them out of the module's published API. */
-    @get:Input abstract val internalBindings: Property<Boolean>
+    /** `INTERNAL` keeps the bindings out of the module's published API. */
+    @get:Input abstract val visibility: Property<GeneratedVisibility>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     /**
@@ -63,14 +66,14 @@ abstract class GenerateJvmInteropTask @Inject constructor(
     /** The generated stub itself, named after the binding package. */
     @get:Internal
     val stubSourceFile: Provider<RegularFile>
-        get() = outputDirectory.file(packageName.map { "$C_DIR/${JvmInteropSupport.stubBaseName(it)}.c" })
+        get() = outputDirectory.file(packageName.map { "$C_DIR/${NativeToolchain.stubBaseName(it)}.c" })
 
     /**
      * Base name of the JNI library the generated bindings will `System.loadLibrary`, derived from the
      * binding package. A build that links the stub itself has to produce exactly this name.
      */
     @get:Internal
-    val stubLibraryBaseName: Provider<String> get() = packageName.map { JvmInteropSupport.stubBaseName(it) }
+    val stubLibraryBaseName: Provider<String> get() = packageName.map { NativeToolchain.stubBaseName(it) }
 
     /** Directory holding the generated Kotlin bindings. */
     @get:Internal
@@ -81,19 +84,15 @@ abstract class GenerateJvmInteropTask @Inject constructor(
         val def = defFile.get().asFile
         val includes = listOf(def.parentFile) + includeDirs.files
         exec.runIndexExporter(
-            generator = "jni",
+            request = GeneratorRequest.Jni(stubLibrary = stubLibraryBaseName.get(), visibility = visibility.get()),
             outputDirectory = outputDirectory.get().asFile,
             cinteropArgs = buildList {
                 add("-def"); add(def.absolutePath)
                 add("-pkg"); add(packageName.get())
                 add("-target"); add(hostTarget.get().name)
                 includes.filter { it.exists() }.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
-                additionalCompilerArgs.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
+                compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
             },
-            generatorOptions = mapOf(
-                "stubLibrary" to stubLibraryBaseName.get(),
-                "visibility" to if (internalBindings.getOrElse(true)) "internal" else "public",
-            ),
             workDir = temporaryDir,
         )
     }

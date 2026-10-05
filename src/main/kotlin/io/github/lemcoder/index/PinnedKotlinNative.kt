@@ -7,7 +7,7 @@ import java.io.File
  * the exporter links against that version's compiler jar — its internal functions and the `NativeIndex`
  * model the generators read — so another version may not link. `kotlinNativeVersion` in the plugin build.
  */
-object PinnedKotlinNative {
+internal object PinnedKotlinNative {
     val version: String by lazy {
         java.util.Properties().apply {
             PinnedKotlinNative::class.java.getResourceAsStream("kotlin-native.properties").use { load(checkNotNull(it)) }

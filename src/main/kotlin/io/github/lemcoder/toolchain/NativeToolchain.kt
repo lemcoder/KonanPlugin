@@ -1,9 +1,9 @@
-package io.github.lemcoder.jvm
+package io.github.lemcoder.toolchain
 
 import java.io.File
 
 /** Pure helpers for the JVM/JNI interop leg: toolchain discovery and naming. */
-internal object JvmInteropSupport {
+internal object NativeToolchain {
 
     // --- toolchain discovery -------------------------------------------------
 

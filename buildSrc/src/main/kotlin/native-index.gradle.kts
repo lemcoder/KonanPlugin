@@ -16,6 +16,12 @@ pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
     val sourceSets = the<SourceSetContainer>()
     val indexExporter = sourceSets.create("indexExporter")
 
+    // The request types both sides of the process boundary speak: one source, compiled into each.
+    val protocol = "src/exporterProtocol/kotlin"
+    listOf(sourceSets.getByName("main"), indexExporter).forEach {
+        (it.extensions.getByName("kotlin") as SourceDirectorySet).srcDir(protocol)
+    }
+
     dependencies {
         // compileOnly: at run time the distribution's own copy of this jar is the classpath.
         "indexExporterCompileOnly"(kotlinNativeVersion.map { "org.jetbrains.kotlin:kotlin-native-compiler-embeddable:$it" })

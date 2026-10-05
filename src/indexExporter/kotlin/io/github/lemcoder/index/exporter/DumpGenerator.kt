@@ -1,6 +1,7 @@
 package io.github.lemcoder.index.exporter
 
 import org.jetbrains.kotlin.native.interop.indexer.*
+import io.github.lemcoder.index.GeneratorRequest
 import java.io.File
 
 /**
@@ -9,10 +10,8 @@ import java.io.File
  *
  * Declarations referenced from a type are rendered by name, not expanded, so cycles terminate.
  */
-object DumpGenerator : BindingGenerator {
-    override val name = "dump"
-
-    override fun generate(context: GenerationContext, outputDirectory: File) {
+object DumpGenerator : BindingGenerator<GeneratorRequest.Dump> {
+    override fun generate(request: GeneratorRequest.Dump, context: GenerationContext, outputDirectory: File) {
         outputDirectory.resolve("index.txt").writeText(dumpNativeIndex(context.index))
     }
 }

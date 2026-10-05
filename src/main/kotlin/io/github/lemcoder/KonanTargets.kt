@@ -10,13 +10,6 @@ import org.jetbrains.kotlin.konan.target.KonanTarget
  * Kotlin version rather than with a plugin release.
  */
 
-/** Resolves a Kotlin/Native target name, e.g. `"android_arm64"`. */
-fun konanTargetOf(name: String): KonanTarget = KonanTarget.predefinedTargets[name]
-    ?: error(
-        "Unknown Kotlin/Native target '$name'. Known: " +
-            KonanTarget.predefinedTargets.keys.sorted().joinToString()
-    )
-
 /** The build host, as a target. */
 fun hostKonanTarget(): KonanTarget = HostManager.host
 
@@ -27,10 +20,10 @@ fun androidKonanTargets(): List<KonanTarget> =
 internal val KonanTarget.isAndroid: Boolean get() = family == Family.ANDROID
 
 /** Task-name segment, e.g. `Android_arm64` in `linkJvmInteropMymathAndroid_arm64`. */
-val KonanTarget.taskSuffix: String get() = name.replaceFirstChar { it.uppercase() }
+internal val KonanTarget.taskSuffix: String get() = name.replaceFirstChar { it.uppercase() }
 
 /** `jniLibs/` subdirectory: Android ABI names, otherwise the target name. */
-val KonanTarget.abiDir: String
+internal val KonanTarget.abiDir: String
     get() = when (name) {
         "android_arm64" -> "arm64-v8a"
         "android_arm32" -> "armeabi-v7a"

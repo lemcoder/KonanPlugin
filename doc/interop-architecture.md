@@ -104,12 +104,12 @@ flowchart TD
 
 | # | Component | Responsibility | Consumes → produces | Implementations |
 | --- | --- | --- | --- | --- |
-| 1 | **DSL** | Declares libraries, bindings, toolchains and packaging; validates; no work of its own | Build script → model objects | Today `konanConfig {}` and `jvmInterops {}`; the redesign is section A |
+| 1 | **DSL** | Declares libraries, bindings, toolchains and packaging; validates; no work of its own | Build script → model objects | `konan { libraries; bindings }` (section A) |
 | 2 | **Target model** | The plugin's own target type (OS, architecture, ABI) with mappings to every ecosystem's name | — | `KonanTarget` today, mapped to Android ABI and JVM library paths |
 | 3 | **Toolchain** | Compile, archive and link C/C++ for one target | Sources + flags → `.o`, `.a`, `.so`/`.dylib`/`.dll` | Konan (clang + downloaded sysroots) today; Xcode, Android NDK, system clang/GCC/MSVC, Zig later |
-| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | **Sources** (`runKonanClang`), **External build** (CMake); **Prebuilt** not yet |
+| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`: **KonanClangProvider** (default, `konanClang<Name>`) and **ZigProvider** (`zig { }`, `zigBuild<Name>`), both behind `compileNativeLibrary<Name>`; CMake only for the JNI stub; **Prebuilt** not yet |
 | 5 | **Binding spec** | What to bind | `.def` + cinterop command line → cinterop's `NativeIndex` | cinterop itself, in the index exporter (section B) |
-| 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`kotlinNativeInterop`) |
+| 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KgpWiring.declareCinterops`) |
 | 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `LinkJvmInteropTask`, or an external build through the `KONAN_JNI_STUB_DIR` contract; a no-glue shared library for FFM is missing (section D) |
 | 8 | **Packaging and wiring** | Picks static or shared linkage per consumer and puts bindings and binaries where that consumer loads them | Bindings + binaries → source sets, `jniLibs`, cinterop declarations, publications | JVM and Android for JNI; Kotlin/Native through the KGP adapter; FFM and publications not yet (section D) |
 
@@ -134,23 +134,83 @@ Rules that fall out of this:
 
 ## A. DSL
 
-Not designed yet; next round. It must decide:
+One project extension, `konan`, with a container per component: **libraries** (component 4) and
+**bindings** (5 and 6). A binding names its library; consumers follow from the project's plugins and
+Kotlin targets, so a build declares what it has, not how each consumer is wired.
 
-- Where declarations live: top-level `nativeLibraries {}` and `bindings {}` containers, or per
-  compilation like `compilations["main"].cinterops {}`, or both with one referencing the other.
-- How much to borrow from AGP's `externalNativeBuild { cmake { path; version } }` and
-  `defaultConfig.externalNativeBuild { cmake { arguments; abiFilters } }`, where the build is declared
-  once and tuned per variant.
-- How a binding names its library (by reference, so provider and generator stay decoupled) and picks
-  generators per consumer — section B shows each consumer has exactly one natural generator.
-- Prior art to read first: the current KGP `cinterops {}` DSL, AGP `externalNativeBuild` and
-  `ndk {}`, and Gradle's own `cpp-library` plugin.
+```kotlin
+konan {
+    val mymath = libraries.create("mymath") {
+        targets(KonanTarget.MACOS_ARM64, KonanTarget.ANDROID_ARM64)       // sourceDirectory = native/
+    }
+    bindings {
+        create("mymath") {
+            library(mymath)                // archive per target, -staticLibrary/-libraryPath, task order
+            packageName.set("example")
+            jni { visibility.set(BindingVisibility.PUBLIC) }   // optional per-consumer settings
+            ffm()                          // opt-in; replaces JNI in a kotlin("jvm") project
+        }
+    }
+}
+```
+
+| The project has | The binding becomes |
+| --- | --- |
+| Kotlin/Native targets (`kotlin("multiplatform")`) | KGP's `cinterops {}` on each target the library is built for, archive embedded |
+| `kotlin("jvm")`, multiplatform `jvm()`/Android targets, an Android app | JNI bindings in the main sources; a JNI library per target a JVM can load (host and Android, from the library's targets) |
+| `ffm()` in a `kotlin("jvm")` project | jextract's FFM bindings in the main Java sources, the library linked as a shared library |
+
+Choices made:
+
+- **Containers, not per-compilation blocks.** `KotlinCompilation` is not extensible, and consumers are
+  derived anyway; per-compilation declarations would repeat one binding per target.
+- **A binding refers to its library as an object** (`library(mymath)`), not by name. Providers and generators stay decoupled (component
+  rule 1), and the `.def` no longer needs `staticLibraries`: the plugin passes cinterop
+  `-staticLibrary`/`-libraryPath` and links the archive for JNI and FFM.
+- **Per-consumer settings nest under the binding** (`jni { }`, `ffm { }`), with AGP-style nested CMake
+  under `jni { cmake { } }`, since only the JNI stub is ever compiled by an external build.
+- **One naming scheme**: `compilerOptions`, `linkerOptions`, file and directory properties, vararg
+  `targets(…)`. Tasks are `compileNativeLibrary<Name>`, `generateJni<Name>`, `linkJni<Name>[<Target>]`,
+  `generateFfm<Name>`, `linkFfm<Name>`, and KGP's own `cinterop<Name><Target>`.
+- **No compatibility shim** for `konanConfig`/`jvmInterops`/`kotlinNativeInterop`: a major version.
+
+**A second library provider: Zig.** `libraries { create(…) { zig { } } }` runs the project's own
+`build.zig` once per target. Adding it touched only the library side — a `ZigBuildTask`, a `zig { }`
+block on the library, a Kotlin/Native → Zig triple mapping — and left bindings, generators and consumer
+wiring unchanged. One Zig-built archive was then consumed by all three consumers: JNI and KGP's
+cinterop in one multiplatform build (`jvm()` + `macosArm64()`), FFM in a `kotlin("jvm")` build, and a
+`linuxX64` executable cross-linked from macOS. What made that possible, and what it cost:
+
+- **The archive path is the contract, now a type.** `NativeArtifacts` writes the layout
+  (`<target>/lib<name>.a` under the library's output directory) in one place and carries the targets
+  and `builtBy`, the lifecycle task `compileNativeLibrary<Name>`. Bindings and consumers take a
+  `NativeArtifacts` and never learn which provider ran. Zig names Windows archives `mymath.lib`; its
+  provider renames on copy.
+- **A provider is an implementation of `LibraryProvider`**: its DSL block name, its conventions, and
+  the tasks that leave the archives in place. A library selects one by calling its block — two is an
+  error, none means `KonanClangProvider`. A new build system is a settings class with its block on the
+  library, a `LibraryProvider`, and an entry in `libraryProviders`; nothing on the consumer side.
+- **The target model has to map to each toolchain's triple.** Kotlin/Native targets become Zig triples
+  pinned to konan's sysroots (glibc 2.19, macOS 12.0, iOS 14.0). The glibc pin is defensive: in this
+  test, unpinned Zig also produced plain `strtol`. Android needs bionic, which Zig does not bundle.
+- **Mixing toolchains brings runtime mismatches.** Zig's `Debug`/`ReleaseSafe` compile C with UBSan
+  traps the other links cannot resolve, so the provider defaults to `ReleaseFast` — the same reason
+  konan's clang passes `-fno-sanitize=undefined`.
+- **The provider is decided after the build script runs**, so it is registered in `afterEvaluate`
+  behind a lifecycle task that exists from the start.
+
+Bazel would slot in the same way: `bazel build //target --platforms=…` per Kotlin/Native target, with a
+platform per target and the output copied to the archive path. Its cost is the platforms and C
+toolchains a Bazel workspace must declare to cross-compile, which Zig brings built in.
+
+Still open: a **Prebuilt** library provider (binaries and headers per target from paths or a Maven
+artifact), FFM in multiplatform projects, and publishing a library's bindings and binaries.
 
 ## B. Generator model
 
 Generators come in two kinds. **Exporter generators** (`jni`, `jextract`, `dump`) run in one process, the
 **index exporter**, next to cinterop's model of the headers, and only generated sources leave it. A
-**pipeline adapter** generates nothing itself: the KGP cinterop adapter (`kotlinNativeInterop`)
+**pipeline adapter** generates nothing itself: the KGP cinterop adapter
 declares KGP's own `cinterops {}` for every Kotlin/Native target. Built and verified: the same
 `mymath.def` produces bindings for all three consumers, each called from Kotlin with identical results
 (integers, doubles, strings both ways, a read-only buffer, and a buffer the C side fills).
@@ -175,10 +235,13 @@ worker, the compiler ran on Gradle's stdlib (2.4.10) instead of its own (2.4.20)
 classpath of exactly the compiler jar and the exporter avoids both. The distribution must be the exact
 version the exporter was compiled against (`kotlinNativeVersion`, 2.4.20).
 
-**The interface.** `BindingGenerator.generate(context, outputDirectory)`, chosen by name. The
-`GenerationContext` carries the package (decided as cinterop decides it), the `.def`'s preamble, the
-cinterop command line, generator options, and — built on first use — the index, the included headers
-and the clang arguments.
+**The interface.** What to generate is a sealed `GeneratorRequest` — `Dump`, `Jni(stubLibrary,
+visibility)`, `Jextract(library, jextract, headerClass)` — each carrying its generator's typed settings,
+dispatched with an exhaustive `when` to `BindingGenerator<R>.generate(request, context, outputDirectory)`.
+`ExporterInvocation` encodes a request on the exporter's command line and decodes it on the other side;
+its source is compiled into both the plugin and the exporter, so the two cannot disagree. The
+`GenerationContext` carries the package (decided as cinterop decides it), the `.def`'s preamble, and —
+built on first use — the index, the included headers and the clang arguments.
 
 | Exporter generator | Reads the index? | Output | Consumer | Notes |
 | --- | --- | --- | --- | --- |
@@ -190,8 +253,8 @@ and the clang arguments.
 the consumer's Kotlin version, which KGP's cinterop is and the exporter's pinned distribution is not.
 The adapter also inherits what KGP does around it — a task per target, change detection,
 `-Xmodule-name`, the compile dependency, commonization, IDE import and publication — and wires the
-provider's archive in (`-libraryPath` to `konanConfig`'s output, the cinterop task after
-`runKonanClang`). Running cinterop's pipeline in the exporter (`Interop().interop("native", …)`) was
+provider's archive in (`-staticLibrary` and `-libraryPath` to the library's archive, the cinterop task
+after the library's compile task). Running cinterop's pipeline in the exporter (`Interop().interop("native", …)`) was
 tried and works, with a klib matching KGP's apart from the header hash and `unique_name`; it is not
 used because of the version pin.
 
@@ -226,34 +289,33 @@ Partly settled by what exists:
   compiles against the compiler jar, which `main` must not); `src/main/.../index` holds the launcher
   (`runIndexExporter`), the generic `GenerateFromNativeIndexTask` and `PinnedKotlinNative`;
   `buildSrc/.../native-index.gradle.kts` wires the source set, the friend path and the nested exporter
-  jar. The remaining components (DSL, providers, packaging) still sit in `interop/` and `jvm/` and get
-  one package each in the redesign, so "KGP and AGP types only in packaging" can be checked by package.
+  jar. The other components have a package each: `dsl` (everything a build script touches), `library`,
+  `jni`, `link`, `toolchain`, and `wiring` (which turns the DSL into tasks; `KgpWiring` and `AgpWiring`
+  are the only files touching KGP and AGP types).
 - **Generator output**: each exporter generator owns its layout under the task's output directory —
   `jni`: `kotlin/<package>/<facade>.kt` and `c/<stub>.c`; `jextract`: `java/<package>/`; `dump`:
   `index.txt`. Kotlin/Native klibs stay where KGP puts them.
-- **Consumer build output**: still to fix, e.g. `build/native/<library>/<target>/` for artifacts and
-  `build/generated/bindings/<binding>/<generator>/` for bindings, keeping the rule that only ABI-named
-  directories sit under `jniLibs`.
+- **Consumer build output**: archives in `build/konan/libraries/<library>/<target>/`; generated sources
+  in `build/generated/konan/<binding>/{jni,ffm}/`; linked libraries in
+  `build/konan/bindings/<binding>/{jni/lib/<target>,jni/jniLibs/<abi>,ffm/lib/<target>}/` — only
+  ABI-named directories under `jniLibs`.
 
 ## D. Toolchains, prebuilt binaries and packaging
 
-Still to design. What the generators showed each consumer needs; the JNI and Kotlin/Native rows are
-wired by the plugin today, the FFM row was done by hand in a verification project:
+What the generators showed each consumer needs. The plugin wires every row today, FFM only in a
+`kotlin("jvm")` project:
 
 | Consumer | Binary | Glue | Wiring |
 | --- | --- | --- | --- |
-| Kotlin/Native | Static archive, embedded in the klib (`staticLibraries` + `-libraryPath`) | None | KGP's `cinterops {}` on each target's main compilation, declared by the adapter |
+| Kotlin/Native | Static archive, embedded in the klib (`-staticLibrary` + `-libraryPath`) | None | KGP's `cinterops {}` on each target's main compilation, declared by the adapter |
 | JVM (JNI) | Shared library: stub + archive | The JNI stub | Generated Kotlin as sources; the library on `java.library.path` or in resources |
-| JVM (FFM) | Shared library of the C code itself | None | Generated Java as sources, compiled with a JDK 22+ toolchain; `--enable-native-access`; the library on `java.library.path` |
+| JVM (FFM) | Shared library of the C code itself (`linkFfm<Name>`: the archive linked whole) | None | Generated Java in the main Java sources; the build supplies a JDK 22+ toolchain, `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path` |
 | Android | Shared library: stub + archive, per ABI | The JNI stub | Generated Kotlin as sources; `jniLibs/<abi>` via the variant API. No FFM on Android |
 
-Gaps this exposes:
+Gaps that remain:
 
-- **A shared library without glue.** FFM needs `libmymath.dylib`, which neither the Sources provider
-  (static only) nor the glue builder (stub + archive) produces. The glue builder needs a mode that links
-  an archive into a shared library with nothing added (`-force_load` / `--whole-archive`).
-- **Wiring for FFM consumers**, today written by hand: the Java source set, the JDK 22+ toolchain, the
-  runtime flags.
+- **FFM outside `kotlin("jvm")`.** A multiplatform JVM target gets the bindings generated but not
+  wired; the runtime flags (`--enable-native-access`, `java.library.path`) stay the build's.
 - **Tool provisioning.** Generation needs the Kotlin/Native distribution of exactly
   `kotlinNativeVersion` in `~/.konan` (any KMP build of that version downloads it); jextract is a path
   option. The plugin should locate or download both.
@@ -269,16 +331,16 @@ Still undecided:
 ## Open questions
 
 - [x] Should the cinterop generator run KGP's own cinterop task, or the plugin run cinterop itself?
-      KGP's: the klib must come from the consumer's Kotlin version. `kotlinNativeInterop` adapts a
-      binding to `cinterops {}`; running cinterop in the exporter was tried, works, and is not used.
+      KGP's: the klib must come from the consumer's Kotlin version. A binding is adapted to
+      `cinterops {}` for every Kotlin/Native target; running cinterop in the exporter was tried, works, and is not used.
 - [ ] Lowest JDK for the Gradle daemon and for consumers at runtime? It decides whether FFM is a
       default or an opt-in. Header parsing no longer depends on it: it runs in the exporter's process.
 - [ ] Does the `.def` stay a first-class input, or become an import format next to a header-first
       DSL? Today it is the input, read by cinterop itself.
 - [ ] Is a published multi-target library (bindings plus binaries per target) in scope for the first
       release, or only in-build consumption?
-- [ ] Migration: does the current `konanConfig {}` and `jvmInterops {}` DSL keep working behind the
-      new model, or is this a major version with a break? The JNI bindings already changed their
-      names (`my_add`, not `kniBridge0`).
+- [x] Migration: does the `konanConfig {}` and `jvmInterops {}` DSL keep working behind the new model?
+      No: `konan { libraries; bindings }` replaces it in a major version, with migration notes in the
+      README.
 - [ ] Should the plugin pin one Kotlin/Native version for generation (today) or support several, at the
       cost of one exporter build per version?

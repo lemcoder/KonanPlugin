@@ -1,4 +1,4 @@
-package io.github.lemcoder.interop
+package io.github.lemcoder.dsl
 
 import org.gradle.api.Action
 import org.gradle.api.Named
@@ -11,34 +11,18 @@ import org.gradle.api.provider.Property
 import javax.inject.Inject
 
 /**
- * Declares that another build system compiles and links the generated JNI stub, the way AGP's
- * `externalNativeBuild` declares that CMake owns a module's native code.
- *
- * The plugin then stops after generating, and drives that build instead of linking anything itself:
- * it passes the stub's location and the library name the bindings expect, points `JAVA_HOME` at a JDK
- * that ships `jni.h`, and orders generation before configuration before build.
+ * An external CMake build that compiles the generated JNI stub, the way AGP's `externalNativeBuild`
+ * declares that CMake owns a module's native code. The plugin then stops after generating and drives
+ * that build instead of linking anything itself: it passes the stub's location and the library name the
+ * bindings expect (`KONAN_JNI_STUB_DIR`, `KONAN_JNI_LIB_NAME`), points `JAVA_HOME` at a JDK that ships
+ * `jni.h`, and orders generation before configuration before build.
  *
  * This is the right shape whenever the native library is not the plugin's to build — a vendored CMake
  * project, say — because linking an archive from a foreign toolchain with konan's linker is what
  * produces mismatched C++ runtimes and missing compiler-rt.
- */
-abstract class ExternalNativeBuildSettings @Inject constructor(objects: ObjectFactory) {
-
-    /** CMake configuration; declaring it is what switches the interop to external-build mode. */
-    val cmake: CMakeSettings = objects.newInstance(CMakeSettings::class.java)
-
-    internal var isConfigured: Boolean = false
-
-    /** Configures the CMake build that compiles the generated stub. */
-    fun cmake(action: Action<in CMakeSettings>) {
-        isConfigured = true
-        action.execute(cmake)
-    }
-}
-
-/**
- * How to invoke CMake. Either name a [preset] or let the plugin configure [path] into [buildDirectory]
- * directly; everything else has a default.
+ *
+ * Either name a [preset] or let the plugin configure [path] into [buildDirectory] directly; everything
+ * else has a default.
  *
  * Declaring [abi]s builds once per ABI instead of once for the host, which is what Android needs: the
  * libraries land in `jniLibs/<abi>/` and are packaged into the AAR.
@@ -80,8 +64,8 @@ abstract class CMakeSettings @Inject constructor(objects: ObjectFactory) {
     /** Extra arguments for the configure step, e.g. your own `-D` switches. */
     abstract val arguments: ListProperty<String>
 
-    /** The `cmake` binary. Defaults to `$CMAKE`, else a scan of the usual locations, else `cmake`. */
-    abstract val executable: Property<String>
+    /** The `cmake` binary. When absent, `$CMAKE`, else a scan of the usual locations, else `cmake`. */
+    abstract val executable: RegularFileProperty
 }
 
 /** One ABI's build: everything not set here comes from the enclosing [CMakeSettings]. */

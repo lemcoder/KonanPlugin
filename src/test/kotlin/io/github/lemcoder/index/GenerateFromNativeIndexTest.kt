@@ -71,7 +71,7 @@ class GenerateFromNativeIndexTest {
         assumeTrue(jextract != null && File(jextract).canExecute(), "Set JEXTRACT to a jextract executable")
         assumeInstalled()
         val projectDir = project(
-            exportTask("jextract", "ffm_sample", sampleDef, sampleDef.parentFile, "library" to "sample", "jextract" to path(File(jextract))),
+            exportTask(GeneratorRequest.Jextract(library = "sample", jextract = File(jextract)), "ffm_sample", sampleDef, sampleDef.parentFile),
         )
         runner(projectDir, "generate_ffm_sample").build()
 
@@ -81,14 +81,6 @@ class GenerateFromNativeIndexTest {
         val header = java.resolve("sample.java").readText()
         listOf("sample_sum", "sample_name", "sample_bits", "sample_log", "SAMPLE_VERSION", "RED", "sample_global")
             .forEach { assertContains(header, it) }
-    }
-
-    @Test
-    fun `an unknown generator fails with the ones that exist`() {
-        assumeInstalled()
-        val projectDir = project(exportTask("bogus", "mymath", mymathDef, mymathHeaders))
-        val result = runner(projectDir, "generate_mymath").buildAndFail()
-        assertContains(result.output, "Unknown generator 'bogus'. Known: dump, jextract, jni")
     }
 
     private fun dump(name: String): String {
@@ -112,25 +104,33 @@ class GenerateFromNativeIndexTest {
         /** One build runs every generator the tests read: output directory by task name. */
         val generated: Map<String, File> by lazy {
             val projectDir = project(
-                exportTask("dump", "mymath", mymathDef, mymathHeaders),
-                exportTask("dump", "sample", sampleDef, sampleDef.parentFile),
-                exportTask("jni", "jni_sample", sampleDef, sampleDef.parentFile, "stubLibrary" to "samplestubs"),
+                exportTask(GeneratorRequest.Dump, "mymath", mymathDef, mymathHeaders),
+                exportTask(GeneratorRequest.Dump, "sample", sampleDef, sampleDef.parentFile),
+                exportTask(GeneratorRequest.Jni(stubLibrary = "samplestubs"), "jni_sample", sampleDef, sampleDef.parentFile),
             )
             val names = listOf("mymath", "sample", "jni_sample")
             runner(projectDir, *names.map { "generate_$it" }.toTypedArray()).build()
             names.associateWith { projectDir.resolve("build/generated/$it") }
         }
 
-        fun exportTask(generator: String, name: String, def: File, includeDir: File, vararg options: Pair<String, String>) = """
+        fun exportTask(request: GeneratorRequest, name: String, def: File, includeDir: File) = """
             tasks.register<GenerateFromNativeIndexTask>("generate_$name") {
                 defFile.set(file("${path(def)}"))
                 includeDirs.from("${path(includeDir)}")
                 target.set(hostKonanTarget())
-                this.generator.set("$generator")
-                generatorOptions.set(mapOf(${options.joinToString { (k, v) -> "\"$k\" to \"$v\"" }}))
+                this.request.set(${kotlinSource(request)})
                 outputDirectory.set(layout.buildDirectory.dir("generated/$name"))
             }
         """.trimIndent()
+
+        /** [request] as build-script source. */
+        fun kotlinSource(request: GeneratorRequest): String = when (request) {
+            GeneratorRequest.Dump -> "GeneratorRequest.Dump"
+            is GeneratorRequest.Jni ->
+                "GeneratorRequest.Jni(stubLibrary = \"${request.stubLibrary}\", visibility = GeneratedVisibility.${request.visibility})"
+            is GeneratorRequest.Jextract ->
+                "GeneratorRequest.Jextract(library = \"${request.library}\", jextract = file(\"${request.jextract?.let(::path)}\"))"
+        }
 
         fun project(vararg tasks: String): File {
             val projectDir = createTempDirectory("native-index").toFile()
@@ -139,6 +139,8 @@ class GenerateFromNativeIndexTest {
                 (listOf(
                     "import io.github.lemcoder.hostKonanTarget",
                     "import io.github.lemcoder.index.GenerateFromNativeIndexTask",
+                    "import io.github.lemcoder.index.GeneratedVisibility",
+                    "import io.github.lemcoder.index.GeneratorRequest",
                     "plugins { id(\"io.github.lemcoder.konanplugin\") }",
                 ) + tasks).joinToString("\n")
             )

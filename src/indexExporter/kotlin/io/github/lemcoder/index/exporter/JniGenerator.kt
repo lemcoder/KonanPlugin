@@ -1,5 +1,7 @@
 package io.github.lemcoder.index.exporter
 
+import io.github.lemcoder.index.GeneratedVisibility
+import io.github.lemcoder.index.GeneratorRequest
 import org.jetbrains.kotlin.native.interop.indexer.*
 import java.io.File
 
@@ -19,18 +21,13 @@ import java.io.File
  * Functions it cannot bind (variadic, `long double`, an anonymous struct by value, …) are listed with the
  * reason at the end of the Kotlin file instead.
  *
- * Options: `stubLibrary` (required) is the library `System.loadLibrary` loads — the plugin owns that name;
- * `visibility` is `internal` (default) or `public`.
+ * The request names the library `System.loadLibrary` loads — the plugin owns that name — and the
+ * bindings' visibility.
  */
-object JniGenerator : BindingGenerator {
-    override val name = "jni"
-
-    override fun generate(context: GenerationContext, outputDirectory: File) {
-        val stubLibrary = requireNotNull(context.options["stubLibrary"]) { "The jni generator needs --option stubLibrary=<name>" }
-        val visibility = when (val v = context.options["visibility"] ?: "internal") {
-            "internal", "public" -> v
-            else -> error("visibility must be internal or public, got '$v'")
-        }
+object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
+    override fun generate(request: GeneratorRequest.Jni, context: GenerationContext, outputDirectory: File) {
+        val stubLibrary = request.stubLibrary
+        val visibility = request.visibility
         val packageName = context.packageName
         val facade = packageName.substringAfterLast('.').ifEmpty { "bindings" }
 
@@ -59,12 +56,34 @@ object JniGenerator : BindingGenerator {
     private class Binding(val function: FunctionDecl, val params: List<Pair<String, Crossing>>, val result: Crossing)
 
     /** How one value crosses the JNI boundary. */
+    /** The JVM primitives a C value can cross as, with how Kotlin and JNI spell them. */
+    private enum class JvmPrimitive(val kotlinName: String, val jniName: String) {
+        BOOLEAN("Boolean", "jboolean"),
+        BYTE("Byte", "jbyte"),
+        SHORT("Short", "jshort"),
+        INT("Int", "jint"),
+        LONG("Long", "jlong"),
+        FLOAT("Float", "jfloat"),
+        DOUBLE("Double", "jdouble"),
+        ;
+
+        companion object {
+            fun integer(size: Int): JvmPrimitive? = when (size) {
+                1 -> BYTE; 2 -> SHORT; 4 -> INT; 8 -> LONG; else -> null
+            }
+
+            fun floating(size: Int): JvmPrimitive? = when (size) {
+                4 -> FLOAT; 8 -> DOUBLE; else -> null
+            }
+        }
+    }
+
     private sealed class Crossing(val kotlinType: String, val jniType: String) {
         /** Passed as is; the C compiler converts between the JNI and C types of the same size. */
-        class Primitive(kotlinType: String, jniType: String) : Crossing(kotlinType, jniType)
+        class Primitive(val primitive: JvmPrimitive) : Crossing(primitive.kotlinName, primitive.jniName)
 
         /** A pointer as an address; [cType] is how C spells the pointer, for the cast. */
-        class Address(val cType: String) : Crossing("Long", "jlong")
+        class Address(val cType: String) : Crossing(JvmPrimitive.LONG.kotlinName, JvmPrimitive.LONG.jniName)
 
         /** `const char*` as a `String?`. */
         object CString : Crossing("String?", "jstring")
@@ -73,11 +92,12 @@ object JniGenerator : BindingGenerator {
          * A pointer to [element] values as a pinned primitive array; [cType] spells the pointer. A [readOnly]
          * one (`const` pointee) is not copied back.
          */
-        class PrimitiveArray(val element: String, val cType: String, val readOnly: Boolean) :
-            Crossing("${element}Array?", "j${element.lowercase()}Array")
+        class PrimitiveArray(val element: JvmPrimitive, val cType: String, val readOnly: Boolean) :
+            Crossing("${element.kotlinName}Array?", "${element.jniName}Array")
 
         /** A struct by value as its bytes; [cType] spells the struct. */
-        class StructBytes(val cType: String) : Crossing("ByteArray", "jbyteArray")
+        class StructBytes(val cType: String) :
+            Crossing("${JvmPrimitive.BYTE.kotlinName}Array", "${JvmPrimitive.BYTE.jniName}Array")
 
         object Void : Crossing("Unit", "void")
     }
@@ -113,30 +133,21 @@ object JniGenerator : BindingGenerator {
         if (pointee == CharType && isConst) return Crossing.CString
         val cType = spelling(declared)
         val element = when (pointee) {
-            CharType -> "Byte"
-            is IntegerType -> integerKotlinType(pointee.size)
-            is FloatingType -> when (pointee.size) { 4 -> "Float"; 8 -> "Double"; else -> null }
+            CharType -> JvmPrimitive.BYTE
+            is IntegerType -> JvmPrimitive.integer(pointee.size)
+            is FloatingType -> JvmPrimitive.floating(pointee.size)
             else -> null
         }
         return if (element != null) Crossing.PrimitiveArray(element, cType, isConst) else Crossing.Address(cType)
     }
 
     private fun primitive(type: Type): Crossing.Primitive = when (type) {
-        CharType -> Crossing.Primitive("Byte", "jbyte")
-        is BoolType -> Crossing.Primitive("Boolean", "jboolean")
-        is IntegerType -> integerKotlinType(type.size)?.let { Crossing.Primitive(it, "j${it.lowercase()}") }
-            ?: throw Unsupported("${type.size * 8}-bit integer")
-        is FloatingType -> when (type.size) {
-            4 -> Crossing.Primitive("Float", "jfloat")
-            8 -> Crossing.Primitive("Double", "jdouble")
-            else -> throw Unsupported(type.spelling)
-        }
+        CharType -> Crossing.Primitive(JvmPrimitive.BYTE)
+        is BoolType -> Crossing.Primitive(JvmPrimitive.BOOLEAN)
+        is IntegerType -> Crossing.Primitive(JvmPrimitive.integer(type.size) ?: throw Unsupported("${type.size * 8}-bit integer"))
+        is FloatingType -> Crossing.Primitive(JvmPrimitive.floating(type.size) ?: throw Unsupported(type.spelling))
         is EnumType -> primitive(resolved(type.def.baseType))
         else -> throw Unsupported("type ${type::class.simpleName}")
-    }
-
-    private fun integerKotlinType(size: Int): String? = when (size) {
-        1 -> "Byte"; 2 -> "Short"; 4 -> "Int"; 8 -> "Long"; else -> null
     }
 
     /** [type] with typedefs looked through. */
@@ -162,7 +173,7 @@ object JniGenerator : BindingGenerator {
         packageName: String,
         facade: String,
         stubLibrary: String,
-        visibility: String,
+        visibility: GeneratedVisibility,
         bound: List<Binding>,
         skipped: List<Pair<String, String>>,
     ) = buildString {
@@ -181,7 +192,7 @@ object JniGenerator : BindingGenerator {
             // JNI resolves the C symbol from the JVM method name; without @JvmName an internal function
             // could be mangled.
             appendLine("""@JvmName("${b.function.name}")""")
-            appendLine("$visibility external fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType}")
+            appendLine("${visibility.name.lowercase()} external fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType}")
         }
         if (skipped.isNotEmpty()) {
             appendLine()
@@ -239,7 +250,7 @@ object JniGenerator : BindingGenerator {
                     "s$i"
                 }
                 is Crossing.PrimitiveArray -> {
-                    appendLine("    j${c.element.lowercase()}* a$i = p$i ? (*env)->Get${c.element}ArrayElements(env, p$i, 0) : 0;")
+                    appendLine("    ${c.element.jniName}* a$i = p$i ? (*env)->Get${c.element.kotlinName}ArrayElements(env, p$i, 0) : 0;")
                     "(${c.cType})a$i"
                 }
                 is Crossing.StructBytes -> {
@@ -272,7 +283,7 @@ object JniGenerator : BindingGenerator {
                 Crossing.CString -> appendLine("    if (p$i) (*env)->ReleaseStringUTFChars(env, p$i, s$i);")
                 is Crossing.PrimitiveArray -> {
                     val mode = if (c.readOnly) "JNI_ABORT" else "0"
-                    appendLine("    if (p$i) (*env)->Release${c.element}ArrayElements(env, p$i, a$i, $mode);")
+                    appendLine("    if (p$i) (*env)->Release${c.element.kotlinName}ArrayElements(env, p$i, a$i, $mode);")
                 }
                 is Crossing.StructBytes -> appendLine("    (*env)->ReleaseByteArrayElements(env, p$i, b$i, JNI_ABORT);")
                 else -> {}

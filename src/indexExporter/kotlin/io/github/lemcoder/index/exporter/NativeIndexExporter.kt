@@ -1,5 +1,6 @@
 package io.github.lemcoder.index.exporter
 
+import io.github.lemcoder.index.ExporterInvocation
 import kotlinx.cinterop.JvmCInteropCallbacks
 import org.jetbrains.kotlin.konan.util.DefFile
 import org.jetbrains.kotlin.native.interop.gen.ImportsImpl
@@ -13,33 +14,16 @@ import org.jetbrains.kotlin.utils.NativeMemoryAllocator
 import java.io.File
 
 /**
- * Entry point run in the Kotlin/Native distribution's JVM: hands cinterop's view of a library to a
- * [BindingGenerator].
- *
- * ```
- * --generator <name> --output <dir> [--option <key>=<value>]... -- <cinterop command line>
- * ```
+ * Entry point run in the Kotlin/Native distribution's JVM: hands cinterop's view of a library to the
+ * generator an [ExporterInvocation] asks for. Its command line is that invocation's [ExporterInvocation.toArgs].
  */
 fun main(args: Array<String>) {
-    val separator = args.indexOf("--")
-    require(separator >= 0) { "Expected '--' before the cinterop command line: ${args.joinToString(" ")}" }
-    val options = parseOptions(args.copyOfRange(0, separator))
-    val cinteropArgs = args.copyOfRange(separator + 1, args.size)
-
-    fun single(name: String) = options[name]?.singleOrNull() ?: error("Expected exactly one --$name")
-    val generatorName = single("generator")
-    val generator = bindingGenerators[generatorName]
-        ?: error("Unknown generator '$generatorName'. Known: ${bindingGenerators.keys.sorted().joinToString()}")
-    val output = File(single("output"))
-    val generatorOptions = options["option"].orEmpty().associate {
-        require('=' in it) { "Expected --option key=value, got '$it'" }
-        it.substringBefore('=') to it.substringAfter('=')
-    }
-
-    val context = context(cinteropArgs, generatorOptions)
+    val invocation = ExporterInvocation.parse(args)
+    val context = context(invocation.cinteropArgs.toTypedArray())
+    val output = invocation.outputDirectory
     output.deleteRecursively()
     output.mkdirs()
-    generator.generate(context, output)
+    generate(invocation.request, context, output)
 }
 
 /**
@@ -51,7 +35,7 @@ fun main(args: Array<String>) {
  * that jar as a friend module (see buildSrc's native-index plugin), so a signature change in a Kotlin
  * release fails compilation here, at the `kotlinNativeVersion` bump.
  */
-private fun context(cinteropArgs: Array<String>, generatorOptions: Map<String, String>): GenerationContext {
+private fun context(cinteropArgs: Array<String>): GenerationContext {
     val arguments = CInteropArguments()
     arguments.argParser.parse(cinteropArgs)
     require(arguments.library.isEmpty()) { "Dependency klibs (-library) are not supported by the index exporter yet." }
@@ -73,7 +57,6 @@ private fun context(cinteropArgs: Array<String>, generatorOptions: Map<String, S
     return GenerationContext(
         packageName = packageName,
         preambleLines = def.defHeaderLines,
-        options = generatorOptions,
     ) {
         // As cinterop's own entry point does around its run; the index is plain objects once built.
         NativeMemoryAllocator.init()
@@ -88,9 +71,4 @@ private fun context(cinteropArgs: Array<String>, generatorOptions: Map<String, S
             NativeMemoryAllocator.dispose()
         }
     }
-}
-
-private fun parseOptions(args: Array<String>): Map<String, List<String>> {
-    require(args.size % 2 == 0) { "Options come in --name value pairs: ${args.joinToString(" ")}" }
-    return args.toList().chunked(2).groupBy({ (name, _) -> name.removePrefix("--") }, { (_, value) -> value })
 }

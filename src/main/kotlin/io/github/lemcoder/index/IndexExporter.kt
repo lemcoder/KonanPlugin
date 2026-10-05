@@ -8,8 +8,8 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 /**
- * Runs the index exporter: cinterop's own indexer over [cinteropArgs], then [generator] over the index,
- * writing into [outputDirectory].
+ * Runs the index exporter: cinterop's own indexer over [cinteropArgs], then the generator [request] asks
+ * for, writing into [outputDirectory].
  *
  * It runs in a JVM of its own whose classpath is only the distribution's compiler jar and the exporter.
  * Not in the daemon: a native library such as libclang can be loaded by one classloader per JVM, and KGP's
@@ -20,10 +20,9 @@ import java.nio.file.StandardCopyOption
  * @param workDir where the exporter jar is extracted, e.g. the task's temporary directory.
  */
 internal fun ExecOperations.runIndexExporter(
-    generator: String,
+    request: GeneratorRequest,
     outputDirectory: File,
     cinteropArgs: List<String>,
-    generatorOptions: Map<String, String> = emptyMap(),
     konanHome: File? = null,
     workDir: File,
 ) {
@@ -41,24 +40,16 @@ internal fun ExecOperations.runIndexExporter(
         Files.copy(input, exporterJar.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 
-    val arguments = buildList {
-        add("--generator"); add(generator)
-        add("--output"); add(outputDirectory.absolutePath)
-        generatorOptions.forEach { (key, value) -> add("--option"); add("$key=$value") }
-        // From here on, a cinterop command line.
-        add("--")
-        add("-Xkonan-home"); add(home.absolutePath)
-        addAll(cinteropArgs)
-    }
+    val invocation = ExporterInvocation(request, outputDirectory, listOf("-Xkonan-home", home.absolutePath) + cinteropArgs)
     val result = javaExecCapture {
         classpath(compilerJar, exporterJar)
         mainClass.set(EXPORTER_MAIN)
-        args(arguments)
+        args(invocation.toArgs())
         systemProperty("konan.home", home.absolutePath)
         systemProperty("java.library.path", home.resolve("konan/nativelib").absolutePath)
         environment("LIBCLANG_DISABLE_CRASH_RECOVERY", "1")
     }
-    check(result is ExecCaptureResult.Success) { "Generating $generator bindings failed:\n${result.output}" }
+    check(result is ExecCaptureResult.Success) { "Generating bindings ($request) failed:\n${result.output}" }
 }
 
 private const val EXPORTER_JAR = "native-index-exporter.jar"

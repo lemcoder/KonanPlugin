@@ -1,13 +1,14 @@
 # Examples
 
-One C library (`native/mymath.c`: `my_add`, `my_scale`) consumed from three platforms, showing the
-two flows the plugin provides:
+One C library (`native/mymath.c`: `my_add`, `my_scale`) consumed from three platforms. Each declares it
+the same way — `konan { val mymath = libraries.create("mymath"); bindings { create("mymath") { library(mymath) } } }` —
+and gets the binding its Kotlin targets need:
 
 | Example | Flow | What it proves | Run |
 |---|---|---|---|
-| [`jvm/`](jvm) | `konanConfig` (.a) + `jvmInterop` (JNI .dylib + bridges) | full JNI path, end to end | `../../gradlew -p jvm run` |
+| [`jvm/`](jvm) | a library (.a) + a binding → JNI bindings and library | full JNI path, end to end | `../../gradlew -p jvm run` |
 | [`android/`](android) | same, cross-compiled per ABI, real app | APK with `.so` (arm64-v8a + x86_64) + `MainActivity` | `cd android && ./gradlew installDebug` |
-| [`native/`](native) | `konanConfig` (.a) + `kotlinNativeInterop` → KGP cinterop | the native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
+| [`native/`](native) | a library (.a) + a binding → KGP's cinterop | the native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
 
 `jvm` and `native` build the plugin from source via `includeBuild`. `android` needs AGP 9 (Gradle 9.4,
 its own wrapper), so it consumes the plugin from mavenLocal — publish it first:
@@ -20,13 +21,13 @@ from the NDK sysroot, so no JDK needed there).
 ## The two flows
 
 ```
-native/*.c ──(konanConfig: runKonanClang)──> libmymath.a   per target
+native/*.c ──(compileNativeLibraryMymath)──> libmymath.a   per target
                                                   │
    ┌──────────────────────────────────────────────┴───────────────────────────┐
-   │ JVM / Android leg (jvmInterop)                │ Native leg (cinterops)     │
+   │ JVM / Android (generateJni, linkJni)          │ Kotlin/Native (cinterop)   │
    │                                               │                            │
-   │ .def(headers) ─> JNI .c stubs + bridges .kt   │ .def(headers) ─> K/N klib  │
-   │ .c + libmymath.a ─link─> libfoostubs.so/.dylib│ links libmymath.a          │
+   │ .def(headers) ─> JNI .c stub + Kotlin .kt     │ .def(headers) ─> K/N klib  │
+   │ .c + libmymath.a ─link─> lib<pkg>stubs.so     │ embeds libmymath.a         │
    └───────────────────────────────────────────────────────────────────────────┘
 ```
 
