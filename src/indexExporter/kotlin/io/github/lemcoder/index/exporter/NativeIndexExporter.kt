@@ -13,8 +13,8 @@ import org.jetbrains.kotlin.utils.NativeMemoryAllocator
 import java.io.File
 
 /**
- * Entry point run in the Kotlin/Native distribution's JVM: indexes headers with cinterop's own code and
- * hands the resulting index to a [BindingGenerator].
+ * Entry point run in the Kotlin/Native distribution's JVM: hands cinterop's view of a library to a
+ * [BindingGenerator].
  *
  * ```
  * --generator <name> --output <dir> [--option <key>=<value>]... -- <cinterop command line>
@@ -36,18 +36,10 @@ fun main(args: Array<String>) {
         it.substringBefore('=') to it.substringAfter('=')
     }
 
-    // As cinterop's own entry point does around its run.
-    NativeMemoryAllocator.init()
-    JvmCInteropCallbacks.init()
-    try {
-        val context = index(cinteropArgs, generatorOptions)
-        output.deleteRecursively()
-        output.mkdirs()
-        generator.generate(context, output)
-    } finally {
-        JvmCInteropCallbacks.dispose()
-        NativeMemoryAllocator.dispose()
-    }
+    val context = context(cinteropArgs, generatorOptions)
+    output.deleteRecursively()
+    output.mkdirs()
+    generator.generate(context, output)
 }
 
 /**
@@ -59,7 +51,7 @@ fun main(args: Array<String>) {
  * that jar as a friend module (see buildSrc's native-index plugin), so a signature change in a Kotlin
  * release fails compilation here, at the `kotlinNativeVersion` bump.
  */
-private fun index(cinteropArgs: Array<String>, generatorOptions: Map<String, String>): GenerationContext {
+private fun context(cinteropArgs: Array<String>, generatorOptions: Map<String, String>): GenerationContext {
     val arguments = CInteropArguments()
     arguments.argParser.parse(cinteropArgs)
     require(arguments.library.isEmpty()) { "Dependency klibs (-library) are not supported by the index exporter yet." }
@@ -74,21 +66,28 @@ private fun index(cinteropArgs: Array<String>, generatorOptions: Map<String, Str
     )
     val defFile = arguments.def?.let(::File)
     val def = DefFile(defFile, tool.target)
-    // No dependency klibs, so no headers are imported from elsewhere.
-    val library = buildNativeLibrary(tool, def, arguments, ImportsImpl(emptyMap()))
-    val index = buildNativeIndex(library, arguments.verbose, macroNamesCollectingMode = arguments.macroCollectionImpl).index
 
     // As processCLib names the package.
     val packageName = arguments.pkg ?: def.config.packageName
         ?: checkNotNull(defFile) { "Either -def or -pkg is required" }.name.split('.').reversed().drop(1).joinToString(".")
     return GenerationContext(
-        index = index,
         packageName = packageName,
-        headers = library.includes.map { it.headerPath },
         preambleLines = def.defHeaderLines,
-        compilerArgs = library.compilerArgs,
         options = generatorOptions,
-    )
+    ) {
+        // As cinterop's own entry point does around its run; the index is plain objects once built.
+        NativeMemoryAllocator.init()
+        JvmCInteropCallbacks.init()
+        try {
+            // No dependency klibs, so no headers are imported from elsewhere.
+            val library = buildNativeLibrary(tool, def, arguments, ImportsImpl(emptyMap()))
+            val index = buildNativeIndex(library, arguments.verbose, macroNamesCollectingMode = arguments.macroCollectionImpl).index
+            IndexedLibrary(index, headers = library.includes.map { it.headerPath }, compilerArgs = library.compilerArgs)
+        } finally {
+            JvmCInteropCallbacks.dispose()
+            NativeMemoryAllocator.dispose()
+        }
+    }
 }
 
 private fun parseOptions(args: Array<String>): Map<String, List<String>> {

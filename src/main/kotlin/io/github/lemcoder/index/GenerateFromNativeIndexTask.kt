@@ -40,6 +40,10 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @get:Input @get:Optional
     abstract val compilerOptions: ListProperty<String>
 
+    /** Further cinterop options, as cinterop spells them, e.g. `-libraryPath <dir>`. */
+    @get:Input @get:Optional
+    abstract val extraCinteropArgs: ListProperty<String>
+
     @get:Input
     abstract val target: Property<KonanTarget>
 
@@ -47,7 +51,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @get:Internal
     abstract val konanHome: DirectoryProperty
 
-    /** A generator the exporter knows by name, e.g. `dump` or `jni`. */
+    /** A generator the exporter knows by name: `dump`, `jni` or `jextract`. */
     @get:Input
     abstract val generator: Property<String>
 
@@ -69,6 +73,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
                 add("-target"); add(target.get().name)
                 includeDirs.files.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
                 compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
+                addAll(extraCinteropArgs.getOrElse(emptyList()))
             },
             generatorOptions = generatorOptions.getOrElse(emptyMap()),
             konanHome = konanHome.orNull?.asFile,

@@ -7,7 +7,7 @@ two flows the plugin provides:
 |---|---|---|---|
 | [`jvm/`](jvm) | `konanConfig` (.a) + `jvmInterop` (JNI .dylib + bridges) | full JNI path, end to end | `../../gradlew -p jvm run` |
 | [`android/`](android) | same, cross-compiled per ABI, real app | APK with `.so` (arm64-v8a + x86_64) + `MainActivity` | `cd android && ./gradlew installDebug` |
-| [`native/`](native) | `konanConfig` (.a) + K/N `cinterops` | the existing native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
+| [`native/`](native) | `konanConfig` (.a) + `kotlinNativeInterop` → KGP cinterop | the native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
 
 `jvm` and `native` build the plugin from source via `includeBuild`. `android` needs AGP 9 (Gradle 9.4,
 its own wrapper), so it consumes the plugin from mavenLocal — publish it first:

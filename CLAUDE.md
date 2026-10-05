@@ -86,6 +86,11 @@ holds a `NativeIndex`.
   the compiler jar as a friend module (`friendPaths` in the buildSrc plugin). Java is not a way around
   `internal` here: `native` is a Java keyword, so Java cannot import any `org.jetbrains.kotlin.native.…`
   class. And Kotlin cannot see the jar's types through Java sources in the same source set.
+- **Kotlin/Native bindings are not an exporter generator.** `kotlinNativeInterop` adapts a binding to
+  KGP's own `cinterops {}`, so the klib comes from the consumer's Kotlin version — a klib is a compiler
+  artifact, unlike the sources the exporter writes. Running cinterop's pipeline in the exporter works
+  (`Interop().interop("native", …)`), but would pin the klib to `kotlinNativeVersion`; and its native
+  allocator setup must not nest inside the exporter's, which is why the index is built lazily.
 - **It runs through `javaexec`, not the Worker API.** A process-isolated worker puts Gradle's Kotlin
   stdlib and the plugin's classes next to the compiler jar: the compiler then ran on Gradle 9.8's
   stdlib 2.4.10 instead of its bundled 2.4.20. The daemon is out too: KGP's cinterop may already have
@@ -95,6 +100,12 @@ holds a `NativeIndex`.
 
 The TestKit functional tests are what catch decoration and classloading failures, because they apply
 the plugin to a project with neither KGP nor AGP. Keep at least one fixture like that.
+
+`withPluginClasspath()` loads the plugin under test where a plugin the test build applies on its own
+(`kotlin("multiplatform") version …`) cannot see it: code reaching KGP's types fails with
+`NoClassDefFoundError`, though a real build loads both together. A test that needs KGP passes it on the
+plugin-under-test classpath itself (`kgp.classpath`, see `KotlinNativeInteropTest`); never add KGP to
+the shared metadata, or the no-KGP fixtures stop proving anything.
 
 Portal versions are immutable — bump and publish, never reuse an alpha. Consumers with `mavenLocal()`
 ahead of the portal will silently use a local build instead, so a version that "works locally" proves

@@ -12,6 +12,8 @@ The **Konan Plugin** is a custom Gradle plugin that facilitates compiling C/C++ 
 - Generates runtime-free JNI bindings + a self-contained stub shared library (`jvmInterops`).
 - Marshals `String`s and primitive arrays across the bridge, so a C API taking `const char*` or
   `float*` buffers is callable without an off-heap allocator on the Kotlin side.
+- Declares Kotlin/Native cinterops for every native target from the same `.def`
+  (`kotlinNativeInterop`), linked against the library `konanConfig` builds.
 - Auto-wires generated sources and per-ABI `jniLibs` into Android projects (AGP).
 - Auto-detects the Kotlin/Native distribution, the JDK that supplies `jni.h`, and the compiler-rt
   builtins each target needs (NDK on Android, Xcode on macOS).
@@ -197,6 +199,22 @@ any Kotlin Multiplatform build of that version with a native target downloads it
 
 Platform-specific link arguments go in `linkerArgsFor`; `-framework` in `additionalLinkerArgs` would
 reach the Android linker, which rejects it.
+
+## `kotlinNativeInterop` — Kotlin/Native bindings
+Declares the cinterop for a `.def` on every Kotlin/Native target, through KGP's own `cinterops {}`, so
+the klib comes from the project's Kotlin version and KGP handles commonization, the IDE and publishing.
+Where `konanConfig` builds the library for a target, cinterop is pointed at its archive (`-libraryPath`)
+and runs after `runKonanClang`, so a `.def` with `staticLibraries = lib<libName>.a` embeds it.
+
+```kotlin
+import io.github.lemcoder.interop.kotlinNativeInterop
+
+kotlinNativeInterop("mymath") {
+    defFile.set(file("src/nativeInterop/cinterop/mymath.def"))
+    includeDirs.from("native")
+    // packageName, compilerOptions, and targets (every Kotlin/Native target when empty) are optional.
+}
+```
 
 ## Usage
 

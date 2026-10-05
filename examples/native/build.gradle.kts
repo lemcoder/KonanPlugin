@@ -1,7 +1,8 @@
-// Kotlin/Native consumer of the SAME C library via standard cinterop (no JNI).
-// The plugin's role here is only the cross-compiler: it produces libmymath.a;
-// the K/N `cinterops {}` block does the binding, exactly as it does today.
+// Kotlin/Native consumer of the SAME C library through cinterop (no JNI).
+// The plugin cross-compiles native/*.c to libmymath.a, and kotlinNativeInterop declares the cinterop
+// for every Kotlin/Native target: KGP then builds the interop klib with this project's Kotlin version.
 
+import io.github.lemcoder.interop.kotlinNativeInterop
 import org.jetbrains.kotlin.konan.target.KonanTarget
 
 plugins {
@@ -22,17 +23,13 @@ konanConfig {
 
 kotlin {
     macosArm64 {
-        compilations.getByName("main").cinterops.create("mymath") {
-            defFile("src/nativeInterop/cinterop/mymath.def")
-            includeDirs("native")
-            // Where the static library referenced by the .def lives.
-            extraOpts("-libraryPath", layout.buildDirectory.dir("native/${host.name}").get().asFile.absolutePath)
-        }
         binaries.executable { entryPoint = "main" }
     }
 }
 
-// cinterop links the static lib, so build it first.
-tasks.matching { it.name.startsWith("cinteropMymath") }.configureEach {
-    dependsOn("runKonanClang")
+// The .def names staticLibraries = libmymath.a; the adapter points cinterop at konanConfig's archive
+// for each target and runs it after runKonanClang.
+kotlinNativeInterop("mymath") {
+    defFile.set(file("src/nativeInterop/cinterop/mymath.def"))
+    includeDirs.from("native")
 }
