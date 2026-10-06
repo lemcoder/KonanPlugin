@@ -8,47 +8,66 @@ import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
 
+/** The kinds of generated sources the plugin hands to AGP. */
+internal enum class SourceKind { KOTLIN, JAVA }
+
 /**
  * Everything that touches the Android Gradle plugin's types, behind `plugins.withId`. The KMP Android
  * plugin does not apply `com.android.base`, so both ids need handling.
+ *
+ * Registration is eager — the variant API rejects callbacks added later — but each takes an [enabled]
+ * check, evaluated in the variant callback, after the build script's configure blocks have run.
  */
 internal object AgpWiring {
     /**
-     * An Android module outside Kotlin Multiplatform has no Kotlin compilation to attach to, so the
-     * generated sources go in through the variant API — registered at configuration time, since the API
-     * rejects callbacks added later. A multiplatform module gets them through its Android target instead.
+     * An Android module outside Kotlin Multiplatform has no Kotlin compilation to attach to, so generated
+     * sources go in through the variant API. A multiplatform module gets Kotlin ones through its Android
+     * target instead.
      */
-    fun addKotlinSources(project: Project, sources: Provider<Directory>, generate: TaskProvider<*>, link: TaskProvider<Task>) {
+    fun addSources(
+        project: Project,
+        kind: SourceKind,
+        sources: Provider<Directory>,
+        generate: TaskProvider<*>,
+        link: TaskProvider<Task>,
+        enabled: () -> Boolean,
+    ) {
         project.withPlugin(GradlePluginId.ANDROID_BASE) {
-            val relative = sources.get().asFile.apply { mkdirs() }.relativeTo(project.projectDir).path
+            val relative = sources.get().asFile.relativeTo(project.projectDir).path
             project.extensions.findByType(AndroidComponentsExtension::class.java)?.onVariants { variant ->
-                if (!project.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM)) {
-                    variant.sources.kotlin?.addStaticSourceDirectory(relative)
+                if (!enabled()) return@onVariants
+                project.file(relative).mkdirs()
+                when (kind) {
+                    SourceKind.KOTLIN ->
+                        if (!project.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM)) variant.sources.kotlin?.addStaticSourceDirectory(relative)
+                    SourceKind.JAVA -> variant.sources.java?.addStaticSourceDirectory(relative)
                 }
             }
-            project.tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(generate, link) }
+            project.tasks.matching { it.name == "preBuild" }.configureEach { if (enabled()) dependsOn(generate, link) }
             project.tasks
-                .matching { (it.name.startsWith("compile") && it.name.contains("Kotlin")) || it.name == "compileJava" }
-                .configureEach { dependsOn(generate) }
+                .matching { (it.name.startsWith("compile") && (it.name.contains("Kotlin") || it.name.contains("JavaWithJavac"))) || it.name == "compileJava" }
+                .configureEach { if (enabled()) dependsOn(generate) }
         }
     }
 
     /**
-     * Packages the per-ABI libraries into the APK or AAR. The directory has to exist at configuration
-     * time; nothing consumes it as a task output, so packaging needs the ordering spelled out. Added once:
-     * a second registration fails the merge with "Duplicate resources".
+     * Packages the per-ABI libraries under [jniLibsRoot] into the APK or AAR. Nothing consumes the
+     * directory as a task output, so packaging needs the ordering spelled out. Added once per directory:
+     * a second registration of the same one fails the merge with "Duplicate resources".
      */
-    fun addJniLibs(project: Project, jniLibsRoot: Provider<Directory>, link: TaskProvider<Task>) {
-        val relative = jniLibsRoot.get().asFile.apply { mkdirs() }.relativeTo(project.projectDir).path
+    fun addJniLibs(project: Project, jniLibsRoot: Provider<Directory>, link: TaskProvider<Task>, enabled: () -> Boolean) {
+        val relative = jniLibsRoot.get().asFile.relativeTo(project.projectDir).path
         project.withPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) {
-            project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)
-                ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
+            project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)?.onVariants { variant ->
+                if (enabled()) variant.sources.jniLibs?.addStaticSourceDirectory(project.file(relative).apply { mkdirs() }.path)
+            }
         }
         project.withPlugin(GradlePluginId.ANDROID_BASE) {
-            project.extensions.findByType(AndroidComponentsExtension::class.java)
-                ?.onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(relative) }
+            project.extensions.findByType(AndroidComponentsExtension::class.java)?.onVariants { variant ->
+                if (enabled()) variant.sources.jniLibs?.addStaticSourceDirectory(project.file(relative).apply { mkdirs() }.path)
+            }
         }
         project.tasks.matching { it.name.contains("JniLibFolders") || it.name.contains("MergeJniLib") }
-            .configureEach { dependsOn(link) }
+            .configureEach { if (enabled()) dependsOn(link) }
     }
 }

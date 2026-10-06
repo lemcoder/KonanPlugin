@@ -333,6 +333,7 @@ class KonanPluginFunctionalTest {
 
         assertTrue(":generateFfmMymath SKIPPED" in result.output, "the Java sources come from jextract:\n${result.output}")
         assertTrue(":linkFfmMymath SKIPPED" in result.output, result.output)
+        assertTrue(":linkFfmMymath$hostSuffix SKIPPED" in result.output, "the host's library:\n${result.output}")
     }
 
     @Test

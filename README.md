@@ -11,7 +11,8 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
   - **Kotlin/Native** targets through KGP's own cinterop, the library's archive embedded in the klib;
   - **JVM** targets and **Android** through generated JNI bindings and a stub library per target, with
     strings and primitive buffers marshalled;
-  - the **JVM 22+** through jextract's FFM bindings, on request.
+  - the **JVM 22+** through jextract's FFM bindings, on request — and **Android** too, over
+    [PanamaPort](https://github.com/vova7878/PanamaPort)'s backport of the FFM API.
 - Has its own target type, `NativeTarget`, one entry per Kotlin/Native target; a KGP target converts
   with `NativeTarget.of(kotlinNativeTarget.konanTarget)`. The plugin's API does not depend on the
   Kotlin compiler's.
@@ -60,6 +61,7 @@ A binding is consumed wherever the project's Kotlin targets need it, with nothin
 | Kotlin/Native targets (`kotlin("multiplatform")`) | a cinterop klib per target the library is built for | KGP's own `cinterops {}`, with the library's archive embedded |
 | `kotlin("jvm")`, multiplatform `jvm()` or Android targets, or an Android app | JNI bindings in the main sources, a JNI library per target | the plugin's JNI generator and link |
 | `ffm()` on the binding, in a `kotlin("jvm")` project | FFM bindings in place of JNI, the library as a shared library | jextract |
+| `ffm()` on the binding, in an Android module | FFM bindings on PanamaPort in place of JNI, the library as `.so` per 64-bit ABI | jextract |
 
 ### `libraries { }`
 A C/C++ library built to `<outputDirectory>/<target>/lib<name>.a` for each target: by Kotlin/Native's
@@ -301,8 +303,22 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 | Property           | Type        | Default              | Description |
 |--------------------|-------------|----------------------|-------------|
 | `jextract`         | `Executable`| `OnPath("jextract")` | The jextract program. |
+| `panamaPortVersion`| `String`    | `v0.1.5`             | The PanamaPort an Android module's bindings use, added as a dependency. |
 | `linkerOptions`    | `List<String>` | —                 | Extra options for linking the library the bindings load. |
-| `libraryDirectory` | `Directory` | output               | Where the shared library ends up. |
+| `libraryDirectory` | `Directory` | output               | Where the shared library ends up: the host's, or the `jniLibs` root on Android. |
+
+#### FFM on Android
+In an Android module `ffm()` replaces JNI there too. jextract's output is moved from `java.lang.foreign`
+onto PanamaPort's `com.v7878.foreign` — the FFM API backported to Android 8.0+ — which the plugin adds
+as an `implementation` dependency, and the library is linked as `lib<name>.so` per ABI into `jniLibs/`,
+with no stub. The app needs:
+
+- `compileSdk` 37 and `minSdk` 26, which PanamaPort requires;
+- `sourceCompatibility` 21: jextract's output uses pattern matching in `switch`, which D8 desugars;
+- 64-bit ABIs only: jextract writes the build host's LP64 layouts, so 32-bit ABIs get no library and
+  a warning.
+
+`examples/android-ffm` runs end to end on an emulator.
 
 ## Tasks
 | Task                          | Description |

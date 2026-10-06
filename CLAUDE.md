@@ -84,6 +84,18 @@ not used — it emits address-only bridges, every pointer a raw `Long`.
 Bindings are `internal` by default and each carries **`@JvmName`**. JNI resolves the C symbol from the
 unmangled method name, so a mangled internal name compiles, links, and dies on the first call.
 
+## FFM on Android
+
+- **jextract's output only needs its packages moved** onto PanamaPort: `java.lang.foreign` →
+  `com.v7878.foreign`, `VarHandle` → `com.v7878.invoke.VarHandle` (a single-type import beside
+  jextract's `java.lang.invoke.*`). The exporter does it for `FfmApi.PANAMA_PORT`.
+- PanamaPort's AAR metadata **requires `compileSdk` 37**; jextract's output **needs Java 21 source**
+  (switch patterns, which D8 desugars). Neither is the plugin's to set.
+- **One index, the host's**: the generated layouts are LP64, so Android FFM links only 64-bit ABIs.
+- **`ffm()` decides consumers after configuration**, but AGP callbacks are registered eagerly — so
+  `AgpWiring` takes an `enabled` check evaluated inside `onVariants`, where configure blocks have run.
+  JNI's Android wiring is gated the same way, since FFM replaces it.
+
 ## Kotlin DSL gotchas
 
 - The `kotlin-dsl` plugin adds a `T.() -> Unit` overload of `whenObjectAdded`, making the SAM form

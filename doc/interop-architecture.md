@@ -330,7 +330,8 @@ take the library only as `NativeArtifacts`. A new consumer is one more entry in 
 | Kotlin/Native | Static archive, embedded in the klib (`-staticLibrary` + `-libraryPath`) | None | KGP's `cinterops {}` on each target's main compilation, declared by the adapter |
 | JVM (JNI) | Shared library: stub + archive | The JNI stub | Generated Kotlin as sources; the library on `java.library.path` or in resources |
 | JVM (FFM) | Shared library of the C code itself (`linkFfm<Name>`: the archive linked whole) | None | Generated Java in the main Java sources; the build supplies a JDK 22+ toolchain, `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path` |
-| Android | Shared library: stub + archive, per ABI | The JNI stub | Generated Kotlin as sources; `jniLibs/<abi>` via the variant API. No FFM on Android |
+| Android | Shared library: stub + archive, per ABI | The JNI stub | Generated Kotlin as sources; `jniLibs/<abi>` via the variant API |
+| Android (FFM) | Shared library of the C code itself, per 64-bit ABI (`linkFfm<Name><Target>`) | None | jextract's Java moved onto PanamaPort (`com.v7878.foreign`, its own `VarHandle`) — the generator's `FfmApi.PANAMA_PORT` — as Java sources via the variant API; PanamaPort added as a dependency; `jniLibs/<abi>`. Needs `compileSdk` 37, `minSdk` 26, Java 21 source. One host index, so only LP64 ABIs |
 
 Gaps that remain:
 

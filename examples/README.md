@@ -8,6 +8,7 @@ and gets the binding its Kotlin targets need:
 |---|---|---|---|
 | [`jvm/`](jvm) | a library (.a) + a binding → JNI bindings and library | full JNI path, end to end | `../../gradlew -p jvm run` |
 | [`android/`](android) | same, cross-compiled per ABI, real app | APK with `.so` (arm64-v8a + x86_64) + `MainActivity` | `cd android && ./gradlew installDebug` |
+| [`android-ffm/`](android-ffm) | same library, FFM instead of JNI: jextract's bindings on PanamaPort, `libmymath.so` per ABI, no stub | FFM on Android, end to end on an emulator | `cd android-ffm && ./gradlew installDebug` |
 | [`native/`](native) | a library (.a) + a binding → KGP's cinterop | the native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
 
 `jvm` and `native` build the plugin from source via `includeBuild`. `android` needs AGP 9 (Gradle 9.4,

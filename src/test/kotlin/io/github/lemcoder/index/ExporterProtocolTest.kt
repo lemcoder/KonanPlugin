@@ -13,6 +13,7 @@ class ExporterProtocolTest {
         GeneratorRequest.Jni(stubLibrary = "examplestubs", visibility = BindingVisibility.PUBLIC),
         GeneratorRequest.Jextract(library = "mymath"),
         GeneratorRequest.Jextract(library = "mymath", jextract = File("/opt/jextract/bin/jextract"), headerClass = "MyMath"),
+        GeneratorRequest.Jextract(library = "mymath", api = FfmApi.PANAMA_PORT),
     )
 
     @Test

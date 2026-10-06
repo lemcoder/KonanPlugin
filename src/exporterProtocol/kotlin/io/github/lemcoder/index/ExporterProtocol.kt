@@ -28,9 +28,23 @@ sealed class GeneratorRequest : Serializable {
      * @property library the shared library the bindings `System.loadLibrary`.
      * @property jextract the jextract executable; `jextract` on the PATH when null.
      * @property headerClass the class holding the functions; the package's last segment when null.
+     * @property api the FFM API the bindings are written against.
      */
-    data class Jextract(val library: String, val jextract: File? = null, val headerClass: String? = null) :
-        GeneratorRequest()
+    data class Jextract(
+        val library: String,
+        val jextract: File? = null,
+        val headerClass: String? = null,
+        val api: FfmApi = FfmApi.JAVA,
+    ) : GeneratorRequest()
+}
+
+/** Which implementation of the Foreign Function & Memory API generated FFM bindings call. */
+enum class FfmApi {
+    /** The JDK's own `java.lang.foreign`, JDK 22+. */
+    JAVA,
+
+    /** PanamaPort's backport for Android 8.0+: `com.v7878.foreign`, with its own `VarHandle`. */
+    PANAMA_PORT,
 }
 
 /**
@@ -56,6 +70,7 @@ data class ExporterInvocation(
                 flag(Flag.LIBRARY, request.library)
                 request.jextract?.let { flag(Flag.JEXTRACT, it.absolutePath) }
                 request.headerClass?.let { flag(Flag.HEADER_CLASS, it) }
+                flag(Flag.FFM_API, request.api)
             }
         }
         add(SEPARATOR)
@@ -86,6 +101,7 @@ data class ExporterInvocation(
                     library = required(Flag.LIBRARY),
                     jextract = values[Flag.JEXTRACT]?.let(::File),
                     headerClass = values[Flag.HEADER_CLASS],
+                    api = FfmApi.valueOf(required(Flag.FFM_API)),
                 )
             }
             return ExporterInvocation(request, File(required(Flag.OUTPUT)), args.copyOfRange(separator + 1, args.size).toList())
@@ -112,5 +128,6 @@ data class ExporterInvocation(
         LIBRARY("--library"),
         JEXTRACT("--jextract"),
         HEADER_CLASS("--header-class"),
+        FFM_API("--ffm-api"),
     }
 }

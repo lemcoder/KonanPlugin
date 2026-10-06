@@ -1,5 +1,6 @@
 package io.github.lemcoder.index.exporter
 
+import io.github.lemcoder.index.FfmApi
 import io.github.lemcoder.index.GeneratorRequest
 import java.io.File
 import java.nio.file.Files
@@ -15,8 +16,11 @@ import java.nio.file.Files
  * Only the user-level `-I`, `-D` and `-U` options reach jextract: it brings its own clang and builtin
  * headers, so the target flags cinterop parsed with do not apply.
  *
- * The bindings load the request's library with `System.loadLibrary`, so from `java.library.path`; see
- * [GeneratorRequest.Jextract] for the rest.
+ * The bindings load the request's library with `System.loadLibrary`: from `java.library.path` on a JVM,
+ * from the APK on Android. See [GeneratorRequest.Jextract] for the rest.
+ *
+ * For [FfmApi.PANAMA_PORT] the output is moved onto PanamaPort's packages, which is all its author says
+ * jextract's output needs: `java.lang.foreign` becomes `com.v7878.foreign`, and `VarHandle` its own.
  */
 object JextractGenerator : BindingGenerator<GeneratorRequest.Jextract> {
     override fun generate(request: GeneratorRequest.Jextract, context: GenerationContext, outputDirectory: File) {
@@ -46,9 +50,23 @@ object JextractGenerator : BindingGenerator<GeneratorRequest.Jextract> {
             val process = ProcessBuilder(command).redirectErrorStream(true).start()
             val log = process.inputStream.bufferedReader().readText()
             check(process.waitFor() == 0) { "jextract failed:\n${command.joinToString(" ")}\n$log" }
+            when (request.api) {
+                FfmApi.JAVA -> {}
+                FfmApi.PANAMA_PORT -> outputDirectory.resolve("java").walk().filter { it.extension == "java" }.forEach(::portToPanamaPort)
+            }
         } finally {
             scratch.deleteRecursively()
         }
+    }
+
+    private fun portToPanamaPort(source: File) {
+        source.writeText(
+            source.readText()
+                .replace("java.lang.foreign.", "com.v7878.foreign.")
+                .replace("java.lang.invoke.VarHandle", "com.v7878.invoke.VarHandle")
+                // A single-type import wins over the java.lang.invoke.* wildcard jextract writes.
+                .replace("import java.lang.invoke.*;", "import java.lang.invoke.*;\nimport com.v7878.invoke.VarHandle;")
+        )
     }
 
     /**

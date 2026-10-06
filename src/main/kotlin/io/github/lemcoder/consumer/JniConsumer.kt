@@ -10,6 +10,7 @@ import io.github.lemcoder.model.taskName
 import io.github.lemcoder.util.cleanTask
 import io.github.lemcoder.wiring.AgpWiring
 import io.github.lemcoder.wiring.GradlePluginId
+import io.github.lemcoder.wiring.SourceKind
 import io.github.lemcoder.wiring.withPlugin
 import org.gradle.api.Task
 import org.gradle.api.tasks.TaskProvider
@@ -40,19 +41,25 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
 
         // Eager: the variant API must be wired at configuration time.
         project.withPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) { KotlinGradlePlugin.addKmpJvmSources(project, sources) }
-        AgpWiring.addKotlinSources(project, sources, generate, linkAll)
-        AgpWiring.addJniLibs(project, binding.jni.jniLibsRoot, linkAll)
+        AgpWiring.addSources(project, SourceKind.KOTLIN, sources, generate, linkAll) { !replacedByFfm }
+        AgpWiring.addJniLibs(project, binding.jni.jniLibsRoot, linkAll) { !replacedByFfm }
         // AGP looks for a `baselineProfiles` directory beside every source root, including the generated
         // one, by plain path — no task dependency. Matched by name: inert without AGP.
         project.tasks.matching { it.name.contains("ArtProfile") }.configureEach { dependsOn(generate) }
     }
 
-    /** In a `kotlin("jvm")` project FFM replaces JNI: both would define the same facade class. */
-    private val isPlainJvmConsumer get() = context.hasPlugin(GradlePluginId.KOTLIN_JVM) && !binding.ffm.isEnabled
+    /**
+     * In a `kotlin("jvm")` project or an Android module, `ffm()` replaces JNI: both would define the same
+     * facade class. Read once the build script has run.
+     */
+    private val replacedByFfm get() =
+        binding.ffm.isEnabled && (context.hasPlugin(GradlePluginId.KOTLIN_JVM) || context.hasPlugin(GradlePluginId.ANDROID_BASE))
+
+    private val isPlainJvmConsumer get() = context.hasPlugin(GradlePluginId.KOTLIN_JVM) && !replacedByFfm
 
     override fun isUsed(): Boolean =
         isPlainJvmConsumer ||
-            context.hasPlugin(GradlePluginId.ANDROID_BASE) || context.hasPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) ||
+            (context.hasPlugin(GradlePluginId.ANDROID_BASE) && !replacedByFfm) || context.hasPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) ||
             (context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project))
 
     override fun register() {
