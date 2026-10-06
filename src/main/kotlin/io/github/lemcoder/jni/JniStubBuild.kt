@@ -4,6 +4,7 @@ import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.dsl.JniSpec
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.external.addCMakeCommands
 import io.github.lemcoder.external.addSteps
 import io.github.lemcoder.external.registerExternalBuilds
 import io.github.lemcoder.model.ExternalBuildContext
@@ -103,7 +104,10 @@ internal sealed interface JniStubBuild {
             override fun targets(binding: BindingSpec, inputs: JniStubInputs) =
                 binding.jni.cmake.targetSettings.keys.toList().ifEmpty { listOf(NativeTarget.host) }
             override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
-                addCMakeCommands(task, project, binding, context)
+                task.addCMakeCommands(
+                    project, binding.jni.cmake, context, "konan.bindings.${binding.name}.jni.cmake",
+                    project.layout.buildDirectory.dir("konan/bindings/${binding.name}/jni/cmake"),
+                )
             override fun libraryDirectory(binding: BindingSpec, default: Provider<Directory>) =
                 binding.jni.cmake.libraryDirectory.orElse(default)
         }

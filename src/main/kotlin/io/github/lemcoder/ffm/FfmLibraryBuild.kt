@@ -2,6 +2,8 @@ package io.github.lemcoder.ffm
 
 import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.dsl.KonanExtension
+import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.external.addCMakeCommands
 import io.github.lemcoder.external.addSteps
 import io.github.lemcoder.external.registerExternalBuilds
 import io.github.lemcoder.library.PlacePrebuiltFilesTask
@@ -80,19 +82,28 @@ internal sealed interface FfmLibraryBuild {
         }
     }
 
-    /** The project's own build makes the shared library, once per target, told the [ExternalFfmVariable] contract. */
+    /**
+     * The project's own build makes the shared library, once per target, told the [ExternalFfmVariable]
+     * contract. A build system says which targets it builds and adds its commands.
+     */
     sealed class External : FfmLibraryBuild {
-        /** `ffm { external { } }`: any build system, as the commands the build script lists. */
-        data object Generic : External()
+        protected abstract val taskPrefix: String
 
-        override fun register(project: Project, konan: KonanExtension, binding: BindingSpec, inputs: FfmLibraryInputs): List<TaskProvider<*>> {
+        /** The build system, for task descriptions. */
+        protected abstract val toolName: String
+
+        protected open fun targets(binding: BindingSpec, inputs: FfmLibraryInputs): List<NativeTarget> = inputs.targets
+
+        protected abstract fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext)
+
+        final override fun register(project: Project, konan: KonanExtension, binding: BindingSpec, inputs: FfmLibraryInputs): List<TaskProvider<*>> {
             val ffm = binding.ffm
             val libraryName = inputs.libraryName
             return project.registerExternalBuilds(
-                taskPrefix = "externalBuildFfm",
+                taskPrefix = taskPrefix,
                 owner = binding.name,
-                description = { target -> "Build the '$libraryName' library for ${target.konanName} with its external build, for the FFM bindings." },
-                targets = inputs.targets,
+                description = { target -> "Build the '$libraryName' library for ${target.konanName} with $toolName, for the FFM bindings." },
+                targets = targets(binding, inputs),
                 contextFor = { target ->
                     val output = ffm.libraryDirectoryFor(target)
                     ExternalBuildContext(
@@ -106,7 +117,35 @@ internal sealed interface FfmLibraryBuild {
                     )
                 },
                 libraryFileName = { target -> project.provider { target.sharedLibraryName(libraryName) } },
-            ) { context -> addSteps(ffm.external, context.target, "konan.bindings.${binding.name}.ffm") }
+            ) { context -> addCommands(this, project, binding, context) }
+        }
+
+        /** `ffm { external { } }`: any build system, as the commands the build script lists. */
+        data object Generic : External() {
+            override val taskPrefix = "externalBuildFfm"
+            override val toolName = "its external build"
+            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
+                task.addSteps(binding.ffm.external, context.target, "konan.bindings.${binding.name}.ffm")
+        }
+
+        /**
+         * `ffm { cmake { } }`: a CMakeLists, configured with the contract as cache entries, then built — for
+         * its `target(…)` blocks if it has any, else for the FFM targets.
+         */
+        data object CMake : External() {
+            override val taskPrefix = "cmakeBuildFfm"
+            override val toolName = "CMake"
+            override fun targets(binding: BindingSpec, inputs: FfmLibraryInputs) =
+                binding.ffm.cmake.targetSettings.keys.toList().ifEmpty { inputs.targets }
+            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) {
+                val cmake = binding.ffm.cmake
+                task.addCMakeCommands(
+                    project, cmake, context, "konan.bindings.${binding.name}.ffm.cmake",
+                    project.layout.buildDirectory.dir("konan/bindings/${binding.name}/ffm/cmake"),
+                )
+                // A build that ignores CMAKE_LIBRARY_OUTPUT_DIRECTORY: its library is copied into place.
+                task.producedLibrary.set(cmake.libraryDirectory.zip(task.libraryFileName) { directory, file -> directory.file(file) })
+            }
         }
     }
 }

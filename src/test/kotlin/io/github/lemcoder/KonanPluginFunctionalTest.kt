@@ -356,6 +356,37 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `CMake builds the FFM library under the name the bindings load`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        File(projectDir, "native/CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.16)
+            project(mymath C)
+            add_library(${'$'}{KONAN_FFM_LIB_NAME} SHARED mymath.c)
+            """.trimIndent()
+        )
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    ffm { cmake { path.set(file("native/CMakeLists.txt")) } }
+                }
+            }
+            """,
+        )
+
+        val result = runner("cmakeBuildFfmMymath$hostSuffix").build()
+
+        val library = File(projectDir, "build/konan/bindings/mymath/ffm/lib/${host.konanName}/${host.sharedLibraryName("mymath")}")
+        assertTrue(library.isFile, "expected $library:\n${result.output}")
+    }
+
+    @Test
     fun `a prebuilt FFM library keeps its own name`() {
         File(projectDir, "vendor").mkdirs()
         File(projectDir, "vendor/libggml-host.so").writeText("vendor")

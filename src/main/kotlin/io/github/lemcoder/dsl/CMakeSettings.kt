@@ -11,11 +11,12 @@ import org.gradle.api.provider.Property
 import javax.inject.Inject
 
 /**
- * An external CMake build that compiles the generated JNI stub, the way AGP's `externalNativeBuild`
- * declares that CMake owns a module's native code. The plugin then stops after generating and drives
- * that build instead of linking anything itself: it passes the stub's location and the library name the
- * bindings expect (`KONAN_JNI_STUB_DIR`, `KONAN_JNI_LIB_NAME`), points `JAVA_HOME` at a JDK that ships
- * `jni.h`, and orders generation before configuration before build.
+ * An external CMake build that makes the library a binding loads — the JNI stub (`jni { cmake { } }`) or
+ * the C library FFM loads (`ffm { cmake { } }`) — the way AGP's `externalNativeBuild` declares that CMake
+ * owns a module's native code. The plugin then drives that build instead of linking anything itself: it
+ * passes the contract as cache entries (`KONAN_JNI_STUB_DIR` and `KONAN_JNI_LIB_NAME`, or
+ * `KONAN_FFM_LIB_NAME`, among others), sets `CMAKE_LIBRARY_OUTPUT_DIRECTORY` to where the library must
+ * land, and orders it before whatever loads the library.
  *
  * This is the right shape whenever the native library is not the plugin's to build — a vendored CMake
  * project, say — because linking an archive from a foreign toolchain with konan's linker is what
@@ -54,8 +55,9 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
     abstract val buildDirectory: DirectoryProperty
 
     /**
-     * Directory holding the linked JNI library, if the build does not leave it where
-     * `CMAKE_LIBRARY_OUTPUT_DIRECTORY` says.
+     * Directory holding the linked library, if the build does not leave it where
+     * `CMAKE_LIBRARY_OUTPUT_DIRECTORY` says: for JNI, where consumers then look; for FFM, where the plugin
+     * copies it from.
      */
     abstract val libraryDirectory: DirectoryProperty
 

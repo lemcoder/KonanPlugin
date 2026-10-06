@@ -306,7 +306,8 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 | `panamaPortVersion`| `String`    | `v0.1.5`             | The PanamaPort an Android module's bindings use, added as a dependency. |
 | `libraryName`      | `String`    | the library's, else the binding's | What the bindings `System.loadLibrary`. Set it to a prebuilt library's own name. |
 | `targets`          | `List<NativeTarget>` | the library's loadable ones, else all loadable | The host on a JVM; 64-bit ABIs on Android. |
-| `external { }`     |             | —                    | The project's own build makes the shared library; below. |
+| `cmake { }`        |             | —                    | The project's CMakeLists makes the shared library; below. |
+| `external { }`     |             | —                    | Any other build system makes it, as commands; below. |
 | `prebuilt { }`     |             | —                    | Shared libraries built elsewhere: `sharedLibrary(target, file)`; below. |
 | `linkerOptions`    | `List<String>` | —                 | Extra options for linking the library the bindings load. |
 | `libraryDirectory` | `Directory` | output               | Where the shared library ends up: the host's, or the `jniLibs` root on Android. |
@@ -315,6 +316,22 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 FFM needs no stub: the bindings load the C library itself. By default the plugin links the binding's
 library's archive into it (`linkFfm<Name><Target>`). Instead:
 
+- `ffm { cmake { } }` — the same block as `jni { cmake { } }`, run once per target by
+  `cmakeBuildFfm<Name><Target>`: the contract as cache entries, `CMAKE_LIBRARY_OUTPUT_DIRECTORY` set to
+  where the bindings load the library, so `add_library(${KONAN_FFM_LIB_NAME} SHARED …)` is all the
+  CMakeLists needs. It builds for its `target(…) { }` blocks, else for `ffm.targets`; on Android, pass
+  the NDK's toolchain per ABI:
+
+  ```kotlin
+  ffm {
+      cmake {
+          path.set(file("native/CMakeLists.txt"))
+          arguments.addAll("-DCMAKE_TOOLCHAIN_FILE=$ndk/build/cmake/android.toolchain.cmake", "-DANDROID_PLATFORM=26")
+          target(NativeTarget.ANDROID_ARM64) { arguments.add("-DANDROID_ABI=arm64-v8a") }
+          target(NativeTarget.ANDROID_X64) { arguments.add("-DANDROID_ABI=x86_64") }
+      }
+  }
+  ```
 - `ffm { external { step { } } }` — the same block as `jni { external { } }`, run once per target by
   `externalBuildFfm<Name><Target>`. Each run gets `KONAN_FFM_LIB_NAME`, `KONAN_FFM_OUTPUT_DIR`,
   `KONAN_TARGET` and `KONAN_FFM_ABI`, and writes `lib<KONAN_FFM_LIB_NAME>` with the platform's suffix
@@ -348,7 +365,7 @@ with no stub. The app needs:
 | `linkJni<Name><Target>`       | Links it for one target. |
 | `cmakeBuild<Name><Target>`, `externalBuild<Name><Target>` | The project's own build, in place of the JNI link. |
 | `linkFfm<Name>`, `linkFfm<Name><Target>` | Makes the library FFM loads exist; the plugin's link of it for one target. |
-| `externalBuildFfm<Name><Target>`, `prebuiltFfm<Name>` | The project's own build of it, or placing a prebuilt one, in place of that link. |
+| `cmakeBuildFfm<Name><Target>`, `externalBuildFfm<Name><Target>`, `prebuiltFfm<Name>` | The project's own build of it, or placing a prebuilt one, in place of that link. |
 | `generateFfm<Name>`             | jextract's bindings. |
 | `cinterop<Name><Target>`      | KGP's own cinterop, declared by the plugin. |
 

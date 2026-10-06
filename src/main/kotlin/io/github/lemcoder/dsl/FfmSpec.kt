@@ -16,8 +16,8 @@ import javax.inject.Inject
 
 /**
  * How the FFM bindings are generated, and how the shared library they load comes to exist: linked by the
- * plugin from the binding's library (the default), built by the project's own build ([external]), or
- * built elsewhere ([prebuilt]). On a JVM the generated Java needs a JDK 22+ toolchain.
+ * plugin from the binding's library (the default), built by the project's own build ([cmake],
+ * [external]), or built elsewhere ([prebuilt]). On a JVM the generated Java needs a JDK 22+ toolchain.
  */
 abstract class FfmSpec @Inject constructor(objects: ObjectFactory) {
     init {
@@ -64,6 +64,17 @@ abstract class FfmSpec @Inject constructor(objects: ObjectFactory) {
     fun external(action: Action<in ExternalBuildSettings>) {
         selectedLibraryBuilds += FfmLibraryBuild.External.Generic
         action.execute(external)
+    }
+
+    /**
+     * Builds the shared library with the project's CMakeLists: configured per target with the contract as
+     * cache entries and `CMAKE_LIBRARY_OUTPUT_DIRECTORY` set to where the bindings load it, then built.
+     */
+    val cmake: CMakeSettings = objects.newInstance(CMakeSettings::class.java)
+
+    fun cmake(action: Action<in CMakeSettings>) {
+        selectedLibraryBuilds += FfmLibraryBuild.External.CMake
+        action.execute(cmake)
     }
 
     /** Shared libraries built elsewhere, one per target. */
