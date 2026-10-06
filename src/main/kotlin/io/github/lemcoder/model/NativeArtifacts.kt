@@ -1,4 +1,4 @@
-package io.github.lemcoder.library
+package io.github.lemcoder.model
 
 import io.github.lemcoder.dsl.NativeLibrarySpec
 import org.gradle.api.Project
@@ -6,7 +6,6 @@ import org.gradle.api.file.Directory
 import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
-import org.jetbrains.kotlin.konan.target.KonanTarget
 
 /**
  * What a library provider guarantees and every consumer relies on: one static archive per target, at
@@ -17,22 +16,22 @@ internal class NativeArtifacts(
     /** The library's name; the archives are `lib<name>.a`. */
     val name: String,
     private val outputDirectory: Provider<Directory>,
-    val targets: Provider<List<KonanTarget>>,
+    val targets: Provider<List<NativeTarget>>,
     /** Depend on this, not on a provider's task: it stands for "the archives exist". */
     val builtBy: TaskProvider<*>,
 ) {
-    fun archive(target: KonanTarget): Provider<RegularFile> = outputDirectory.map { it.file(archivePath(name, target)) }
+    fun archive(target: NativeTarget): Provider<RegularFile> = outputDirectory.map { it.file(archivePath(name, target)) }
 
-    fun directory(target: KonanTarget): Provider<Directory> = outputDirectory.map { it.dir(target.name) }
+    fun directory(target: NativeTarget): Provider<Directory> = outputDirectory.map { it.dir(target.konanName) }
 
     companion object {
         /** The one place the layout is written: `<target>/lib<name>.a` under a library's output directory. */
-        fun archivePath(name: String, target: KonanTarget): String = "${target.name}/${archiveFileName(name)}"
+        fun archivePath(name: String, target: NativeTarget): String = "${target.konanName}/${archiveFileName(name)}"
 
         fun archiveFileName(name: String): String = "lib$name.a"
 
         /** The lifecycle task every library has, whatever its provider. */
-        fun taskName(name: String): String = "compileNativeLibrary${name.replaceFirstChar { it.uppercase() }}"
+        fun taskName(name: String): String = taskName("compileNativeLibrary", name)
 
         fun of(project: Project, library: NativeLibrarySpec) = NativeArtifacts(
             name = library.name,

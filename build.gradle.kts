@@ -38,10 +38,9 @@ val kgpForTests: Configuration = configurations.create("kgpForTests")
 
 dependencies {
     "kgpForTests"(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-gradle-plugin:$it" })
-    // KonanTarget & HostManager: the plugin speaks Kotlin/Native's own target type, so a build can pass
-    // `kotlinNativeTarget.konanTarget` straight in. Not compileOnly — it appears in decorated DSL
-    // signatures, which Gradle resolves in projects that have no Kotlin plugin on the classpath.
-    implementation(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-native-utils:$it" })
+    // KonanTarget, for NativeTarget.of(konanTarget) and the KGP adapter — both reached only where KGP, which
+    // brings it, is applied. The DSL speaks the plugin's own NativeTarget, so nothing decorated needs it.
+    compileOnly(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-native-utils:$it" })
     // Used only by the KGP cinterop adapter, inside plugins.withId: the consuming project supplies KGP.
     compileOnly(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-gradle-plugin:$it" })
     // Used only to auto-wire generated sources/jniLibs into Android projects via the AGP variant API.
@@ -53,6 +52,8 @@ dependencies {
     // plugin-under-test classpath into withPluginClasspath().
     testImplementation(gradleTestKit())
     testImplementation(kotlin("test"))
+    // NativeTargetTest compares the plugin's targets with the Kotlin/Native version it is built against.
+    testImplementation(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-native-utils:$it" })
 }
 
 tasks.test {

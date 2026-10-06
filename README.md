@@ -12,8 +12,9 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
   - **JVM** targets and **Android** through generated JNI bindings and a stub library per target, with
     strings and primitive buffers marshalled;
   - the **JVM 22+** through jextract's FFM bindings, on request.
-- Speaks Kotlin/Native's own `KonanTarget`: pass `kotlinNativeTarget.konanTarget` straight in, and new
-  targets arrive with the Kotlin version.
+- Has its own target type, `NativeTarget`, one entry per Kotlin/Native target; a KGP target converts
+  with `NativeTarget.of(kotlinNativeTarget.konanTarget)`. The plugin's API does not depend on the
+  Kotlin compiler's.
 - Wires generated sources, `jniLibs` and task order into Kotlin and Android builds; can hand the JNI
   stub to the project's own build — CMake, or any build system as a list of commands — instead.
 - Auto-detects the Kotlin/Native distribution, the JDK that supplies `jni.h`, and the compiler-rt
@@ -37,11 +38,11 @@ Everything lives in one block: the **libraries** the project builds, and the **b
 them from Kotlin.
 
 ```kotlin
-import org.jetbrains.kotlin.konan.target.KonanTarget
+import io.github.lemcoder.model.NativeTarget
 
 konan {
     val mymath = libraries.create("mymath") {
-        targets(KonanTarget.MACOS_ARM64, KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64)
+        targets(NativeTarget.MACOS_ARM64, NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64)
     }
     bindings {
         create("mymath") {
@@ -67,7 +68,7 @@ either way.
 
 | Property          | Type                | Default                          | Description |
 |-------------------|---------------------|----------------------------------|-------------|
-| `targets`         | `List<KonanTarget>` | —                                | Targets to build for. `targets(...)` takes `KonanTarget`s; `androidTargets()` is every Android ABI. |
+| `targets`         | `List<NativeTarget>`| —                                | Targets to build for. `targets(...)` takes `NativeTarget`s; `NativeTarget.host` is the build host, `androidTargets()` every Android ABI. |
 | `sourceDirectory` | `Directory`         | `native/`                        | The C/C++ sources; also an include root. |
 | `includeDirs`     | `FileCollection`    | —                                | Further include roots. |
 | `compilerOptions` | `List<String>`      | —                                | Appended to `-fno-sanitize=undefined -fPIC`. Put `-std=…` here — C and C++ sources share one invocation. |
@@ -79,7 +80,7 @@ either way.
 #### Building with Zig — `zig { }`
 ```kotlin
 create("mymath") {
-    targets(KonanTarget.MACOS_ARM64, KonanTarget.LINUX_X64, KonanTarget.MINGW_X64)
+    targets(NativeTarget.MACOS_ARM64, NativeTarget.LINUX_X64, NativeTarget.MINGW_X64)
     zig { }   // runs native/build.zig once per target
 }
 ```
@@ -103,8 +104,8 @@ Android targets need a libc file for the NDK's bionic, which Zig does not bundle
 ```kotlin
 create("mymath") {
     prebuilt {
-        archive(KonanTarget.MACOS_ARM64, file("vendor/macos/libmymath.a"))
-        archive(KonanTarget.MINGW_X64, file("vendor/windows/mymath.lib"))
+        archive(NativeTarget.MACOS_ARM64, file("vendor/macos/libmymath.a"))
+        archive(NativeTarget.MINGW_X64, file("vendor/windows/mymath.lib"))
     }
 }
 ```
@@ -127,7 +128,7 @@ when the build leaves its archive somewhere of its own. Each run gets:
 
 ```kotlin
 create("mymath") {
-    targets(KonanTarget.LINUX_X64)
+    targets(NativeTarget.LINUX_X64)
     external {
         step {
             executable.set(Executable.OnPath("cargo"))
@@ -135,7 +136,7 @@ create("mymath") {
             workingDirectory.set(layout.projectDirectory.dir("native"))
         }
         sources.from("native/src", "native/Cargo.toml")
-        producedLibrary(KonanTarget.LINUX_X64, file("native/target/x86_64-unknown-linux-gnu/release/libmymath.a"))
+        producedLibrary(NativeTarget.LINUX_X64, file("native/target/x86_64-unknown-linux-gnu/release/libmymath.a"))
     }
 }
 ```
@@ -158,7 +159,7 @@ A C API described by a cinterop `.def`.
 | Property             | Type                     | Default | Description |
 |----------------------|--------------------------|---------|-------------|
 | `visibility`         | `BindingVisibility`      | `INTERNAL` | `PUBLIC` when the idiomatic wrapper lives in another module. |
-| `targets`            | `List<KonanTarget>`      | the library's targets a JVM can load — the host and Android — else the host | Targets to link the JNI library for. |
+| `targets`            | `List<NativeTarget>`     | the library's targets a JVM can load — the host and Android — else the host | Targets to link the JNI library for. |
 | `archive`            | `File`                   | the library's | An archive to link instead, e.g. one built elsewhere. |
 | `jdkHome`            | `Directory`              | auto-detected | A JDK shipping `include/jni.h`. |
 | `linkerOptions`      | `List<String>`           | — | Extra options for every target's link. |
@@ -213,7 +214,7 @@ create("koinference") {
 
 `cmakeBuild<Name><Target>` configures, then builds. It always runs and leaves incrementality to CMake,
 so a changed configure argument always reaches the build. Android needs a library per ABI, so declare
-targets: `target(KonanTarget.ANDROID_ARM64) { preset.set("androidNativeArm64") }`; without any, it
+targets: `target(NativeTarget.ANDROID_ARM64) { preset.set("androidNativeArm64") }`; without any, it
 builds once for the host. The contract also arrives as cache entries, and `CMAKE_LIBRARY_OUTPUT_DIRECTORY`
 is set to `KONAN_JNI_OUTPUT_DIR`, so the CMakeLists needs no knowledge of the layout:
 
@@ -247,10 +248,10 @@ jni {
         step {
             executable.set(Executable.OnPath("make"))
             arguments.addAll("-C", "native/jni")
-            argumentsFor(KonanTarget.ANDROID_ARM64, "ARCH=arm64")
+            argumentsFor(NativeTarget.ANDROID_ARM64, "ARCH=arm64")
         }
         sources.from("native")                       // what it reads; omit to always run
-        producedLibrary(KonanTarget.MACOS_ARM64, file("native/jni/out/libstub.dylib"))
+        producedLibrary(NativeTarget.MACOS_ARM64, file("native/jni/out/libstub.dylib"))
     }
 }
 ```
@@ -299,7 +300,8 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 
 | Property           | Type        | Default              | Description |
 |--------------------|-------------|----------------------|-------------|
-| `jextract`         | `File`      | `jextract` on the PATH | The jextract executable. |
+| `jextract`         | `Executable`| `OnPath("jextract")` | The jextract program. |
+| `linkerOptions`    | `List<String>` | —                 | Extra options for linking the library the bindings load. |
 | `libraryDirectory` | `Directory` | output               | Where the shared library ends up. |
 
 ## Tasks
@@ -334,7 +336,7 @@ The DSL is new and there is no compatibility shim.
   `konan { bindings { create(…) { … } } }`, with the JNI-only settings in `jni { }`: `jniHome` →
   `jdkHome`, `library` → `archive`, `additionalLinkerArgs` → `linkerOptions`, `linkerArgsFor` →
   `linkerOptionsFor`, `externalNativeBuild { cmake { } }` → `cmake { }` (`targets` → `buildTargets`,
-  `abi("arm64-v8a")` → `target(KonanTarget.ANDROID_ARM64)`, `executable` → an `Executable`, no `$CMAKE`),
+  `abi("arm64-v8a")` → `target(NativeTarget.ANDROID_ARM64)`, `executable` → an `Executable`, no `$CMAKE`),
   `resolvedLibraryDirectory` →
   `libraryDirectory`. `additionalCompilerArgs` becomes `compilerOptions`. Bindings are wired into the
   project's JVM and Android targets automatically.
@@ -342,6 +344,10 @@ The DSL is new and there is no compatibility shim.
   `val mymath = libraries.create("mymath") { … }`. Drop `staticLibraries` for it from the
   `.def`, or Kotlin/Native would embed it twice.
 - `kotlinNativeInterop` is gone: a binding is declared for every Kotlin/Native target by itself.
+- Targets are `NativeTarget`s (`io.github.lemcoder.model`), not `KonanTarget`s: `KonanTarget.X` →
+  `NativeTarget.X`, `hostKonanTarget()` → `NativeTarget.host`, a KGP target's `konanTarget` →
+  `NativeTarget.of(konanTarget)` (`import io.github.lemcoder.kotlin.of`). `jniHome()` is gone: external
+  builds get `JAVA_HOME`. Programs (`zig`, `cmake`, `jextract`) are `Executable`s.
 - JNI bindings are named after the C functions (`my_add`), not `kniBridge0`; tasks are `generateJni…` and
   `linkJni…`.
 

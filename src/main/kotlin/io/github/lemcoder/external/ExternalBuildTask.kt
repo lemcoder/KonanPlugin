@@ -1,6 +1,6 @@
 package io.github.lemcoder.external
 
-import io.github.lemcoder.dsl.Executable
+import io.github.lemcoder.model.Executable
 import io.github.lemcoder.toolchain.command
 import io.github.lemcoder.util.ExecCaptureResult
 import io.github.lemcoder.util.execCapture

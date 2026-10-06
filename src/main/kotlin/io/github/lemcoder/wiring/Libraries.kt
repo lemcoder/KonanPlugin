@@ -2,12 +2,10 @@ package io.github.lemcoder.wiring
 
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.NativeLibrarySpec
-import io.github.lemcoder.library.NativeArtifacts
 import io.github.lemcoder.library.providerFor
+import io.github.lemcoder.model.NativeArtifacts
 import org.gradle.api.Action
 import org.gradle.api.Project
-
-internal fun String.capitalized() = replaceFirstChar { it.uppercase() }
 
 /**
  * Every library gets its lifecycle task now — the name bindings depend on — and its provider's tasks once

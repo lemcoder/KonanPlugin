@@ -1,5 +1,8 @@
 package io.github.lemcoder.index
 
+import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.kotlin.runIndexExporter
+import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -17,7 +20,6 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
-import org.jetbrains.kotlin.konan.target.KonanTarget
 import javax.inject.Inject
 
 /**
@@ -44,9 +46,9 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     abstract val extraCinteropArgs: ListProperty<String>
 
     @get:Input
-    abstract val target: Property<KonanTarget>
+    abstract val target: Property<NativeTarget>
 
-    /** Defaults to the installed distribution of [PinnedKotlinNative.version], found at execution. */
+    /** Defaults to the installed distribution of [KonanDistribution.pinnedVersion], found at execution. */
     @get:Internal
     abstract val konanHome: DirectoryProperty
 
@@ -69,7 +71,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
                 // The .def's own directory, as cinterop users expect; a path rather than an input, so a .def
                 // at the project root does not make the whole project one.
                 add("-compiler-option"); add("-I${def.parentFile.absolutePath}")
-                add("-target"); add(target.get().name)
+                add("-target"); add(target.get().konanName)
                 includeDirs.files.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
                 compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
                 addAll(extraCinteropArgs.getOrElse(emptyList()))

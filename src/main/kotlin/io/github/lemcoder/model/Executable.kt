@@ -1,4 +1,4 @@
-package io.github.lemcoder.dsl
+package io.github.lemcoder.model
 
 import java.io.Serializable
 

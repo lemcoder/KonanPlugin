@@ -1,5 +1,6 @@
 package io.github.lemcoder.index
 
+import io.github.lemcoder.model.BindingVisibility
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,7 +10,7 @@ class ExporterProtocolTest {
     private val requests = listOf(
         GeneratorRequest.Dump,
         GeneratorRequest.Jni(stubLibrary = "examplestubs"),
-        GeneratorRequest.Jni(stubLibrary = "examplestubs", visibility = GeneratedVisibility.PUBLIC),
+        GeneratorRequest.Jni(stubLibrary = "examplestubs", visibility = BindingVisibility.PUBLIC),
         GeneratorRequest.Jextract(library = "mymath"),
         GeneratorRequest.Jextract(library = "mymath", jextract = File("/opt/jextract/bin/jextract"), headerClass = "MyMath"),
     )

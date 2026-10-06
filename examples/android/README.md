@@ -57,7 +57,7 @@ One config block — the plugin does the wiring:
 
 ```kotlin
 konan {
-    val mymath = libraries.create("mymath") { targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64) } // device + emulator
+    val mymath = libraries.create("mymath") { targets(NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64) } // device + emulator
     bindings {
         create("mymath") {
             defFile.set(file("src/main/nativeInterop/mymath.def"))

@@ -1,8 +1,9 @@
 package io.github.lemcoder.library
 
-import io.github.lemcoder.cleanTask
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.NativeLibrarySpec
+import io.github.lemcoder.model.taskName
+import io.github.lemcoder.util.cleanTask
 import org.gradle.api.Project
 import org.gradle.api.tasks.TaskProvider
 
@@ -21,7 +22,7 @@ private val DEFAULT_COMPILER_OPTIONS = listOf("-fno-sanitize=undefined", "-fPIC"
  * Kotlin/Native's clang and archived with its llvm-ar.
  */
 internal fun registerKonanClang(project: Project, konan: KonanExtension, library: NativeLibrarySpec): TaskProvider<*> =
-    project.tasks.register("konanClang${library.name.replaceFirstChar { it.uppercase() }}", CompileNativeLibraryTask::class.java) {
+    project.tasks.register(taskName("konanClang", library.name), CompileNativeLibraryTask::class.java) {
         group = "konan"
         description = "Compile the '${library.name}' C/C++ sources with Kotlin/Native's clang."
         // `clean` and this task are otherwise unordered, and the scratch dir this one writes to lives
@@ -35,10 +36,7 @@ internal fun registerKonanClang(project: Project, konan: KonanExtension, library
         libName.set(library.name)
         arguments.addAll(DEFAULT_COMPILER_OPTIONS)
         arguments.addAll(library.compilerOptions)
-
-        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-        val script = if (isWindows) "bin/run_konan.bat" else "bin/run_konan"
-        runKonan.set(konan.konanHome.file(script))
+        konanHome.set(konan.konanHome)
 
         onlyIf { targets.get().isNotEmpty() }
     }

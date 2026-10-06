@@ -1,6 +1,6 @@
 package io.github.lemcoder.index.exporter
 
-import io.github.lemcoder.index.GeneratedVisibility
+import io.github.lemcoder.model.BindingVisibility
 import io.github.lemcoder.index.GeneratorRequest
 import org.jetbrains.kotlin.native.interop.indexer.*
 import java.io.File
@@ -173,7 +173,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         packageName: String,
         facade: String,
         stubLibrary: String,
-        visibility: GeneratedVisibility,
+        visibility: BindingVisibility,
         bound: List<Binding>,
         skipped: List<Pair<String, String>>,
     ) = buildString {

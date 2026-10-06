@@ -1,4 +1,4 @@
-import io.github.lemcoder.hostKonanTarget
+import io.github.lemcoder.model.NativeTarget
 
 plugins {
     kotlin("jvm") version "2.4.20"
@@ -10,7 +10,7 @@ repositories { mavenCentral() }
 
 konan {
     // native/*.c -> one static archive per target.
-    val mymath = libraries.create("mymath") { targets(hostKonanTarget()) }
+    val mymath = libraries.create("mymath") { targets(NativeTarget.host) }
     // The C API in the .def, linked against that library. A kotlin("jvm") project gets JNI bindings,
     // added to its main source set, and a JNI library per target a JVM can load.
     bindings {

@@ -1,6 +1,7 @@
 package io.github.lemcoder.toolchain
 
-import io.github.lemcoder.dsl.Executable
+import io.github.lemcoder.model.Executable
+import io.github.lemcoder.model.HostOs
 import java.io.File
 
 /** Where installs live that a daemon's `PATH` misses. */
@@ -17,7 +18,7 @@ internal fun Executable.command(): String = when (this) {
 
 private fun find(name: String): File? {
     val directories = System.getenv("PATH").orEmpty().split(File.pathSeparator).filter { it.isNotEmpty() } + FALLBACK_DIRECTORIES
-    val extensions = if (File.separatorChar == '\\') WINDOWS_EXTENSIONS else listOf("")
+    val extensions = if (HostOs.current == HostOs.WINDOWS) WINDOWS_EXTENSIONS else listOf("")
     return directories.asSequence()
         .flatMap { directory -> extensions.asSequence().map { File(directory, name + it) } }
         .firstOrNull { it.isFile && it.canExecute() }

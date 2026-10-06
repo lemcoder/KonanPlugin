@@ -1,7 +1,8 @@
-package io.github.lemcoder.wiring
+package io.github.lemcoder.kotlin
 
 import io.github.lemcoder.dsl.BindingSpec
-import io.github.lemcoder.library.NativeArtifacts
+import io.github.lemcoder.model.NativeArtifacts
+import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
@@ -15,7 +16,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
  * or once the plugin is known to be applied: in a project without KGP, a reference elsewhere would be a
  * NoClassDefFoundError.
  */
-internal object KgpWiring {
+internal object KotlinGradlePlugin {
     private val JVM_PLATFORMS = setOf(KotlinPlatformType.jvm, KotlinPlatformType.androidJvm)
 
     /** Generated bindings are sources of a `kotlin("jvm")` project's main source set. */
@@ -43,7 +44,8 @@ internal object KgpWiring {
         val kotlin = project.extensions.getByType(KotlinMultiplatformExtension::class.java)
         kotlin.targets.withType(KotlinNativeTarget::class.java).configureEach {
             val target = this
-            if (artifacts != null && target.konanTarget !in artifacts.targets.getOrElse(emptyList())) return@configureEach
+            val nativeTarget = NativeTarget.of(target.konanTarget)
+            if (artifacts != null && nativeTarget !in artifacts.targets.getOrElse(emptyList())) return@configureEach
 
             target.compilations.getByName("main").cinterops.create(binding.name) {
                 definitionFile.set(binding.defFile)
@@ -53,7 +55,7 @@ internal object KgpWiring {
                 if (artifacts != null) {
                     extraOpts(
                         "-staticLibrary", NativeArtifacts.archiveFileName(artifacts.name),
-                        "-libraryPath", artifacts.directory(target.konanTarget).get().asFile.absolutePath,
+                        "-libraryPath", artifacts.directory(nativeTarget).get().asFile.absolutePath,
                     )
                     project.tasks.named(interopProcessingTaskName).configure { dependsOn(artifacts.builtBy) }
                 }

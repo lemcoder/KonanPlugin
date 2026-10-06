@@ -1,5 +1,6 @@
 package io.github.lemcoder.index
 
+import io.github.lemcoder.kotlin.KonanDistribution
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.File
@@ -13,7 +14,7 @@ import kotlin.test.assertTrue
  * distribution, then the `dump` generator over the index it built.
  *
  * Skipped when that distribution is not installed; any Kotlin Multiplatform build of
- * [PinnedKotlinNative.version] downloads it.
+ * [KonanDistribution.pinnedVersion] downloads it.
  */
 class GenerateFromNativeIndexTest {
 
@@ -94,7 +95,7 @@ class GenerateFromNativeIndexTest {
     }
 
     private fun assumeInstalled() =
-        assumeTrue(PinnedKotlinNative.home() != null, "Kotlin/Native ${PinnedKotlinNative.version} is not installed")
+        assumeTrue(KonanDistribution.pinned() != null, "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed")
 
     private companion object {
         val sampleDef = File(checkNotNull(GenerateFromNativeIndexTest::class.java.classLoader.getResource("nativeindex/sample.def")).toURI())
@@ -117,7 +118,7 @@ class GenerateFromNativeIndexTest {
             tasks.register<GenerateFromNativeIndexTask>("generate_$name") {
                 defFile.set(file("${path(def)}"))
                 includeDirs.from("${path(includeDir)}")
-                target.set(hostKonanTarget())
+                target.set(NativeTarget.host)
                 this.request.set(${kotlinSource(request)})
                 outputDirectory.set(layout.buildDirectory.dir("generated/$name"))
             }
@@ -127,7 +128,7 @@ class GenerateFromNativeIndexTest {
         fun kotlinSource(request: GeneratorRequest): String = when (request) {
             GeneratorRequest.Dump -> "GeneratorRequest.Dump"
             is GeneratorRequest.Jni ->
-                "GeneratorRequest.Jni(stubLibrary = \"${request.stubLibrary}\", visibility = GeneratedVisibility.${request.visibility})"
+                "GeneratorRequest.Jni(stubLibrary = \"${request.stubLibrary}\", visibility = BindingVisibility.${request.visibility})"
             is GeneratorRequest.Jextract ->
                 "GeneratorRequest.Jextract(library = \"${request.library}\", jextract = file(\"${request.jextract?.let(::path)}\"))"
         }
@@ -137,9 +138,9 @@ class GenerateFromNativeIndexTest {
             projectDir.resolve("settings.gradle.kts").writeText("""rootProject.name = "native-index"""")
             projectDir.resolve("build.gradle.kts").writeText(
                 (listOf(
-                    "import io.github.lemcoder.hostKonanTarget",
+                    "import io.github.lemcoder.model.NativeTarget",
                     "import io.github.lemcoder.index.GenerateFromNativeIndexTask",
-                    "import io.github.lemcoder.index.GeneratedVisibility",
+                    "import io.github.lemcoder.model.BindingVisibility",
                     "import io.github.lemcoder.index.GeneratorRequest",
                     "plugins { id(\"io.github.lemcoder.konanplugin\") }",
                 ) + tasks).joinToString("\n")

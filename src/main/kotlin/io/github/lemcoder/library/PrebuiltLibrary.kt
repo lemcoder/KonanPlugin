@@ -1,7 +1,9 @@
 package io.github.lemcoder.library
 
 import io.github.lemcoder.dsl.NativeLibrarySpec
-import io.github.lemcoder.wiring.capitalized
+import io.github.lemcoder.model.NativeArtifacts
+import io.github.lemcoder.model.NativeTarget
+import io.github.lemcoder.model.taskName
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
@@ -16,7 +18,6 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.work.DisableCachingByDefault
-import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.io.File
 
 /**
@@ -29,11 +30,11 @@ internal fun registerPrebuilt(project: Project, library: NativeLibrarySpec): Tas
     val targets = library.targets.getOrElse(emptyList())
     val missing = targets.filter { it !in archives }
     check(missing.isEmpty()) {
-        "konan.libraries.$libraryName.prebuilt has no archive for ${missing.joinToString { it.name }}."
+        "konan.libraries.$libraryName.prebuilt has no archive for ${missing.joinToString { it.konanName }}."
     }
     val placements = targets.associateWith { archives.getValue(it) }
 
-    return project.tasks.register("prebuilt${libraryName.capitalized()}", PlacePrebuiltArchivesTask::class.java) {
+    return project.tasks.register(taskName("prebuilt", libraryName), PlacePrebuiltArchivesTask::class.java) {
         group = "konan"
         description = "Place the prebuilt '$libraryName' archives where consumers look for them."
         archiveFiles.from(placements.values)
@@ -52,7 +53,7 @@ internal abstract class PlacePrebuiltArchivesTask : DefaultTask() {
     @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) abstract val archiveFiles: ConfigurableFileCollection
 
     /** Which archive each target gets. */
-    @get:Input abstract val placements: MapProperty<KonanTarget, File>
+    @get:Input abstract val placements: MapProperty<NativeTarget, File>
 
     @get:Input abstract val libraryFileName: Property<String>
 
@@ -65,7 +66,7 @@ internal abstract class PlacePrebuiltArchivesTask : DefaultTask() {
         check(absent.isEmpty()) { "$path: no such archive: ${absent.joinToString()}" }
         val output = outputDirectory.get().asFile
         archives.forEach { (target, archive) ->
-            archive.copyTo(output.resolve(target.name).resolve(libraryFileName.get()), overwrite = true)
+            archive.copyTo(output.resolve(target.konanName).resolve(libraryFileName.get()), overwrite = true)
         }
     }
 }

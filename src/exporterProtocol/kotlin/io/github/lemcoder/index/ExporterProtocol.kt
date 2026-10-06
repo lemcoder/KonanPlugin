@@ -1,5 +1,6 @@
 package io.github.lemcoder.index
 
+import io.github.lemcoder.model.BindingVisibility
 import java.io.File
 import java.io.Serializable
 
@@ -18,7 +19,7 @@ sealed class GeneratorRequest : Serializable {
      *
      * @property stubLibrary the library the bindings `System.loadLibrary`; the plugin owns that name.
      */
-    data class Jni(val stubLibrary: String, val visibility: GeneratedVisibility = GeneratedVisibility.INTERNAL) :
+    data class Jni(val stubLibrary: String, val visibility: BindingVisibility = BindingVisibility.INTERNAL) :
         GeneratorRequest()
 
     /**
@@ -31,9 +32,6 @@ sealed class GeneratorRequest : Serializable {
     data class Jextract(val library: String, val jextract: File? = null, val headerClass: String? = null) :
         GeneratorRequest()
 }
-
-/** Visibility of generated declarations. */
-enum class GeneratedVisibility { INTERNAL, PUBLIC }
 
 /**
  * One run of the exporter, as its command line: the [request], where its output goes, and the cinterop
@@ -82,7 +80,7 @@ data class ExporterInvocation(
                 Kind.DUMP -> GeneratorRequest.Dump
                 Kind.JNI -> GeneratorRequest.Jni(
                     stubLibrary = required(Flag.STUB_LIBRARY),
-                    visibility = GeneratedVisibility.valueOf(required(Flag.VISIBILITY)),
+                    visibility = BindingVisibility.valueOf(required(Flag.VISIBILITY)),
                 )
                 Kind.JEXTRACT -> GeneratorRequest.Jextract(
                     library = required(Flag.LIBRARY),

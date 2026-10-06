@@ -12,11 +12,19 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   blocks, which is why the whole DSL is one project extension, `konan`, and consumers are found from
   the project's plugins and targets. No KGP or AGP type may appear in the DSL classes: putting one in a
   decorated signature fails with *"Could not generate a decorated class … KotlinCompilation"* in any
-  project without KGP. All KGP and AGP code lives in `wiring/KgpWiring` and `wiring/AgpWiring`, reached
-  only from `plugins.withId` callbacks or once the plugin is known to be applied.
-- `kotlin-native-utils` is an `implementation` dependency, not the compile-only it arrives as
-  transitively: `KonanTarget` appears in decorated DSL signatures, and the published POM previously
-  declared no dependencies at all.
+  project without KGP. All KGP code lives in `kotlin/KotlinGradlePlugin` and AGP code in
+  `wiring/AgpWiring`, reached only from `plugins.withId` callbacks or once the plugin is known to be
+  applied.
+- **The DSL speaks `model.NativeTarget`, never `KonanTarget`.** Only the `kotlin/` package imports
+  `org.jetbrains.kotlin.*`: `NativeTarget.of(konanTarget)`, the KGP adapter, the distribution
+  (`KonanDistribution`) and the index exporter client. So `kotlin-native-utils` is `compileOnly` —
+  everything that touches it runs where KGP, which brings it, is applied. `NativeTargetTest` fails when
+  a Kotlin bump adds or retires a target; add the `NativeTarget` entry (and its Zig triple, if any).
+- **One home per concept.** `model/` holds the domain (targets, naming, the artifact layout, the
+  external-build contract, `selectOne`), `kotlin/` the touchpoints with Kotlin, `toolchain/` the
+  others (JDK, Xcode, executables, Zig). Task names come from `taskName(...)`, OS checks from
+  `HostOs`, the distribution's layout from `KonanDistribution` — add to those, don't re-derive.
+  `BindingVisibility` lives in `src/exporterProtocol` so the DSL and the generator share one enum.
 - AGP types are only touched inside `plugins.withId(...)` blocks. A plain reference in an eagerly
   executed method is `NoClassDefFoundError: KotlinMultiplatformAndroidComponentsExtension` in a
   plugin-only build. The KMP Android plugin does **not** apply `com.android.base`, so both ids need
@@ -107,7 +115,7 @@ holds a `NativeIndex`.
   the compiler jar as a friend module (`friendPaths` in the buildSrc plugin). Java is not a way around
   `internal` here: `native` is a Java keyword, so Java cannot import any `org.jetbrains.kotlin.native.…`
   class. And Kotlin cannot see the jar's types through Java sources in the same source set.
-- **Kotlin/Native bindings are not an exporter generator.** `KgpWiring.declareCinterops` adapts a
+- **Kotlin/Native bindings are not an exporter generator.** `KotlinGradlePlugin.declareCinterops` adapts a
   binding to KGP's own `cinterops {}`, so the klib comes from the consumer's Kotlin version — a klib is a compiler
   artifact, unlike the sources the exporter writes. Running cinterop's pipeline in the exporter works
   (`Interop().interop("native", …)`), but would pin the klib to `kotlinNativeVersion`; and its native

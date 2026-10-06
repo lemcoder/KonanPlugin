@@ -1,12 +1,13 @@
 package io.github.lemcoder.dsl
 
+import io.github.lemcoder.model.Executable
+import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
-import org.gradle.api.model.ObjectFactory
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
-import org.jetbrains.kotlin.konan.target.KonanTarget
 import javax.inject.Inject
 
 /**
@@ -33,12 +34,12 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
     }
 
     /** Builds for [target] — an Android ABI, say — with its own settings, instead of once for the host. */
-    fun target(target: KonanTarget, action: Action<in CMakeTargetSettings>) {
+    fun target(target: NativeTarget, action: Action<in CMakeTargetSettings>) {
         action.execute(targetSettings.getOrPut(target) { objects.newInstance(CMakeTargetSettings::class.java) })
     }
 
     /** The per-target builds declared; empty means a single build for the host. */
-    internal val targetSettings = linkedMapOf<KonanTarget, CMakeTargetSettings>()
+    internal val targetSettings = linkedMapOf<NativeTarget, CMakeTargetSettings>()
 
     /** The `CMakeLists.txt` to configure. Required unless [preset] is set. */
     abstract val path: RegularFileProperty

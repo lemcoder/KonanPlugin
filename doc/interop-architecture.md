@@ -105,11 +105,11 @@ flowchart TD
 | # | Component | Responsibility | Consumes → produces | Implementations |
 | --- | --- | --- | --- | --- |
 | 1 | **DSL** | Declares libraries, bindings, toolchains and packaging; validates; no work of its own | Build script → model objects | `konan { libraries; bindings }` (section A) |
-| 2 | **Target model** | The plugin's own target type (OS, architecture, ABI) with mappings to every ecosystem's name | — | `KonanTarget` today, mapped to Android ABI and JVM library paths |
+| 2 | **Target model** | The plugin's own target type (OS, architecture, ABI) with mappings to every ecosystem's name | — | `model.NativeTarget`: one entry per Kotlin/Native target (checked by a test against the pinned version), with family, architecture, Android ABI, library naming and Zig triple; `NativeTarget.of(konanTarget)` is the only conversion |
 | 3 | **Toolchain** | Compile, archive and link C/C++ for one target | Sources + flags → `.o`, `.a`, `.so`/`.dylib`/`.dll` | Konan (clang + downloaded sysroots) today; Xcode, Android NDK, system clang/GCC/MSVC, Zig later |
 | 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`, sealed: **KonanClang** (default, `konanClang<Name>`) or **External** — one `ExternalBuildTask` per target with the `ExternalLibraryVariable` contract: **Zig** (`zig { }`) and **Generic** (`external { step { } }`, any build system); or **Prebuilt** (`prebuilt { archive(target, file) }`, placed by `prebuilt<Name>`); all behind `compileNativeLibrary<Name>` |
 | 5 | **Binding spec** | What to bind | `.def` + cinterop command line → cinterop's `NativeIndex` | cinterop itself, in the index exporter (section B) |
-| 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KgpWiring.declareCinterops`) |
+| 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KotlinGradlePlugin.declareCinterops`) |
 | 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `JniStubBuild`, a sealed hierarchy: **KonanLink** (`LinkSharedLibraryTask`) or **External** — the project's own build, one `ExternalBuildTask` per target running a list of commands with the `ExternalStubVariable` contract as environment: **Generic** (`jni { external { step { } } }`, any build system) and the **CMake** preset (configure + build, contract also as cache entries); FFM links the library itself, no glue |
 | 8 | **Packaging and wiring** | Picks static or shared linkage per consumer and puts bindings and binaries where that consumer loads them | Bindings + binaries → source sets, `jniLibs`, cinterop declarations, publications | `BindingConsumer`: **KotlinNativeConsumer** (the KGP adapter), **JniConsumer** (JVM, multiplatform JVM, Android; own link or CMake), **FfmConsumer** (`kotlin("jvm")` only); publications not yet (section D) |
 
@@ -141,7 +141,7 @@ Kotlin targets, so a build declares what it has, not how each consumer is wired.
 ```kotlin
 konan {
     val mymath = libraries.create("mymath") {
-        targets(KonanTarget.MACOS_ARM64, KonanTarget.ANDROID_ARM64)       // sourceDirectory = native/
+        targets(NativeTarget.MACOS_ARM64, NativeTarget.ANDROID_ARM64)     // sourceDirectory = native/
     }
     bindings {
         create("mymath") {
@@ -292,12 +292,22 @@ Not yet:
 Partly settled by what exists:
 
 - **Plugin source**: `src/indexExporter` is the exporter and every generator (its own source set: it
-  compiles against the compiler jar, which `main` must not); `src/main/.../index` holds the launcher
-  (`runIndexExporter`), the generic `GenerateFromNativeIndexTask` and `PinnedKotlinNative`;
-  `buildSrc/.../native-index.gradle.kts` wires the source set, the friend path and the nested exporter
-  jar. The other components have a package each: `dsl` (everything a build script touches), `library`,
-  `jni`, `link`, `toolchain`, and `wiring` (which turns the DSL into tasks; `KgpWiring` and `AgpWiring`
-  are the only files touching KGP and AGP types).
+  compiles against the compiler jar, which `main` must not); `src/exporterProtocol` is compiled into
+  both sides (`GeneratorRequest`, `ExporterInvocation`, `BindingVisibility`);
+  `buildSrc/.../native-index.gradle.kts` wires the source sets, the friend path and the nested exporter
+  jar. `src/main` has a package per concern:
+
+  | Package | Holds |
+  | --- | --- |
+  | `model` | The domain, without tasks or KGP: `NativeTarget` (+ `TargetFamily`, `Architecture`, `HostOs`), `NativeArtifacts` (the archive layout), the external-build contract, `Executable`, `DefFile`, task naming, `selectOne` |
+  | `kotlin` | Every touchpoint with Kotlin, and the only package importing it: `NativeTarget.of(konanTarget)`, `KonanDistribution` (home, pinned version, `run_konan` clang and llvm-ar, NDK), `KotlinGradlePlugin` (KGP), the index exporter client |
+  | `toolchain` | The other toolchains: `Jdk` (`jni.h`), `Xcode` (compiler-rt), executable lookup, Zig triples |
+  | `dsl` | Everything a build script touches, one file per spec |
+  | `library` | `LibraryProvider` and its builds: Kotlin/Native's clang, prebuilt, Zig |
+  | `jni`, `link`, `index` | `JniStubBuild` and its builds, the generate tasks, the shared-library link |
+  | `external` | `ExternalBuildTask` and the registration every external build shares |
+  | `consumer` | `BindingConsumer`: Kotlin/Native, JNI, FFM |
+  | `wiring` | Registration of libraries and bindings, AGP, plugin ids |
 - **Generator output**: each exporter generator owns its layout under the task's output directory —
   `jni`: `kotlin/<package>/<facade>.kt` and `c/<stub>.c`; `jextract`: `java/<package>/`; `dump`:
   `index.txt`. Kotlin/Native klibs stay where KGP puts them.

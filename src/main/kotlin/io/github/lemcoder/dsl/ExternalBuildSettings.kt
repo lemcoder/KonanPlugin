@@ -1,5 +1,7 @@
 package io.github.lemcoder.dsl
 
+import io.github.lemcoder.model.Executable
+import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -8,7 +10,6 @@ import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
-import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.io.File
 import javax.inject.Inject
 
@@ -26,10 +27,10 @@ abstract class ExternalBuildSettings @Inject constructor(private val objects: Ob
     abstract val sources: ConfigurableFileCollection
 
     /** Where the build leaves each target's library, when it does not write it to `KONAN_JNI_OUTPUT_DIR`. */
-    abstract val producedLibraries: MapProperty<KonanTarget, File>
+    abstract val producedLibraries: MapProperty<NativeTarget, File>
 
     /** The library the build leaves at [file] for [target]; the plugin copies and renames it into place. */
-    fun producedLibrary(target: KonanTarget, file: File) = producedLibraries.put(target, file)
+    fun producedLibrary(target: NativeTarget, file: File) = producedLibraries.put(target, file)
 
     /** Appends a command; commands run in declaration order, each only after the previous succeeded. */
     fun step(action: Action<in ExternalStepSpec>) {
@@ -48,7 +49,7 @@ abstract class ExternalStepSpec {
     abstract val arguments: ListProperty<String>
 
     /** Arguments for one target, after [arguments]. */
-    abstract val targetArguments: MapProperty<KonanTarget, List<String>>
+    abstract val targetArguments: MapProperty<NativeTarget, List<String>>
 
     /** Variables beyond the plugin's contract; these win over it. */
     abstract val environment: MapProperty<String, String>
@@ -57,11 +58,11 @@ abstract class ExternalStepSpec {
     abstract val workingDirectory: DirectoryProperty
 
     /** Appends [arguments] for [target] only. */
-    fun argumentsFor(target: KonanTarget, vararg arguments: String) {
+    fun argumentsFor(target: NativeTarget, vararg arguments: String) {
         val existing = targetArguments.getOrElse(emptyMap())[target].orEmpty()
         targetArguments.put(target, existing + arguments)
     }
 
     /** Sets [target]'s arguments from a provider, e.g. one built from `jni.libraryDirectoryFor(target)`. */
-    fun argumentsFor(target: KonanTarget, arguments: Provider<List<String>>) = targetArguments.put(target, arguments)
+    fun argumentsFor(target: NativeTarget, arguments: Provider<List<String>>) = targetArguments.put(target, arguments)
 }

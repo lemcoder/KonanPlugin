@@ -1,10 +1,9 @@
 package io.github.lemcoder.link
 
-import org.jetbrains.kotlin.konan.target.Family
-import org.jetbrains.kotlin.konan.target.KonanTarget
-import io.github.lemcoder.isAndroid
-import io.github.lemcoder.sharedLibraryName
-import io.github.lemcoder.toolchain.NativeToolchain
+import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.model.NativeTarget
+import io.github.lemcoder.model.TargetFamily
+import io.github.lemcoder.toolchain.Xcode
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
@@ -12,12 +11,10 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
-import java.io.File
-import javax.inject.Inject
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -25,73 +22,74 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
+import javax.inject.Inject
 
 /**
- * Links a target's static archive into a shared library: with [stubCFile], the generated JNI stub
- * compiled against it (JNI); without, the whole archive on its own, every symbol exported (FFM).
+ * Links a target's static archive into a shared library with Kotlin/Native's clang: with [stubCFile], the
+ * generated JNI stub compiled against it (JNI); without, the whole archive on its own, every symbol
+ * exported (FFM).
  */
 @DisableCachingByDefault(because = "Native link output depends on the local toolchain; cheap to rebuild")
 internal abstract class LinkSharedLibraryTask @Inject constructor(
     private val exec: ExecOperations,
 ) : DefaultTask() {
-    @get:Input @get:Optional abstract val konanPath: Property<String>
-    @get:Input abstract val target: Property<KonanTarget>
+    /** The Kotlin/Native distribution whose clang links; resolved when the task runs. */
+    @get:Internal abstract val konanHome: DirectoryProperty
+    @get:Input abstract val target: Property<NativeTarget>
+
     /** Base name of the library, e.g. `examplestubs` for `libexamplestubs.so`. */
     @get:Input abstract val libraryBaseName: Property<String>
     @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.RELATIVE) abstract val stubCFile: RegularFileProperty
+
     /** Include roots for the stub compile. */
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection
+
     /** Further include roots, as paths: ones that must not be tracked as inputs, like the `.def`'s directory. */
     @get:Input @get:Optional abstract val includePaths: ListProperty<String>
+
+    /** The JDK's `include` directories, for `jni.h`; Android gets it from the NDK sysroot instead. */
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val jniIncludeDirs: ConfigurableFileCollection
+
     @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val staticLibrary: RegularFileProperty
-    @get:Input @get:Optional abstract val jniIncludeDirs: ListProperty<String>
-    @get:Input @get:Optional abstract val ndkResourceDir: Property<String>
     @get:Input @get:Optional abstract val additionalLinkerArgs: ListProperty<String>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun run() {
-        // Resolved here rather than through the property's convention: that is queried while the
-        // configuration cache is stored, which is before the Kotlin plugin has downloaded the
-        // distribution, and an absent value would then be cached for the run that needs it.
-        val konanHome = konanPath.orNull?.let(::File)
-            ?: NativeToolchain.findKonanHome()
-            ?: error(NativeToolchain.MISSING_KONAN)
-        val tgt = target.get()
-        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-        val runKonan = konanHome.resolve(if (isWindows) "bin/run_konan.bat" else "bin/run_konan")
-        check(runKonan.isFile) { "run_konan not found: $runKonan" }
+        val distribution = KonanDistribution.resolve(konanHome.orNull?.asFile)
+        check(distribution.runKonan.isFile) { "run_konan not found: ${distribution.runKonan}" }
+        val nativeTarget = target.get()
 
         val outDir = outputDirectory.get().asFile
         outDir.deleteRecursively(); outDir.mkdirs()
-        val outLib = outDir.resolve(tgt.sharedLibraryName(libraryBaseName.get()))
+        val outLib = outDir.resolve(nativeTarget.sharedLibraryName(libraryBaseName.get()))
         val archive = staticLibrary.get().asFile.absolutePath
         val stub = stubCFile.orNull?.asFile
 
-        val cmd = buildList {
-            add(runKonan.absolutePath); add("clang"); add("clang"); add(tgt.name)
+        val arguments = buildList {
             add("-shared")
             includeDirs.files.filter { it.exists() }.forEach { add("-I${it.absolutePath}") }
             includePaths.getOrElse(emptyList()).forEach { add("-I$it") }
-            if (tgt.isAndroid) {
+            if (nativeTarget.isAndroid) {
                 // jni.h comes from the NDK sysroot; supply compiler-rt and skip the (absent) unwinder.
-                ndkResourceDir.orNull?.takeIf { it.isNotEmpty() }?.let { add("-resource-dir=$it") }
+                distribution.ndkResourceDirectory()?.let { add("-resource-dir=${it.absolutePath}") }
                 add("--unwindlib=none")
             } else {
-                jniIncludeDirs.getOrElse(emptyList()).forEach { add("-I$it") }
+                jniIncludeDirs.files.forEach { add("-I${it.absolutePath}") }
             }
             if (stub != null) {
                 add(stub.absolutePath)
                 add(archive)
-            } else if (tgt.family.isAppleFamily) {
+            } else if (nativeTarget.family.isApple) {
                 add("-Wl,-force_load,$archive")
             } else {
                 add("-Wl,--whole-archive"); add(archive); add("-Wl,--no-whole-archive")
             }
-            if (tgt.family == Family.OSX) {
+            if (nativeTarget.family == TargetFamily.OSX) {
                 // Konan's LLVM has no host compiler-rt; Apple-framework code needs its builtins.
-                NativeToolchain.appleCompilerRt(xcodeDeveloperDir())?.let { add(it.absolutePath) }
+                Xcode.macosCompilerRt(exec)?.let { add(it.absolutePath) }
             }
             add("-o"); add(outLib.absolutePath)
             // A C++ runtime, extra -L, frameworks: all caller-supplied. Adding konan's own NDK lib
@@ -100,17 +98,9 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
             addAll(additionalLinkerArgs.getOrElse(emptyList()))
         }
 
-        val result = exec.execCapture { commandLine(cmd) }
+        val result = exec.execCapture { commandLine(distribution.clang(nativeTarget, arguments)) }
         logger.lifecycle(result.output)
         result.assertNormalExitValue()
         logger.lifecycle("Shared library: $outLib")
     }
-
-    /** `xcode-select -p`, or null when there is no Xcode (then only the Command Line Tools are tried). */
-    private fun xcodeDeveloperDir(): File? = runCatching {
-        exec.execCapture { commandLine("xcode-select", "-p") }
-            .takeIf { it.exitValue == 0 }
-            ?.let { File(it.output.trim()) }
-            ?.takeIf { it.isDirectory }
-    }.getOrNull()
 }

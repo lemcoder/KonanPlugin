@@ -1,6 +1,7 @@
 package io.github.lemcoder
 
-import io.github.lemcoder.index.PinnedKotlinNative
+import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.model.NativeTarget
 import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -18,8 +19,8 @@ import kotlin.test.assertTrue
 class KonanPluginFunctionalTest {
 
     private val projectDir = createTempDirectory("konan-testkit").toFile()
-    private val host = hostKonanTarget()
-    private val hostSuffix = host.name.replaceFirstChar { it.uppercase() }
+    private val host = NativeTarget.host
+    private val hostSuffix = host.konanName.replaceFirstChar { it.uppercase() }
 
     private fun runner(vararg args: String) = GradleRunner.create()
         .withProjectDir(projectDir)
@@ -34,14 +35,14 @@ class KonanPluginFunctionalTest {
         File(projectDir, "mymath.def").writeText("headers = mymath.h\npackage = example\n")
         File(projectDir, "mymath.h").writeText("int my_add(int a, int b);\n")
         File(projectDir, "build.gradle.kts").writeText(
-            "import org.jetbrains.kotlin.konan.target.KonanTarget\n\n" +
+            "import io.github.lemcoder.model.NativeTarget\nimport io.github.lemcoder.model.Executable\n\n" +
                 "plugins {\n${plugins.trimIndent().prependIndent("    ")}\n}\n\n" +
                 "konan {\n    konanHome.set(file(\"${konanStub()}\"))\n${konan.trimIndent().prependIndent("    ")}\n}\n"
         )
     }
 
     private val mymath = """
-        val mymath = libraries.create("mymath") { targets(KonanTarget.${host.name.uppercase()}) }
+        val mymath = libraries.create("mymath") { targets(NativeTarget.${host.name}) }
         bindings {
             create("mymath") {
                 defFile.set(file("mymath.def"))
@@ -52,7 +53,7 @@ class KonanPluginFunctionalTest {
 
     @Test
     fun `a library compiles from conventions alone`() {
-        write("""id("io.github.lemcoder.konanplugin")""", """libraries { create("mymath") { targets(KonanTarget.MACOS_ARM64) } }""")
+        write("""id("io.github.lemcoder.konanplugin")""", """libraries { create("mymath") { targets(NativeTarget.MACOS_ARM64) } }""")
 
         val result = runner("compileNativeLibraryMymath", "--dry-run").build()
 
@@ -63,7 +64,7 @@ class KonanPluginFunctionalTest {
     fun `a library built with zig sits behind the same task, with no konan clang`() {
         write(
             """id("io.github.lemcoder.konanplugin")""",
-            """libraries { create("mymath") { targets(KonanTarget.MACOS_ARM64); zig { } } }""",
+            """libraries { create("mymath") { targets(NativeTarget.MACOS_ARM64); zig { } } }""",
         )
 
         val result = runner("compileNativeLibraryMymath", "--dry-run").build()
@@ -80,10 +81,10 @@ class KonanPluginFunctionalTest {
             """
             libraries {
                 create("mymath") {
-                    targets(KonanTarget.LINUX_X64, KonanTarget.MINGW_X64)
+                    targets(NativeTarget.LINUX_X64, NativeTarget.MINGW_X64)
                     external {
                         step {
-                            executable.set(io.github.lemcoder.dsl.Executable.OnPath("sh"))
+                            executable.set(Executable.OnPath("sh"))
                             arguments.add("build.sh")
                             workingDirectory.set(layout.projectDirectory)
                         }
@@ -119,8 +120,8 @@ class KonanPluginFunctionalTest {
             libraries {
                 create("mymath") {
                     prebuilt {
-                        archive(KonanTarget.LINUX_X64, file("libs/libmymath-linux.a"))
-                        archive(KonanTarget.MINGW_X64, file("libs/mymath.lib"))
+                        archive(NativeTarget.LINUX_X64, file("libs/libmymath-linux.a"))
+                        archive(NativeTarget.MINGW_X64, file("libs/mymath.lib"))
                     }
                 }
             }
@@ -141,15 +142,15 @@ class KonanPluginFunctionalTest {
             """
             libraries {
                 create("mymath") {
-                    targets(KonanTarget.LINUX_X64, KonanTarget.MACOS_ARM64)
-                    prebuilt { archive(KonanTarget.LINUX_X64, file("libs/absent.a")) }
+                    targets(NativeTarget.LINUX_X64, NativeTarget.MACOS_ARM64)
+                    prebuilt { archive(NativeTarget.LINUX_X64, file("libs/absent.a")) }
                 }
             }
             """,
         )
         assertTrue("has no archive for macos_arm64" in runner("compileNativeLibraryMymath").buildAndFail().output)
 
-        File(projectDir, "build.gradle.kts").writeText(File(projectDir, "build.gradle.kts").readText().replace(", KonanTarget.MACOS_ARM64", ""))
+        File(projectDir, "build.gradle.kts").writeText(File(projectDir, "build.gradle.kts").readText().replace(", NativeTarget.MACOS_ARM64", ""))
         assertTrue("no such archive" in runner("compileNativeLibraryMymath").buildAndFail().output)
     }
 
@@ -176,8 +177,8 @@ class KonanPluginFunctionalTest {
             """
             libraries {
                 create("mymath") {
-                    targets(KonanTarget.MACOS_ARM64, KonanTarget.LINUX_X64, KonanTarget.MINGW_X64)
-                    zig { executable.set(io.github.lemcoder.dsl.Executable.File(file("${zig.replace("\\", "/")}"))) }
+                    targets(NativeTarget.MACOS_ARM64, NativeTarget.LINUX_X64, NativeTarget.MINGW_X64)
+                    zig { executable.set(Executable.File(file("${zig.replace("\\", "/")}"))) }
                 }
             }
             """,
@@ -216,14 +217,14 @@ class KonanPluginFunctionalTest {
     fun `JNI targets default to the library's that a JVM can load`() {
         write(
             """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
-            mymath.replace("targets(KonanTarget.${host.name.uppercase()})", "targets(KonanTarget.${host.name.uppercase()}, KonanTarget.ANDROID_ARM64, KonanTarget.LINUX_ARM64)"),
+            mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.${host.name}, NativeTarget.ANDROID_ARM64, NativeTarget.LINUX_ARM64)"),
         )
 
         val result = runner("linkJniMymath", "--dry-run").withPluginClasspathAndKgp().build()
 
         assertTrue(":linkJniMymath$hostSuffix SKIPPED" in result.output, result.output)
         assertTrue(":linkJniMymathAndroid_arm64 SKIPPED" in result.output, result.output)
-        if (host.name != "linux_arm64") assertFalse("linkJniMymathLinux_arm64" in result.output, "not loadable here:\n${result.output}")
+        if (host != NativeTarget.LINUX_ARM64) assertFalse("linkJniMymathLinux_arm64" in result.output, "not loadable here:\n${result.output}")
     }
 
     @Test
@@ -277,7 +278,7 @@ class KonanPluginFunctionalTest {
 
         runner("linkJniMymath").withPluginClasspathAndKgp().build()
 
-        val contract = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.name}/contract.txt").readText().split('|')
+        val contract = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}/contract.txt").readText().split('|')
         assertTrue(contract[0].isNotEmpty(), "library name: $contract")
         assertTrue(File(contract[1]).isDirectory, "stub directory: $contract")
     }
@@ -294,11 +295,11 @@ class KonanPluginFunctionalTest {
                     jni {
                         external {
                             step {
-                                executable.set(io.github.lemcoder.dsl.Executable.File(file("/bin/sh")))
+                                executable.set(Executable.File(file("/bin/sh")))
                                 arguments.add("build.sh")
                                 workingDirectory.set(layout.projectDirectory)
                             }
-                            producedLibrary(KonanTarget.${host.name.uppercase()}, file("out/built"))
+                            producedLibrary(NativeTarget.${host.name}, file("out/built"))
                         }
                     }
                 }
@@ -313,10 +314,10 @@ class KonanPluginFunctionalTest {
         val result = runner("linkJniMymath").withPluginClasspathAndKgp().build()
 
         assertEquals(TaskOutcome.SUCCESS, result.task(":externalBuildMymath$hostSuffix")?.outcome, result.output)
-        val libraries = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.name}").listFiles().orEmpty()
+        val libraries = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}").listFiles().orEmpty()
         val library = libraries.singleOrNull() ?: error("expected one library, got ${libraries.toList()}")
         val (target, name, stubDirectory) = library.readText().split('|')
-        assertEquals(host.name, target)
+        assertEquals(host.konanName, target)
         assertTrue(library.name.contains(name), "${library.name} is named after $name")
         assertTrue(File(stubDirectory).isDirectory, "stub directory: $stubDirectory")
     }
@@ -336,9 +337,9 @@ class KonanPluginFunctionalTest {
 
     @Test
     fun `a multiplatform project binds through KGP's cinterop, after compiling the library`() {
-        assumeTrue(PinnedKotlinNative.home() != null, "Kotlin/Native ${PinnedKotlinNative.version} is not installed")
+        assumeTrue(KonanDistribution.pinned() != null, "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed")
         // KMP's DSL names targets in camelCase: macos_arm64 -> macosArm64.
-        val dslName = host.name.split('_').mapIndexed { i, part -> if (i == 0) part else part.replaceFirstChar { it.uppercase() } }.joinToString("")
+        val dslName = host.konanName.split('_').mapIndexed { i, part -> if (i == 0) part else part.replaceFirstChar { it.uppercase() } }.joinToString("")
         val targetSuffix = dslName.replaceFirstChar { it.uppercase() }
 
         File(projectDir, "native").mkdirs()
@@ -351,7 +352,7 @@ class KonanPluginFunctionalTest {
         write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath)
         // The real distribution, not the stub: this one compiles.
         File(projectDir, "build.gradle.kts").appendText(
-            "\nkonan.konanHome.set(file(\"${PinnedKotlinNative.home()!!.absolutePath.replace("\\", "/")}\"))\n" +
+            "\nkonan.konanHome.set(file(\"${KonanDistribution.pinned()!!.home.absolutePath.replace("\\", "/")}\"))\n" +
                 "kotlin { $dslName() }\nrepositories { mavenCentral() }\n"
         )
         File(projectDir, "mymath.def").writeText("headers = mymath.h\npackage = example\n")

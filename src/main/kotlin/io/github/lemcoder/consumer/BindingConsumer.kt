@@ -2,10 +2,9 @@ package io.github.lemcoder.consumer
 
 import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.dsl.KonanExtension
-import io.github.lemcoder.library.NativeArtifacts
-import io.github.lemcoder.wiring.DefFile
+import io.github.lemcoder.model.DefFile
+import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.wiring.GradlePluginId
-import io.github.lemcoder.wiring.capitalized
 import io.github.lemcoder.wiring.hasPlugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
@@ -36,7 +35,6 @@ internal fun bindingConsumers(context: BindingContext): List<BindingConsumer> =
 /** What every consumer of one binding shares. */
 internal class BindingContext(val project: Project, val konan: KonanExtension, val binding: BindingSpec) {
     val bindingName: String = binding.name
-    val suffix: String = bindingName.capitalized()
     val buildDirectory = project.layout.buildDirectory
 
     /** The archives of the library the binding names, once the build script has been evaluated. */

@@ -2,7 +2,7 @@
 // Both plugins are applied to this one module: the konan plugin produces the .a, the JNI stub .so and the
 // Kotlin bindings; AGP packages the .so and compiles the app.
 
-import org.jetbrains.kotlin.konan.target.KonanTarget
+import io.github.lemcoder.model.NativeTarget
 
 plugins {
     id("com.android.application") // AGP 9 has built-in Kotlin support
@@ -11,7 +11,7 @@ plugins {
 
 konan {
     // native/*.c -> one static archive per ABI: device + emulator.
-    val mymath = libraries.create("mymath") { targets(KonanTarget.ANDROID_ARM64, KonanTarget.ANDROID_X64) }
+    val mymath = libraries.create("mymath") { targets(NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64) }
     // An Android app gets JNI bindings, wired into its variants, and a JNI library per ABI the library
     // is built for, packaged as jniLibs.
     bindings {

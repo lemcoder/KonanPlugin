@@ -1,25 +1,22 @@
 package io.github.lemcoder.library
 
-import org.jetbrains.kotlin.konan.target.KonanTarget
-
-
+import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.model.NativeArtifacts
+import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemOperations
-import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity.NAME_ONLY
 import org.gradle.api.tasks.PathSensitivity.RELATIVE
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
@@ -53,14 +50,13 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     @get:PathSensitive(RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection
 
-    /** Path to the (platform specific) `run_konan` utility */
-    @get:InputFile
-    @get:PathSensitive(NAME_ONLY)
-    abstract val runKonan: RegularFileProperty
+    /** The Kotlin/Native distribution whose clang compiles; resolved when the task runs. */
+    @get:Internal
+    abstract val konanHome: DirectoryProperty
 
-    /** Kotlin/Native target platforms to compile for */
+    /** Targets to compile for */
     @get:Input
-    abstract val targets: ListProperty<KonanTarget>
+    abstract val targets: ListProperty<NativeTarget>
 
     @get:Input
     @get:Optional
@@ -78,6 +74,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     @TaskAction
     fun compileAndLink() {
         val workingDir = workingDir.asFile.getOrElse(temporaryDir)
+        val distribution = KonanDistribution.resolve(konanHome.orNull?.asFile)
         targets.get().forEach { target ->
             // prepare output dirs
             val sourcesDir = workingDir.resolve("sources")
@@ -120,8 +117,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
 
             // compile files
             val compileResult = exec.execCapture {
-                executable(runKonan.asFile.get())
-                args("clang", "clang", target.name, "@args")
+                commandLine(distribution.clang(target, listOf("@args")))
                 workingDir(compileDir)
             }
 
@@ -130,7 +126,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
             compileResult.assertNormalExitValue()
 
             // move compiled files to output directory
-            val outDir = outputDir.get().dir(target.name)
+            val outDir = outputDir.get().dir(target.konanName)
             fs.delete { delete(outDir) }
             fs.sync {
                 from(compileDir) {
@@ -158,8 +154,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
 
             // link files
             val linkResult = exec.execCapture {
-                executable(runKonan.asFile.get())
-                args("llvm", "llvm-ar", "@args")
+                commandLine(distribution.llvmAr(listOf("@args")))
                 workingDir(linkDir)
             }
 

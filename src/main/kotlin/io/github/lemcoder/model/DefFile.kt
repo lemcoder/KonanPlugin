@@ -1,4 +1,4 @@
-package io.github.lemcoder.wiring
+package io.github.lemcoder.model
 
 import java.io.File
 

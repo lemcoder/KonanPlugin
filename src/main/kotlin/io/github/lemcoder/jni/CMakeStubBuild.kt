@@ -2,6 +2,8 @@ package io.github.lemcoder.jni
 
 import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.model.ExternalBuildContext
+import io.github.lemcoder.model.ExternalStubVariable
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
@@ -15,9 +17,9 @@ import org.gradle.api.provider.Provider
  * Both commands are one task, which always runs: CMake tracks its own sources, and a changed configure
  * argument then always reaches the build.
  */
-internal fun addCMakeCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, contract: ExternalContract) {
+internal fun addCMakeCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) {
     val cmake = binding.jni.cmake
-    val perTarget = cmake.targetSettings[contract.target]
+    val perTarget = cmake.targetSettings[context.target]
     val preset = perTarget?.preset?.orElse(cmake.preset) ?: cmake.preset
     check(cmake.path.isPresent || preset.isPresent) { "konan.bindings.${binding.name}.jni.cmake needs a path or a preset." }
     val sourceDirectory = cmake.path.map { it.asFile.parentFile }
@@ -26,7 +28,7 @@ internal fun addCMakeCommands(task: ExternalBuildTask, project: Project, binding
     val buildDirectory: Provider<Directory> = (perTarget?.buildDirectory ?: cmake.buildDirectory).orElse(
         project.layout.dir(
             preset.map { presetName -> sourceDirectory.get().resolve("build/$presetName") }
-                .orElse(project.layout.buildDirectory.dir("konan/bindings/${binding.name}/jni/cmake/${contract.target.name}").map { it.asFile })
+                .orElse(project.layout.buildDirectory.dir("konan/bindings/${binding.name}/jni/cmake/${context.target.konanName}").map { it.asFile })
         )
     )
 
@@ -37,9 +39,10 @@ internal fun addCMakeCommands(task: ExternalBuildTask, project: Project, binding
                 sourceDirectory.zip(buildDirectory) { source, build -> listOf("-S", source.absolutePath, "-B", build.asFile.absolutePath) }
             )
         )
-        arguments.add(contract.stubDirectory.map { "-D${ExternalStubVariable.STUB_DIR.variableName}=${it.asFile.absolutePath}" })
-        arguments.add(contract.libraryName.map { "-D${ExternalStubVariable.LIB_NAME.variableName}=$it" })
-        arguments.add(contract.outputDirectory.map { "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${it.asFile.absolutePath}" })
+        listOf(ExternalStubVariable.STUB_DIR, ExternalStubVariable.LIB_NAME).forEach { variable ->
+            arguments.add(context[variable].map { "-D${variable.variableName}=$it" })
+        }
+        arguments.add(context[ExternalStubVariable.OUTPUT_DIR].map { "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=$it" })
         arguments.addAll(cmake.arguments)
         perTarget?.let { arguments.addAll(it.arguments) }
         // `--preset` resolves CMakePresets.json from the working directory.

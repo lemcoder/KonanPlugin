@@ -1,25 +1,21 @@
 package io.github.lemcoder.jni
 
-import io.github.lemcoder.abiDir
 import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.dsl.JniSpec
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.external.ExternalBuildTask
-import io.github.lemcoder.external.ExternalBuildVariable
 import io.github.lemcoder.external.addSteps
-import io.github.lemcoder.external.registerExternalBuild
-import io.github.lemcoder.hostKonanTarget
-import io.github.lemcoder.library.NativeArtifacts
-import io.github.lemcoder.sharedLibraryName
-import io.github.lemcoder.taskSuffix
-import io.github.lemcoder.toolchain.NativeToolchain
-import io.github.lemcoder.wiring.capitalized
+import io.github.lemcoder.external.registerExternalBuilds
+import io.github.lemcoder.model.ExternalBuildContext
+import io.github.lemcoder.model.ExternalStubVariable
+import io.github.lemcoder.model.NativeArtifacts
+import io.github.lemcoder.model.NativeTarget
+import io.github.lemcoder.model.selectOne
+import io.github.lemcoder.toolchain.Jdk
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
-import org.gradle.api.provider.ProviderFactory
 import org.gradle.api.tasks.TaskProvider
-import org.jetbrains.kotlin.konan.target.KonanTarget
 
 /**
  * How a binding's JNI library — the generated stub, linked with the C library — comes to exist: linked
@@ -40,22 +36,18 @@ internal sealed interface JniStubBuild {
     }
 
     /**
-     * The project's own build compiles the stub: one [ExternalBuildTask] per target, run with the
-     * [ExternalContract] as its environment. A build system says only which targets it builds and which
-     * commands build one.
+     * The project's own build compiles the stub, once per target, told the [ExternalStubVariable]
+     * contract. A build system says which targets it builds and adds its commands.
      */
     sealed class External : JniStubBuild {
-        /** Task-name prefix, e.g. `cmakeBuild` in `cmakeBuildMymathMacos_arm64`. */
         protected abstract val taskPrefix: String
 
         /** The build system, for task descriptions. */
         protected abstract val toolName: String
 
-        /** The targets this build runs for. */
-        protected abstract fun targets(binding: BindingSpec, inputs: JniStubInputs): List<KonanTarget>
+        protected abstract fun targets(binding: BindingSpec, inputs: JniStubInputs): List<NativeTarget>
 
-        /** Adds the commands, and any sources or produced library, that build [contract]'s target. */
-        protected abstract fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, contract: ExternalContract)
+        protected abstract fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext)
 
         /** `jni.libraryDirectory`'s convention, given the plugin's [default]. */
         protected open fun libraryDirectory(binding: BindingSpec, default: Provider<Directory>): Provider<Directory> = default
@@ -63,24 +55,34 @@ internal sealed interface JniStubBuild {
         final override fun register(project: Project, konan: KonanExtension, binding: BindingSpec, inputs: JniStubInputs): List<TaskProvider<*>> {
             val bindingName = binding.name
             val jni = binding.jni
-            val javaHome = jni.jdkHome.map { it.asFile.absolutePath }
-                .orElse(project.provider { NativeToolchain.detectJniHome().absolutePath })
+            val javaHome = jni.jdkHome.map { it.asFile.absolutePath }.orElse(project.provider { Jdk.detectHome().absolutePath })
             val targets = targets(binding, inputs)
-            val tasks = targets.map { target ->
-                val contract = ExternalContract(target, jni.stubDirectory, jni.stubLibraryName, jni.libraryDirectoryFor(target), javaHome, project.providers)
-                project.registerExternalBuild(
-                    taskName = "$taskPrefix${bindingName.capitalized()}${target.taskSuffix}",
-                    taskDescription = "Build the '$bindingName' JNI library for ${target.name} with $toolName.",
-                    environment = contract.environment(),
-                    outputDirectory = contract.outputDirectory,
-                    libraryFileName = contract.libraryName.map { target.sharedLibraryName(it) },
-                ) {
-                    dependsOn(inputs.generate)
-                    generatedSources.from(contract.stubDirectory)
-                    addCommands(this, project, binding, contract)
-                }
+            val tasks = project.registerExternalBuilds(
+                taskPrefix = taskPrefix,
+                owner = bindingName,
+                description = { target -> "Build the '$bindingName' JNI library for ${target.konanName} with $toolName." },
+                targets = targets,
+                contextFor = { target ->
+                    val output = jni.libraryDirectoryFor(target)
+                    ExternalBuildContext(
+                        target, output,
+                        mapOf(
+                            ExternalStubVariable.STUB_DIR to jni.stubDirectory.map { it.asFile.absolutePath },
+                            ExternalStubVariable.LIB_NAME to jni.stubLibraryName,
+                            ExternalStubVariable.OUTPUT_DIR to output.map { it.asFile.absolutePath },
+                            ExternalStubVariable.TARGET to project.provider { target.konanName },
+                            ExternalStubVariable.ABI to project.provider { target.libraryDirectoryName },
+                            ExternalStubVariable.JAVA_HOME to javaHome,
+                        ),
+                    )
+                },
+                libraryFileName = { target -> jni.stubLibraryName.map { target.sharedLibraryName(it) } },
+            ) { context ->
+                dependsOn(inputs.generate)
+                generatedSources.from(jni.stubDirectory)
+                addCommands(this, project, binding, context)
             }
-            val host = hostKonanTarget()
+            val host = NativeTarget.host
             jni.libraryDirectory.convention(libraryDirectory(binding, if (host in targets) jni.libraryDirectoryFor(host) else jni.jniLibsRoot))
             return tasks
         }
@@ -90,8 +92,8 @@ internal sealed interface JniStubBuild {
             override val taskPrefix = "externalBuild"
             override val toolName = "its external build"
             override fun targets(binding: BindingSpec, inputs: JniStubInputs) = inputs.targets
-            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, contract: ExternalContract) =
-                task.addSteps(binding.jni.external, contract.target, "konan.bindings.${binding.name}.jni")
+            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
+                task.addSteps(binding.jni.external, context.target, "konan.bindings.${binding.name}.jni")
         }
 
         /** `jni { cmake { } }`: a CMakeLists, configured with the contract as cache entries, then built. */
@@ -99,66 +101,18 @@ internal sealed interface JniStubBuild {
             override val taskPrefix = "cmakeBuild"
             override val toolName = "CMake"
             override fun targets(binding: BindingSpec, inputs: JniStubInputs) =
-                binding.jni.cmake.targetSettings.keys.toList().ifEmpty { listOf(hostKonanTarget()) }
-            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, contract: ExternalContract) =
-                addCMakeCommands(task, project, binding, contract)
+                binding.jni.cmake.targetSettings.keys.toList().ifEmpty { listOf(NativeTarget.host) }
+            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
+                addCMakeCommands(task, project, binding, context)
             override fun libraryDirectory(binding: BindingSpec, default: Provider<Directory>) =
                 binding.jni.cmake.libraryDirectory.orElse(default)
         }
     }
 }
 
-/** What the plugin tells an external build about one target. */
-internal class ExternalContract(
-    val target: KonanTarget,
-    val stubDirectory: Provider<Directory>,
-    val libraryName: Provider<String>,
-    val outputDirectory: Provider<Directory>,
-    val javaHome: Provider<String>,
-    private val providers: ProviderFactory,
-) {
-    fun environment(): Map<ExternalStubVariable, Provider<String>> = mapOf(
-        ExternalStubVariable.STUB_DIR to stubDirectory.map { it.asFile.absolutePath },
-        ExternalStubVariable.LIB_NAME to libraryName,
-        ExternalStubVariable.OUTPUT_DIR to outputDirectory.map { it.asFile.absolutePath },
-        ExternalStubVariable.TARGET to providers.provider { target.name },
-        ExternalStubVariable.ABI to providers.provider { target.abiDir },
-        ExternalStubVariable.JAVA_HOME to javaHome,
-    )
-}
-
-/**
- * The environment of every external build — the names are the public contract, read the way an AGP
- * project reads `ANDROID_ABI`.
- */
-internal enum class ExternalStubVariable(override val variableName: String) : ExternalBuildVariable {
-    /** The directory holding the generated `.c` stub. */
-    STUB_DIR("KONAN_JNI_STUB_DIR"),
-
-    /** The library name the generated bindings pass to `System.loadLibrary`. */
-    LIB_NAME("KONAN_JNI_LIB_NAME"),
-
-    /** Where the target's library must land, unless the build names a produced library. */
-    OUTPUT_DIR("KONAN_JNI_OUTPUT_DIR"),
-
-    /** The Kotlin/Native target, e.g. `android_arm64`. */
-    TARGET("KONAN_TARGET"),
-
-    /** The target's Android ABI, e.g. `arm64-v8a`; the target's name elsewhere. */
-    ABI("KONAN_JNI_ABI"),
-
-    /** A JDK that ships `include/jni.h`. */
-    JAVA_HOME("JAVA_HOME"),
-}
-
 /** The build [jni] selected: at most one block, else [JniStubBuild.KonanLink]. */
-internal fun stubBuildFor(bindingName: String, jni: JniSpec): JniStubBuild {
-    val selected = jni.selectedStubBuilds
-    check(selected.size <= 1) {
-        "konan.bindings.$bindingName.jni selects ${selected.joinToString(" and ")}; a JNI library is built one way."
-    }
-    return selected.singleOrNull() ?: JniStubBuild.KonanLink
-}
+internal fun stubBuildFor(bindingName: String, jni: JniSpec): JniStubBuild =
+    selectOne("konan.bindings.$bindingName.jni", jni.selectedStubBuilds, JniStubBuild.KonanLink)
 
 /** What every stub build gets from the JNI consumer. */
 internal class JniStubInputs(
@@ -167,5 +121,5 @@ internal class JniStubInputs(
     /** The archives of the binding's library, if it names one. */
     val artifacts: NativeArtifacts?,
     /** The JNI targets: `jni.targets`, else the library's that a JVM can load, else the host. */
-    val targets: List<KonanTarget>,
+    val targets: List<NativeTarget>,
 )

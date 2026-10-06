@@ -1,49 +1,48 @@
 package io.github.lemcoder.external
 
-import io.github.lemcoder.cleanTask
 import io.github.lemcoder.dsl.ExternalBuildSettings
+import io.github.lemcoder.model.ExternalBuildContext
+import io.github.lemcoder.model.NativeTarget
+import io.github.lemcoder.model.taskName
+import io.github.lemcoder.util.cleanTask
 import org.gradle.api.Project
-import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
-import org.jetbrains.kotlin.konan.target.KonanTarget
-
-/** A variable of an external build's contract: what the plugin tells the build, by environment. */
-internal interface ExternalBuildVariable {
-    /** The environment variable's name — public contract, read by build scripts. */
-    val variableName: String
-}
 
 /**
- * Registers one target's [ExternalBuildTask]: [environment] as the contract, the library expected in
- * [outputDirectory] as [libraryFileName]. [configure] adds the build system's commands.
+ * An external build for each of [targets]: one [ExternalBuildTask] per target, named
+ * `<taskPrefix><Owner><Target>`, run with [contextFor]'s contract as environment and expected to leave
+ * [libraryFileName] in the context's output directory. [configure] adds the build system's commands —
+ * the only part that differs between build systems and between a library and a JNI stub.
  */
-internal fun Project.registerExternalBuild(
-    taskName: String,
-    taskDescription: String,
-    environment: Map<out ExternalBuildVariable, Provider<String>>,
-    outputDirectory: Provider<Directory>,
-    libraryFileName: Provider<String>,
-    configure: ExternalBuildTask.() -> Unit,
-): TaskProvider<ExternalBuildTask> {
+internal fun Project.registerExternalBuilds(
+    taskPrefix: String,
+    owner: String,
+    description: (NativeTarget) -> String,
+    targets: List<NativeTarget>,
+    contextFor: (NativeTarget) -> ExternalBuildContext,
+    libraryFileName: (NativeTarget) -> Provider<String>,
+    configure: ExternalBuildTask.(ExternalBuildContext) -> Unit,
+): List<TaskProvider<ExternalBuildTask>> {
     val clean = cleanTask()
-    // Read into locals: inside the block, `environment` and `outputDirectory` are the task's own.
-    val contract = environment
-    val output = outputDirectory
-    val fileName = libraryFileName
-    return tasks.register(taskName, ExternalBuildTask::class.java) {
-        group = "konan"
-        description = taskDescription
-        mustRunAfter(clean)
-        contract.forEach { (variable, value) -> this.environment.put(variable.variableName, value) }
-        this.libraryFileName.set(fileName)
-        this.outputDirectory.set(output)
-        configure()
+    return targets.map { target ->
+        val context = contextFor(target)
+        val taskDescription = description(target)
+        val fileName = libraryFileName(target)
+        tasks.register(taskName(taskPrefix, owner, target), ExternalBuildTask::class.java) {
+            group = "konan"
+            this.description = taskDescription
+            mustRunAfter(clean)
+            context.environment.forEach { (variable, value) -> environment.put(variable.variableName, value) }
+            this.libraryFileName.set(fileName)
+            outputDirectory.set(context.outputDirectory)
+            configure(context)
+        }
     }
 }
 
 /** The build script's own steps, as they are, for [target]: what a generic `external { }` block runs. */
-internal fun ExternalBuildTask.addSteps(settings: ExternalBuildSettings, target: KonanTarget, owner: String) {
+internal fun ExternalBuildTask.addSteps(settings: ExternalBuildSettings, target: NativeTarget, owner: String) {
     check(settings.steps.isNotEmpty()) { "$owner.external declares no step." }
     settings.steps.forEach { step ->
         command {
