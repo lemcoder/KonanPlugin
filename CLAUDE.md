@@ -42,7 +42,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   after evaluation (its block's conventions are set in the DSL constructors); a `BindingConsumer`
   (`consumer/`) has `prepare()` for the eager part, then `isUsed()` and `register()` after evaluation.
 - **Build systems are sealed hierarchies with a shared `External` branch** — `LibraryProvider` for
-  libraries, `JniStubBuild` for the JNI stub. Every external one is `ExternalBuildTask` per target
+  libraries, `JniStubBuild` for the JNI stub, `FfmLibraryBuild` for the shared library FFM loads. Every external one is `ExternalBuildTask` per target
   (`external/ExternalBuilds.kt`); a preset (Zig, CMake) only adds commands. Prefer a preset over a new
   task type.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with

@@ -48,6 +48,21 @@ internal enum class ExternalStubVariable(override val variableName: String) : Ex
     JAVA_HOME("JAVA_HOME"),
 }
 
+/** The contract of a build that makes the shared library FFM bindings load (`ffm { external { } }`). */
+internal enum class ExternalFfmVariable(override val variableName: String) : ExternalBuildVariable {
+    /** The library name the bindings pass to `System.loadLibrary`. */
+    LIB_NAME("KONAN_FFM_LIB_NAME"),
+
+    /** Where the target's library must land, unless the build names a produced library. */
+    OUTPUT_DIR("KONAN_FFM_OUTPUT_DIR"),
+
+    /** The Kotlin/Native target, e.g. `android_arm64`. */
+    TARGET("KONAN_TARGET"),
+
+    /** The target's Android ABI, e.g. `arm64-v8a`; the target's name elsewhere. */
+    ABI("KONAN_FFM_ABI"),
+}
+
 /** What an external build is told for one [target]: where to leave its output, and its contract. */
 internal class ExternalBuildContext(
     val target: NativeTarget,

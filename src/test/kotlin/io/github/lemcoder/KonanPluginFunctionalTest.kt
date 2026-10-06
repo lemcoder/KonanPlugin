@@ -151,7 +151,7 @@ class KonanPluginFunctionalTest {
         assertTrue("has no archive for macos_arm64" in runner("compileNativeLibraryMymath").buildAndFail().output)
 
         File(projectDir, "build.gradle.kts").writeText(File(projectDir, "build.gradle.kts").readText().replace(", NativeTarget.MACOS_ARM64", ""))
-        assertTrue("no such archive" in runner("compileNativeLibraryMymath").buildAndFail().output)
+        assertTrue("no such file" in runner("compileNativeLibraryMymath").buildAndFail().output)
     }
 
     @Test
@@ -320,6 +320,63 @@ class KonanPluginFunctionalTest {
         assertEquals(host.konanName, target)
         assertTrue(library.name.contains(name), "${library.name} is named after $name")
         assertTrue(File(stubDirectory).isDirectory, "stub directory: $stubDirectory")
+    }
+
+    @Test
+    fun `an FFM library built by the project's own build lands where the bindings load it`() {
+        assumeTrue(File("/bin/sh").canExecute(), "needs /bin/sh")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    ffm {
+                        external {
+                            step {
+                                executable.set(Executable.OnPath("sh"))
+                                arguments.add("build.sh")
+                                workingDirectory.set(layout.projectDirectory)
+                            }
+                        }
+                    }
+                }
+            }
+            """,
+        )
+        // Writes straight into the output directory the contract names, under the name it gives.
+        File(projectDir, "build.sh").writeText(
+            "printf '%s' \"${'$'}KONAN_TARGET\" > \"${'$'}KONAN_FFM_OUTPUT_DIR/${host.sharedLibraryName("x").replace("x", "${'$'}KONAN_FFM_LIB_NAME")}\"\n"
+        )
+
+        val result = runner("externalBuildFfmMymath$hostSuffix").build()
+
+        val library = File(projectDir, "build/konan/bindings/mymath/ffm/lib/${host.konanName}/${host.sharedLibraryName("mymath")}")
+        assertEquals(host.konanName, library.readText(), result.output)
+    }
+
+    @Test
+    fun `a prebuilt FFM library keeps its own name`() {
+        File(projectDir, "vendor").mkdirs()
+        File(projectDir, "vendor/libggml-host.so").writeText("vendor")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    ffm {
+                        libraryName.set("ggml")
+                        prebuilt { sharedLibrary(NativeTarget.${host.name}, file("vendor/libggml-host.so")) }
+                    }
+                }
+            }
+            """,
+        )
+
+        runner("prebuiltFfmMymath").build()
+
+        assertEquals("vendor", File(projectDir, "build/konan/bindings/mymath/ffm/lib/${host.konanName}/${host.sharedLibraryName("ggml")}").readText())
     }
 
     @Test

@@ -2,17 +2,14 @@ package io.github.lemcoder.library
 
 import io.github.lemcoder.dsl.NativeLibrarySpec
 import io.github.lemcoder.model.NativeArtifacts
-import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.taskName
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.file.ConfigurableFileCollection
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.MapProperty
-import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.OutputFiles
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
@@ -32,41 +29,40 @@ internal fun registerPrebuilt(project: Project, library: NativeLibrarySpec): Tas
     check(missing.isEmpty()) {
         "konan.libraries.$libraryName.prebuilt has no archive for ${missing.joinToString { it.konanName }}."
     }
-    val placements = targets.associateWith { archives.getValue(it) }
+    val output = library.outputDirectory.get().asFile
+    val placements = targets.associate { archives.getValue(it) to output.resolve(NativeArtifacts.archivePath(libraryName, it)) }
 
-    return project.tasks.register(taskName("prebuilt", libraryName), PlacePrebuiltArchivesTask::class.java) {
+    return project.tasks.register(taskName("prebuilt", libraryName), PlacePrebuiltFilesTask::class.java) {
         group = "konan"
         description = "Place the prebuilt '$libraryName' archives where consumers look for them."
-        archiveFiles.from(placements.values)
-        this.placements.set(placements)
-        libraryFileName.set(NativeArtifacts.archiveFileName(libraryName))
-        outputDirectory.set(library.outputDirectory)
+        place(placements)
     }
 }
 
 /**
- * Copies each target's archive to `<outputDirectory>/<target>/<libraryFileName>`. Not a `Copy`: that
- * skips a missing source as NO-SOURCE, and a consumer would then fail far from the cause.
+ * Copies each prebuilt file to where the plugin's layout wants it, under the name consumers look for. Not
+ * a `Copy`: that skips a missing source as NO-SOURCE, and a consumer would then fail far from the cause.
  */
 @DisableCachingByDefault(because = "Copying files is not worth caching")
-internal abstract class PlacePrebuiltArchivesTask : DefaultTask() {
-    @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) abstract val archiveFiles: ConfigurableFileCollection
+internal abstract class PlacePrebuiltFilesTask : DefaultTask() {
+    @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) abstract val sources: ConfigurableFileCollection
 
-    /** Which archive each target gets. */
-    @get:Input abstract val placements: MapProperty<NativeTarget, File>
+    /** Each prebuilt file and where it goes. */
+    @get:Input abstract val placements: MapProperty<File, File>
 
-    @get:Input abstract val libraryFileName: Property<String>
+    @get:OutputFiles abstract val destinations: ConfigurableFileCollection
 
-    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    fun place(placements: Map<File, File>) {
+        sources.from(placements.keys)
+        destinations.from(placements.values)
+        this.placements.set(placements)
+    }
 
     @TaskAction
-    fun place() {
-        val archives = placements.get()
-        val absent = archives.values.filterNot { it.isFile }
-        check(absent.isEmpty()) { "$path: no such archive: ${absent.joinToString()}" }
-        val output = outputDirectory.get().asFile
-        archives.forEach { (target, archive) ->
-            archive.copyTo(output.resolve(target.konanName).resolve(libraryFileName.get()), overwrite = true)
-        }
+    fun copy() {
+        val files = placements.get()
+        val absent = files.keys.filterNot { it.isFile }
+        check(absent.isEmpty()) { "$path: no such file: ${absent.joinToString()}" }
+        files.forEach { (source, destination) -> source.copyTo(destination, overwrite = true) }
     }
 }

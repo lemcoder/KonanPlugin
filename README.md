@@ -304,8 +304,26 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 |--------------------|-------------|----------------------|-------------|
 | `jextract`         | `Executable`| `OnPath("jextract")` | The jextract program. |
 | `panamaPortVersion`| `String`    | `v0.1.5`             | The PanamaPort an Android module's bindings use, added as a dependency. |
+| `libraryName`      | `String`    | the library's, else the binding's | What the bindings `System.loadLibrary`. Set it to a prebuilt library's own name. |
+| `targets`          | `List<NativeTarget>` | the library's loadable ones, else all loadable | The host on a JVM; 64-bit ABIs on Android. |
+| `external { }`     |             | —                    | The project's own build makes the shared library; below. |
+| `prebuilt { }`     |             | —                    | Shared libraries built elsewhere: `sharedLibrary(target, file)`; below. |
 | `linkerOptions`    | `List<String>` | —                 | Extra options for linking the library the bindings load. |
 | `libraryDirectory` | `Directory` | output               | Where the shared library ends up: the host's, or the `jniLibs` root on Android. |
+
+#### The shared library the bindings load
+FFM needs no stub: the bindings load the C library itself. By default the plugin links the binding's
+library's archive into it (`linkFfm<Name><Target>`). Instead:
+
+- `ffm { external { step { } } }` — the same block as `jni { external { } }`, run once per target by
+  `externalBuildFfm<Name><Target>`. Each run gets `KONAN_FFM_LIB_NAME`, `KONAN_FFM_OUTPUT_DIR`,
+  `KONAN_TARGET` and `KONAN_FFM_ABI`, and writes `lib<KONAN_FFM_LIB_NAME>` with the platform's suffix
+  into the output directory, or names where it leaves it with `producedLibrary(target, file)`.
+- `ffm { prebuilt { sharedLibrary(NativeTarget.ANDROID_ARM64, file("vendor/libggml.so")) } }` — a vendor's
+  libraries, placed by `prebuiltFfm<Name>`. Set `libraryName` to their own name (`"ggml"`), so libraries
+  that depend on them by that name still find them.
+
+Neither needs a `library(…)`; the bindings then come from the `.def` and its headers alone.
 
 #### FFM on Android
 In an Android module `ffm()` replaces JNI there too. jextract's output is moved from `java.lang.foreign`
@@ -328,8 +346,10 @@ with no stub. The app needs:
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
 | `linkJni<Name><Target>`       | Links it for one target. |
-| `cmakeBuild<Name><Target>`, `externalBuild<Name><Target>` | The project's own build, in place of the link. |
-| `generateFfm<Name>`, `linkFfm<Name>` | jextract's bindings, and the shared library they load. |
+| `cmakeBuild<Name><Target>`, `externalBuild<Name><Target>` | The project's own build, in place of the JNI link. |
+| `linkFfm<Name>`, `linkFfm<Name><Target>` | Makes the library FFM loads exist; the plugin's link of it for one target. |
+| `externalBuildFfm<Name><Target>`, `prebuiltFfm<Name>` | The project's own build of it, or placing a prebuilt one, in place of that link. |
+| `generateFfm<Name>`             | jextract's bindings. |
 | `cinterop<Name><Target>`      | KGP's own cinterop, declared by the plugin. |
 
 On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks automatically, so
