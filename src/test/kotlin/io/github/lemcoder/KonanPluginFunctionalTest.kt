@@ -154,6 +154,84 @@ class KonanPluginFunctionalTest {
         assertTrue("no such file" in runner("compileNativeLibraryMymath").buildAndFail().output)
     }
 
+    /** The installed Kotlin/Native distribution, for tests that really cross-compile with it. */
+    private fun realKonanHome(): String {
+        assumeTrue(KonanDistribution.pinned() != null, "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed")
+        return KonanDistribution.pinned()!!.home.absolutePath.replace("\\", "/")
+    }
+
+    @Test
+    fun `make cross-compiles a library with Kotlin-Native's toolchain`() {
+        assumeTrue(listOf("/usr/bin/make", "/opt/homebrew/bin/make").any { File(it).canExecute() }, "needs make")
+        assumeTrue(host != NativeTarget.LINUX_X64, "needs a host other than linux_x64")
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        // Nothing but the contract and the compilers make is handed.
+        File(projectDir, "native/Makefile").writeText(
+            "OUT := $(KONAN_LIBRARY_OUTPUT_DIR)\n" +
+                "all:\n\t$(CC) -c -fPIC mymath.c -o $(OUT)/mymath.o\n\t$(AR) rcs $(OUT)/lib$(KONAN_LIBRARY_NAME).a $(OUT)/mymath.o\n"
+        )
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            konanHome.set(file("$home"))
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.LINUX_X64)
+                    make { directory.set(file("native")) }
+                }
+            }
+            """,
+        )
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        val archive = File(projectDir, "build/konan/libraries/mymath/linux_x64/libmymath.a").readBytes()
+        assertTrue(archive.copyOfRange(0, 8).decodeToString() == "!<arch>\n", result.output)
+        // An x86-64 ELF object: e_machine 0x3e, 18 bytes into the member.
+        val elf = archive.indexOfSequence(byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))
+        assertTrue(elf > 0 && archive[elf + 18] == 0x3e.toByte(), "expected an x86-64 ELF member:\n${result.output}")
+    }
+
+    @Test
+    fun `CMake cross-compiles and links a JNI library through Kotlin-Native's toolchain file`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        assumeTrue(host != NativeTarget.LINUX_X64, "needs a host other than linux_x64")
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        File(projectDir, "native/CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.16)
+            project(mymath C)
+            add_library(${'$'}{KONAN_JNI_LIB_NAME} SHARED mymath.c)
+            """.trimIndent()
+        )
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            """
+            konanHome.set(file("$home"))
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    jni { cmake { path.set(file("native/CMakeLists.txt")); target(NativeTarget.LINUX_X64) { } } }
+                }
+            }
+            """,
+        )
+
+        val result = runner("cmakeBuildJniMymathLinux_x64").withPluginClasspathAndKgp().build()
+
+        val library = File(projectDir, "build/konan/bindings/mymath/jni/lib/linux_x64").listFiles().orEmpty().single { it.name.endsWith(".so") }
+        val bytes = library.readBytes()
+        assertTrue(bytes.copyOfRange(1, 4).decodeToString() == "ELF" && bytes[18] == 0x3e.toByte(), "expected an x86-64 ELF library:\n${result.output}")
+    }
+
+    private fun ByteArray.indexOfSequence(sequence: ByteArray): Int =
+        (0..size - sequence.size).firstOrNull { start -> sequence.indices.all { this[start + it] == sequence[it] } } ?: -1
+
     @Test
     fun `zig builds each target's archive where every provider puts it`() {
         val zig = System.getenv("ZIG")
@@ -214,6 +292,20 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a JVM project's jar carries the JNI library unless told not to`() {
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath)
+
+        val bundled = runner("jar", "--dry-run").withPluginClasspathAndKgp().build()
+        listOf(":linkJniMymath$hostSuffix", ":bundleJniMymath", ":processResources", ":jar").forEach {
+            assertTrue("$it SKIPPED" in bundled.output, "expected $it before the jar:\n${bundled.output}")
+        }
+
+        File(projectDir, "build.gradle.kts").appendText("konan.bindings.named(\"mymath\") { jni.bundleInJar.set(false) }\n")
+        val plain = runner("jar", "--dry-run").withPluginClasspathAndKgp().build()
+        assertFalse(":bundleJniMymath" in plain.output, plain.output)
+    }
+
+    @Test
     fun `JNI targets default to the library's that a JVM can load`() {
         write(
             """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
@@ -249,7 +341,7 @@ class KonanPluginFunctionalTest {
 
         val result = runner("linkJniMymath", "--dry-run").withPluginClasspathAndKgp().build()
 
-        assertTrue(":cmakeBuildMymath$hostSuffix SKIPPED" in result.output, result.output)
+        assertTrue(":cmakeBuildJniMymath$hostSuffix SKIPPED" in result.output, result.output)
         assertFalse(":linkJniMymath$hostSuffix" in result.output, "no plugin link with an external build:\n${result.output}")
     }
 
@@ -313,7 +405,7 @@ class KonanPluginFunctionalTest {
 
         val result = runner("linkJniMymath").withPluginClasspathAndKgp().build()
 
-        assertEquals(TaskOutcome.SUCCESS, result.task(":externalBuildMymath$hostSuffix")?.outcome, result.output)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":externalBuildJniMymath$hostSuffix")?.outcome, result.output)
         val libraries = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}").listFiles().orEmpty()
         val library = libraries.singleOrNull() ?: error("expected one library, got ${libraries.toList()}")
         val (target, name, stubDirectory) = library.readText().split('|')

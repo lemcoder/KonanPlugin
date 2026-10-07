@@ -3,10 +3,12 @@ package io.github.lemcoder.library
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.NativeLibrarySpec
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.external.addMakeCommands
 import io.github.lemcoder.external.addSteps
 import io.github.lemcoder.external.registerExternalBuilds
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.model.ExternalLibraryVariable
+import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.selectOne
 import org.gradle.api.Project
@@ -45,6 +47,9 @@ internal sealed interface LibraryProvider {
 
         protected abstract fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext)
 
+        /** Whose compilers the build gets; null when the build system brings its own. */
+        protected abstract fun toolchain(library: NativeLibrarySpec): ExternalToolchain?
+
         final override fun register(project: Project, konan: KonanExtension, library: NativeLibrarySpec): List<TaskProvider<*>> {
             val libraryName = library.name
             val fileName = project.providers.provider { NativeArtifacts.archiveFileName(libraryName) }
@@ -66,6 +71,7 @@ internal sealed interface LibraryProvider {
                     )
                 },
                 libraryFileName = { fileName },
+                toolchain = toolchain(library),
             ) { context -> addCommands(this, project, library, context) }
         }
 
@@ -75,6 +81,16 @@ internal sealed interface LibraryProvider {
             override val toolName = "its external build"
             override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) =
                 task.addSteps(library.external, context.target, "konan.libraries.${library.name}")
+            override fun toolchain(library: NativeLibrarySpec) = library.external.toolchain.get()
+        }
+
+        /** `make { }`: the project's Makefile, with Kotlin/Native's compilers when cross-compiling. */
+        data object Make : External() {
+            override val taskPrefix = "makeBuild"
+            override val toolName = "make"
+            override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) =
+                task.addMakeCommands(library.make, context, "konan.libraries.${library.name}.make")
+            override fun toolchain(library: NativeLibrarySpec) = library.make.toolchain.get()
         }
 
         /** `zig { }`: the project's own `build.zig`. */
@@ -83,6 +99,8 @@ internal sealed interface LibraryProvider {
             override val toolName = "zig build"
             override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) =
                 addZigCommands(task, project, library, context)
+            // Zig is its own cross toolchain.
+            override fun toolchain(library: NativeLibrarySpec): ExternalToolchain? = null
         }
     }
 }

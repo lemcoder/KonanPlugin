@@ -2,8 +2,6 @@ package io.github.lemcoder.link
 
 import io.github.lemcoder.kotlin.KonanDistribution
 import io.github.lemcoder.model.NativeTarget
-import io.github.lemcoder.model.TargetFamily
-import io.github.lemcoder.toolchain.Xcode
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
@@ -72,13 +70,9 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
             add("-shared")
             includeDirs.files.filter { it.exists() }.forEach { add("-I${it.absolutePath}") }
             includePaths.getOrElse(emptyList()).forEach { add("-I$it") }
-            if (nativeTarget.isAndroid) {
-                // jni.h comes from the NDK sysroot; supply compiler-rt and skip the (absent) unwinder.
-                distribution.ndkResourceDirectory()?.let { add("-resource-dir=${it.absolutePath}") }
-                add("--unwindlib=none")
-            } else {
-                jniIncludeDirs.files.forEach { add("-I${it.absolutePath}") }
-            }
+            // On Android jni.h comes from the NDK sysroot.
+            if (!nativeTarget.isAndroid) jniIncludeDirs.files.forEach { add("-I${it.absolutePath}") }
+            addAll(distribution.linkArguments(nativeTarget, exec))
             if (stub != null) {
                 add(stub.absolutePath)
                 add(archive)
@@ -86,10 +80,6 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
                 add("-Wl,-force_load,$archive")
             } else {
                 add("-Wl,--whole-archive"); add(archive); add("-Wl,--no-whole-archive")
-            }
-            if (nativeTarget.family == TargetFamily.OSX) {
-                // Konan's LLVM has no host compiler-rt; Apple-framework code needs its builtins.
-                Xcode.macosCompilerRt(exec)?.let { add(it.absolutePath) }
             }
             add("-o"); add(outLib.absolutePath)
             // A C++ runtime, extra -L, frameworks: all caller-supplied. Adding konan's own NDK lib

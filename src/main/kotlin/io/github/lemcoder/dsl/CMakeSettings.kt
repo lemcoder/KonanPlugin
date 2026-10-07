@@ -1,6 +1,7 @@
 package io.github.lemcoder.dsl
 
 import io.github.lemcoder.model.Executable
+import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
 import org.gradle.api.file.DirectoryProperty
@@ -32,7 +33,14 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
 
     init {
         executable.convention(Executable.OnPath("cmake"))
+        toolchain.convention(ExternalToolchain.AUTO)
     }
+
+    /**
+     * Whose compilers CMake gets: Kotlin/Native's, as `-DCMAKE_TOOLCHAIN_FILE`, when cross-compiling, by
+     * default. Not passed with a [preset], which names its own; a toolchain file in [arguments] wins.
+     */
+    abstract val toolchain: Property<ExternalToolchain>
 
     /** Builds for [target] — an Android ABI, say — with its own settings, instead of once for the host. */
     fun target(target: NativeTarget, action: Action<in CMakeTargetSettings>) {

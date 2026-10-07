@@ -84,6 +84,30 @@ not used — it emits address-only bridges, every pointer a raw `Long`.
 Bindings are `internal` by default and each carries **`@JvmName`**. JNI resolves the C symbol from the
 unmangled method name, so a mangled internal name compiles, links, and dies on the first call.
 
+## Kotlin/Native's toolchain for external builds
+
+- **`run_konan` starts a JVM per call**, so `CC` is not a wrapper around it: `KonanToolchainTask` runs
+  `run_konan clang <driver> <target> --version` once, takes the clang command it echoes, and writes `cc`
+  and `c++` scripts around that, plus a CMake toolchain file. Android is `Linux` to CMake — its Android
+  platform wants an NDK — and Apple targets set `CMAKE_OSX_SYSROOT`, or CMake's host SDK would win.
+- **Link flags live in `KonanDistribution.linkArguments`**: `-fuse-ld=lld` for Linux (the GCC toolchain's
+  `ld.bfd` is a Linux binary; a cross link from macOS fails without it), NDK compiler-rt and
+  `--unwindlib=none` for Android, Xcode's compiler-rt for macOS. The wrappers add them only when linking.
+- **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not
+  compile anything, and must not need a Kotlin/Native distribution to run.
+- **Task names carry the side**: `<tool>Build<Name>` for a library, `<tool>BuildJni…`, `<tool>BuildFfm…`
+  for a binding — a library and a binding are usually both called `mymath`.
+
+## Libraries in the jar
+
+- **The loader is generated, not a runtime dependency**: `NativeLoaderSource` writes a Kotlin function
+  into the JNI bindings and a `KonanNativeLoader` Java class beside jextract's output, which the exporter
+  points jextract's `System.loadLibrary` at (JVM only — PanamaPort's Android bindings keep the plain
+  call). `System.loadLibrary` first, so `java.library.path` still wins; then the jar's resource.
+- **The resource layout is shared**: `BundledLibraries.RESOURCE_ROOT` (`konan/natives/<konan target>/`)
+  lives in `src/exporterProtocol`, compiled into both the plugin that bundles and the exporter that
+  writes the loader. The loader maps `os.name`/`os.arch` to Kotlin/Native target names itself.
+
 ## FFM on Android
 
 - **jextract's output only needs its packages moved** onto PanamaPort: `java.lang.foreign` →

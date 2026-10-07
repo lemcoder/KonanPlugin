@@ -6,6 +6,7 @@ import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
+import java.io.File
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
@@ -29,6 +30,18 @@ internal object KotlinGradlePlugin {
         project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
             .matching { it.platformType in JVM_PLATFORMS }
             .configureEach { compilations.matching { it.name == "main" }.configureEach { defaultSourceSet.kotlin.srcDir(sources) } }
+    }
+
+    /** Resources of a `kotlin("jvm")` project's main source set. */
+    fun addJvmResources(project: Project, resources: Provider<File>) {
+        project.extensions.getByType(KotlinJvmProjectExtension::class.java).sourceSets.getByName("main").resources.srcDir(resources)
+    }
+
+    /** …and of the main compilation of every JVM target of a multiplatform project — not Android's, which packages jniLibs. */
+    fun addKmpJvmResources(project: Project, resources: Provider<File>) {
+        project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
+            .matching { it.platformType == KotlinPlatformType.jvm }
+            .configureEach { compilations.matching { it.name == "main" }.configureEach { defaultSourceSet.resources.srcDir(resources) } }
     }
 
     fun hasKmpJvmTarget(project: Project): Boolean =

@@ -45,7 +45,7 @@ class GenerateFromNativeIndexTest {
     @Test
     fun `the jni generator binds each C function under its own name`() {
         val kotlin = jni().resolve("kotlin/sample/sample.kt").readText()
-        assertContains(kotlin, "private val nativeLibrary: Unit = System.loadLibrary(\"samplestubs\")")
+        assertContains(kotlin, "private val nativeLibrary: Unit = loadNativeLibrary(\"samplestubs\")")
         assertContains(kotlin, "@JvmName(\"sample_sum\")\ninternal external fun sample_sum(values: IntArray?, count: Long): Int")
         assertContains(kotlin, "internal external fun sample_name(): String?")
         assertContains(kotlin, "internal external fun sample_buffer(handle: Long, c: Int, s: Int): ByteArray")

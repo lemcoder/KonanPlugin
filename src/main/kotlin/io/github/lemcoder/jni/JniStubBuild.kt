@@ -5,10 +5,12 @@ import io.github.lemcoder.dsl.JniSpec
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.external.ExternalBuildTask
 import io.github.lemcoder.external.addCMakeCommands
+import io.github.lemcoder.external.addMakeCommands
 import io.github.lemcoder.external.addSteps
 import io.github.lemcoder.external.registerExternalBuilds
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.model.ExternalStubVariable
+import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.selectOne
@@ -50,6 +52,9 @@ internal sealed interface JniStubBuild {
 
         protected abstract fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext)
 
+        /** Whose compilers the build gets. */
+        protected abstract fun toolchain(binding: BindingSpec): ExternalToolchain
+
         /** `jni.libraryDirectory`'s convention, given the plugin's [default]. */
         protected open fun libraryDirectory(binding: BindingSpec, default: Provider<Directory>): Provider<Directory> = default
 
@@ -78,6 +83,7 @@ internal sealed interface JniStubBuild {
                     )
                 },
                 libraryFileName = { target -> jni.stubLibraryName.map { target.sharedLibraryName(it) } },
+                toolchain = toolchain(binding),
             ) { context ->
                 dependsOn(inputs.generate)
                 generatedSources.from(jni.stubDirectory)
@@ -90,16 +96,27 @@ internal sealed interface JniStubBuild {
 
         /** `jni { external { } }`: any build system, as the commands the build script lists. */
         data object Generic : External() {
-            override val taskPrefix = "externalBuild"
+            override val taskPrefix = "externalBuildJni"
             override val toolName = "its external build"
             override fun targets(binding: BindingSpec, inputs: JniStubInputs) = inputs.targets
             override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
                 task.addSteps(binding.jni.external, context.target, "konan.bindings.${binding.name}.jni")
+            override fun toolchain(binding: BindingSpec) = binding.jni.external.toolchain.get()
+        }
+
+        /** `jni { make { } }`: the project's Makefile, told where the stub is and what to call the library. */
+        data object Make : External() {
+            override val taskPrefix = "makeBuildJni"
+            override val toolName = "make"
+            override fun targets(binding: BindingSpec, inputs: JniStubInputs) = inputs.targets
+            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
+                task.addMakeCommands(binding.jni.make, context, "konan.bindings.${binding.name}.jni.make")
+            override fun toolchain(binding: BindingSpec) = binding.jni.make.toolchain.get()
         }
 
         /** `jni { cmake { } }`: a CMakeLists, configured with the contract as cache entries, then built. */
         data object CMake : External() {
-            override val taskPrefix = "cmakeBuild"
+            override val taskPrefix = "cmakeBuildJni"
             override val toolName = "CMake"
             override fun targets(binding: BindingSpec, inputs: JniStubInputs) =
                 binding.jni.cmake.targetSettings.keys.toList().ifEmpty { listOf(NativeTarget.host) }
@@ -110,6 +127,7 @@ internal sealed interface JniStubBuild {
                 )
             override fun libraryDirectory(binding: BindingSpec, default: Provider<Directory>) =
                 binding.jni.cmake.libraryDirectory.orElse(default)
+            override fun toolchain(binding: BindingSpec) = binding.jni.cmake.toolchain.get()
         }
     }
 }

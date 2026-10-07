@@ -23,7 +23,14 @@ abstract class FfmSpec @Inject constructor(objects: ObjectFactory) {
     init {
         jextract.convention(Executable.OnPath("jextract"))
         panamaPortVersion.convention("v0.1.5")
+        bundleInJar.convention(true)
     }
+
+    /**
+     * Whether a JVM project's jar carries the library of each FFM target, under `konan/natives/`: the
+     * bindings then load it from there when `java.library.path` does not have it. On by default.
+     */
+    abstract val bundleInJar: Property<Boolean>
 
     /** The jextract program. Defaults to `jextract` on the PATH or in the usual install locations. */
     abstract val jextract: Property<Executable>
@@ -75,6 +82,14 @@ abstract class FfmSpec @Inject constructor(objects: ObjectFactory) {
     fun cmake(action: Action<in CMakeSettings>) {
         selectedLibraryBuilds += FfmLibraryBuild.External.CMake
         action.execute(cmake)
+    }
+
+    /** Builds the shared library with the project's Makefile, once per target. */
+    val make: MakeSettings = objects.newInstance(MakeSettings::class.java)
+
+    fun make(action: Action<in MakeSettings>) {
+        selectedLibraryBuilds += FfmLibraryBuild.External.Make
+        action.execute(make)
     }
 
     /** Shared libraries built elsewhere, one per target. */

@@ -68,6 +68,26 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
         val inputs = JniStubInputs(generate, artifacts, targets(artifacts))
         val builds = stubBuildFor(bindingName, binding.jni).register(project, context.konan, binding, inputs)
         linkAll.configure { dependsOn(builds) }
+        bundleInJar(inputs.targets.filter { !it.isAndroid })
+    }
+
+    /** The JVM targets' libraries into the jar of a `kotlin("jvm")` project or a multiplatform `jvm()` target. */
+    private fun bundleInJar(jvmTargets: List<NativeTarget>) {
+        val jni = binding.jni
+        val kmpJvm = context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project)
+        if (!jni.bundleInJar.get() || jvmTargets.isEmpty() || !(isPlainJvmConsumer || kmpJvm)) return
+        val bundle = project.registerJarBundle(
+            taskName = taskName("bundleJni", bindingName),
+            taskDescription = "Put the '$bindingName' JNI libraries in the jar, for the bindings to load.",
+            libraries = jvmTargets.associateWith { target ->
+                jni.libraryDirectoryFor(target).zip(jni.stubLibraryName) { directory, name -> directory.file(target.sharedLibraryName(name)) }
+            },
+            destination = context.buildDirectory.dir("konan/bindings/$bindingName/jni/resources").get().asFile,
+            builtBy = linkAll,
+        )
+        val resources = bundle.map { it.destinationDir }
+        if (isPlainJvmConsumer) KotlinGradlePlugin.addJvmResources(project, resources)
+        if (kmpJvm) KotlinGradlePlugin.addKmpJvmResources(project, resources)
     }
 
     /** `jni.targets`, else the library's targets a JVM can load — the host and Android — else the host. */

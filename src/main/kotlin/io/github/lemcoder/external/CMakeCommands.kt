@@ -2,6 +2,7 @@ package io.github.lemcoder.external
 
 import io.github.lemcoder.dsl.CMakeSettings
 import io.github.lemcoder.model.ExternalBuildContext
+import io.github.lemcoder.model.ToolchainVariable
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
@@ -45,7 +46,13 @@ internal fun ExternalBuildTask.addCMakeCommands(
                 sourceDirectory.zip(buildDirectory) { source, build -> listOf("-S", source.absolutePath, "-B", build.asFile.absolutePath) }
             )
         )
-        context.environment.forEach { (variable, value) -> arguments.add(value.map { "-D${variable.variableName}=$it" }) }
+        // Kotlin/Native's compilers by toolchain file — the arguments after it can still name another, and
+        // a preset names its own.
+        if (!preset.isPresent) {
+            context.environment[ToolchainVariable.CMAKE_TOOLCHAIN_FILE]?.let { file -> arguments.add(file.map { "-DCMAKE_TOOLCHAIN_FILE=$it" }) }
+        }
+        context.environment.filterKeys { it !is ToolchainVariable }
+            .forEach { (variable, value) -> arguments.add(value.map { "-D${variable.variableName}=$it" }) }
         arguments.add(context.outputDirectory.map { "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${it.asFile.absolutePath}" })
         arguments.addAll(cmake.arguments)
         perTarget?.let { arguments.addAll(it.arguments) }

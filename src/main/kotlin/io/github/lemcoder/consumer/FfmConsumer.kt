@@ -92,8 +92,18 @@ internal class FfmConsumer(private val context: BindingContext) : BindingConsume
         }
         if (context.hasPlugin(GradlePluginId.KOTLIN_JVM)) {
             // Plain Gradle source sets: Java is compiled by the java plugin, which kotlin("jvm") applies.
-            project.extensions.getByType(SourceSetContainer::class.java).getByName("main")
-                .java.srcDir(generate.map { it.outputDirectory.dir("java") })
+            val main = project.extensions.getByType(SourceSetContainer::class.java).getByName("main")
+            main.java.srcDir(generate.map { it.outputDirectory.dir("java") })
+            if (ffm.bundleInJar.get()) {
+                val bundle = project.registerJarBundle(
+                    taskName = taskName("bundleFfm", bindingName),
+                    taskDescription = "Put the libraries the '$bindingName' FFM bindings load in the jar.",
+                    libraries = targets.associateWith { target -> ffm.libraryDirectoryFor(target).map { it.file(target.sharedLibraryName(libraryName)) } },
+                    destination = context.buildDirectory.dir("konan/bindings/$bindingName/ffm/resources").get().asFile,
+                    builtBy = linkAll,
+                )
+                main.resources.srcDir(bundle.map { it.destinationDir })
+            }
         } else if (!isAndroid) {
             project.logger.info("konan.bindings.$bindingName: FFM bindings are wired into kotlin(\"jvm\") and Android projects; add build/generated/konan/$bindingName/ffm/java yourself.")
         }

@@ -77,6 +77,7 @@ either way.
 | `outputDirectory` | `Directory`         | `build/konan/libraries/<name>`   | Root of the per-target archives; `archive(target)` gives one. |
 | `zig { }`         |                     | —                                | Build with the project's `build.zig` instead; below. |
 | `external { }`    |                     | —                                | Build with any other build system, as commands; below. |
+| `make { }`        |                     | —                                | Build with the project's Makefile; below. |
 | `prebuilt { }`    |                     | —                                | Use archives built elsewhere; below. |
 
 #### Building with Zig — `zig { }`
@@ -101,6 +102,58 @@ library (`b.addLibrary(.{ .linkage = .static, … })`).
 | `artifactName`     | `String`       | the library's name  | The static library `build.zig` installs. |
 
 Android targets need a libc file for the NDK's bionic, which Zig does not bundle.
+
+#### Building with Make — `make { }`
+```kotlin
+create("mymath") {
+    targets(NativeTarget.LINUX_X64, NativeTarget.ANDROID_ARM64)
+    make { directory.set(file("native")) }   // make -C native -j<n> CC=… CXX=… AR=… KONAN_…=…
+}
+```
+
+`makeBuild<Name><Target>` runs make once per target. The compilers and the contract go on make's command
+line, where they win over the Makefile's own assignments, so a Makefile written against `$(CC)`, `$(AR)`
+and `$(KONAN_LIBRARY_OUTPUT_DIR)` cross-compiles unchanged:
+
+```make
+OUT := $(KONAN_LIBRARY_OUTPUT_DIR)
+all:
+	$(CC) -c -fPIC mymath.c -o $(OUT)/mymath.o
+	$(AR) rcs $(OUT)/lib$(KONAN_LIBRARY_NAME).a $(OUT)/mymath.o
+```
+
+Every target builds in the same directory: keep intermediate files per target, as above, or a second
+target reuses the first one's objects.
+
+| Property           | Type                | Default            | Description |
+|--------------------|---------------------|--------------------|-------------|
+| `directory`        | `Directory`         | —                  | Where make runs (`-C`). Required. |
+| `makefile`         | `File`              | `Makefile`         | `-f`. |
+| `buildTargets`     | `List<String>`      | the default goal   | Make targets. |
+| `arguments`        | `List<String>`      | —                  | Further arguments; `argumentsFor(target, …)` for one target. |
+| `jobs`             | `Int`               | processors         | `-j`. |
+| `toolchain`        | `ExternalToolchain` | `AUTO`             | Whose compilers; below. |
+| `executable`       | `Executable`        | `OnPath("make")`   | The `make` program. |
+| `sources`, `producedLibrary(target, file)` | | —            | As for `external { }`. |
+
+`jni { make { } }` and `ffm { make { } }` take the same block, for the libraries those load.
+
+#### Kotlin/Native's compilers for any build — `toolchain`
+Cross-compiling with your own build needs a compiler and sysroot per target. The plugin hands over
+Kotlin/Native's — the ones its own builds use, so the archives match Kotlin/Native's ABI (glibc 2.19 on
+Linux, its NDK sysroot on Android):
+
+| `toolchain`   | Meaning |
+|---------------|---------|
+| `AUTO`        | Kotlin/Native's when cross-compiling, the system's for the build host. The default of `make { }` and `cmake { }`. |
+| `KONAN`       | Always Kotlin/Native's. |
+| `SYSTEM`      | Never: the build finds its own. The default of `external { }`, whose steps are the build script's own. |
+
+With Kotlin/Native's, the build gets `CC`, `CXX` and `AR` (and `KONAN_CMAKE_TOOLCHAIN_FILE`) in its
+environment; `make { }` also passes them on the command line, and `cmake { }` passes the toolchain file
+as `-DCMAKE_TOOLCHAIN_FILE` unless it uses a preset — a toolchain file in `arguments` still wins, an NDK's
+say. They are written per target by `konanToolchain<Target>` under `build/konan/toolchains/<target>/`:
+`cc` and `c++` wrap the clang `run_konan` would run, with the target's link flags when linking.
 
 #### Archives built elsewhere — `prebuilt { }`
 ```kotlin
@@ -166,7 +219,8 @@ A C API described by a cinterop `.def`.
 | `jdkHome`            | `Directory`              | auto-detected | A JDK shipping `include/jni.h`. |
 | `linkerOptions`      | `List<String>`           | — | Extra options for every target's link. |
 | `linkerOptionsFor(target, …)` |                 | — | Extra options for one target's link; `-framework` belongs here, since the Android linker rejects it. |
-| `libraryDirectory`   | `Directory`              | output | Where the host's JNI library ends up: put it on `java.library.path`. |
+| `libraryDirectory`   | `Directory`              | output | Where the host's JNI library ends up. |
+| `bundleInJar`        | `Boolean`                | `true` | Puts each JVM target's library in the jar, where the bindings load it from; see below. |
 | `cmake { }`          |                          | — | An external CMake build that compiles the stub instead; below. |
 | `external { }`       |                          | — | Any other build system that compiles the stub, as commands; below. |
 | `stubDirectory`, `stubLibraryName`, `libraryDirectoryFor(target)` | read-only | — | The external-build contract as providers, for arguments. |
@@ -183,7 +237,8 @@ link task is registered: one build task per target takes its place, ordered afte
 `linkJni<Name>` depends on them, so "make the JNI library exist" means the same thing either way. A
 binding selects at most one of `cmake { }` and `external { }`.
 
-Every run gets the plugin's contract — what only it knows — as environment variables:
+Every run gets the plugin's contract — what only it knows — as environment variables (and, with
+Kotlin/Native's `toolchain`, `CC`, `CXX`, `AR`; see above):
 
 | variable | meaning |
 |---|---|
@@ -214,7 +269,7 @@ create("koinference") {
 }
 ```
 
-`cmakeBuild<Name><Target>` configures, then builds. It always runs and leaves incrementality to CMake,
+`cmakeBuildJni<Name><Target>` configures, then builds. It always runs and leaves incrementality to CMake,
 so a changed configure argument always reaches the build. Android needs a library per ABI, so declare
 targets: `target(NativeTarget.ANDROID_ARM64) { preset.set("androidNativeArm64") }`; without any, it
 builds once for the host. The contract also arrives as cache entries, and `CMAKE_LIBRARY_OUTPUT_DIRECTORY`
@@ -258,7 +313,7 @@ jni {
 }
 ```
 
-`externalBuild<Name><Target>` runs the steps. The build writes the library into `KONAN_JNI_OUTPUT_DIR`,
+`externalBuildJni<Name><Target>` runs the steps. The build writes the library into `KONAN_JNI_OUTPUT_DIR`,
 or names where it leaves it with `producedLibrary(target, file)`, and the plugin copies it into place
 under the name the bindings load. With `sources` declared the task is up to date while they and the
 steps are unchanged; without, the plugin cannot know what the build reads, so it always runs.
@@ -270,6 +325,23 @@ steps are unchanged; without, the plugin cannot know what the build reads, so it
 | `argumentsFor(target, …)` |              | Arguments for one target, after `arguments`. |
 | `environment`      | `Map<String, String>` | Variables beyond the contract; these win over it. |
 | `workingDirectory` | `Directory`         | Where it runs. |
+
+### Libraries in the jar
+In a `kotlin("jvm")` project or a multiplatform `jvm()` target, the JNI library of every JVM target —
+and, with `ffm()`, the library FFM loads — goes into the jar as `konan/natives/<target>/<file>`
+(`bundleJni<Name>`, `bundleFfm<Name>`). The generated bindings load it with `System.loadLibrary` when
+`java.library.path` has it, so a build's own setup still wins, and otherwise extract it for the running
+platform to a temporary file. `run`, `installDist` and a plain `java -cp` need no library path.
+
+Declare more JVM targets to ship one jar for several platforms — Linux libraries cross-link from a Mac:
+
+```kotlin
+val mymath = libraries.create("mymath") { targets(NativeTarget.host, NativeTarget.LINUX_X64) }
+bindings { create("mymath") { library(mymath); jni { targets(NativeTarget.host, NativeTarget.LINUX_X64) } } }
+```
+
+The loader is generated into each binding's package, so the bindings still need nothing at runtime.
+`jni { bundleInJar.set(false) }` (or `ffm { … }`) leaves the libraries out.
 
 ### The generated JNI bindings
 One `external fun` per C function, named after it and carrying its C signature as a doc comment.
@@ -298,7 +370,8 @@ different Gradle module.
 FFM (`java.lang.foreign`) bindings, written by jextract from the same `.def`, and the library linked
 as a shared library for the build host — FFM needs no stub. In a `kotlin("jvm")` project they replace
 the JNI bindings and are added to the main Java sources; compile them with a JDK 22+ toolchain and run
-with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
+with `--enable-native-access`; the library travels in the jar (below), or put `ffm.libraryDirectory` on
+`java.library.path`.
 
 | Property           | Type        | Default              | Description |
 |--------------------|-------------|----------------------|-------------|
@@ -311,6 +384,7 @@ with `--enable-native-access` and `ffm.libraryDirectory` on `java.library.path`.
 | `prebuilt { }`     |             | —                    | Shared libraries built elsewhere: `sharedLibrary(target, file)`; below. |
 | `linkerOptions`    | `List<String>` | —                 | Extra options for linking the library the bindings load. |
 | `libraryDirectory` | `Directory` | output               | Where the shared library ends up: the host's, or the `jniLibs` root on Android. |
+| `bundleInJar`      | `Boolean`   | `true`               | Puts the library in a `kotlin("jvm")` project's jar; see "Libraries in the jar". |
 
 #### The shared library the bindings load
 FFM needs no stub: the bindings load the C library itself. By default the plugin links the binding's
@@ -359,13 +433,14 @@ with no stub. The app needs:
 | Task                          | Description |
 |-------------------------------|-------------|
 | `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` per target, with whichever provider it uses. |
-| `konanClang<Name>`, `zigBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, the library's own steps, or placing prebuilt archives. |
+| `konanClang<Name>`, `zigBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
+| `konanToolchain<Target>`      | Writes Kotlin/Native's compilers for a target, for external builds that use them. |
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
 | `linkJni<Name><Target>`       | Links it for one target. |
-| `cmakeBuild<Name><Target>`, `externalBuild<Name><Target>` | The project's own build, in place of the JNI link. |
+| `cmakeBuildJni<Name><Target>`, `makeBuildJni<Name><Target>`, `externalBuildJni<Name><Target>` | The project's own build, in place of the JNI link. |
 | `linkFfm<Name>`, `linkFfm<Name><Target>` | Makes the library FFM loads exist; the plugin's link of it for one target. |
-| `cmakeBuildFfm<Name><Target>`, `externalBuildFfm<Name><Target>`, `prebuiltFfm<Name>` | The project's own build of it, or placing a prebuilt one, in place of that link. |
+| `cmakeBuildFfm<Name><Target>`, `makeBuildFfm<Name><Target>`, `externalBuildFfm<Name><Target>`, `prebuiltFfm<Name>` | The project's own build of it, or placing a prebuilt one, in place of that link. |
 | `generateFfm<Name>`             | jextract's bindings. |
 | `cinterop<Name><Target>`      | KGP's own cinterop, declared by the plugin. |
 
@@ -374,7 +449,7 @@ On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks au
 
 ## Examples
 - `examples/native` — Kotlin/Native consumer through KGP's cinterop.
-- `examples/jvm` — plain JVM app loading the JNI library from `java.library.path`.
+- `examples/jvm` — plain JVM app loading the JNI library bundled in its jar.
 - `examples/android` — Android app calling C through the generated bindings.
   `scripts/run-android.sh` publishes the plugin, builds, installs and launches it in one command.
 
@@ -389,7 +464,8 @@ The DSL is new and there is no compatibility shim.
   `konan { bindings { create(…) { … } } }`, with the JNI-only settings in `jni { }`: `jniHome` →
   `jdkHome`, `library` → `archive`, `additionalLinkerArgs` → `linkerOptions`, `linkerArgsFor` →
   `linkerOptionsFor`, `externalNativeBuild { cmake { } }` → `cmake { }` (`targets` → `buildTargets`,
-  `abi("arm64-v8a")` → `target(NativeTarget.ANDROID_ARM64)`, `executable` → an `Executable`, no `$CMAKE`),
+  `abi("arm64-v8a")` → `target(NativeTarget.ANDROID_ARM64)`, `executable` → an `Executable`, no `$CMAKE`;
+  its tasks are `cmakeBuildJni<Name><Target>`),
   `resolvedLibraryDirectory` →
   `libraryDirectory`. `additionalCompilerArgs` becomes `compilerOptions`. Bindings are wired into the
   project's JVM and Android targets automatically.

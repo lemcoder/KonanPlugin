@@ -4,12 +4,14 @@ import io.github.lemcoder.dsl.BindingSpec
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.external.ExternalBuildTask
 import io.github.lemcoder.external.addCMakeCommands
+import io.github.lemcoder.external.addMakeCommands
 import io.github.lemcoder.external.addSteps
 import io.github.lemcoder.external.registerExternalBuilds
 import io.github.lemcoder.library.PlacePrebuiltFilesTask
 import io.github.lemcoder.link.LinkSharedLibraryTask
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.model.ExternalFfmVariable
+import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.selectOne
@@ -96,6 +98,9 @@ internal sealed interface FfmLibraryBuild {
 
         protected abstract fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext)
 
+        /** Whose compilers the build gets. */
+        protected abstract fun toolchain(binding: BindingSpec): ExternalToolchain
+
         final override fun register(project: Project, konan: KonanExtension, binding: BindingSpec, inputs: FfmLibraryInputs): List<TaskProvider<*>> {
             val ffm = binding.ffm
             val libraryName = inputs.libraryName
@@ -117,6 +122,7 @@ internal sealed interface FfmLibraryBuild {
                     )
                 },
                 libraryFileName = { target -> project.provider { target.sharedLibraryName(libraryName) } },
+                toolchain = toolchain(binding),
             ) { context -> addCommands(this, project, binding, context) }
         }
 
@@ -126,6 +132,16 @@ internal sealed interface FfmLibraryBuild {
             override val toolName = "its external build"
             override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
                 task.addSteps(binding.ffm.external, context.target, "konan.bindings.${binding.name}.ffm")
+            override fun toolchain(binding: BindingSpec) = binding.ffm.external.toolchain.get()
+        }
+
+        /** `ffm { make { } }`: the project's Makefile, told what to call the library and where to leave it. */
+        data object Make : External() {
+            override val taskPrefix = "makeBuildFfm"
+            override val toolName = "make"
+            override fun addCommands(task: ExternalBuildTask, project: Project, binding: BindingSpec, context: ExternalBuildContext) =
+                task.addMakeCommands(binding.ffm.make, context, "konan.bindings.${binding.name}.ffm.make")
+            override fun toolchain(binding: BindingSpec) = binding.ffm.make.toolchain.get()
         }
 
         /**
@@ -146,6 +162,7 @@ internal sealed interface FfmLibraryBuild {
                 // A build that ignores CMAKE_LIBRARY_OUTPUT_DIRECTORY: its library is copied into place.
                 task.producedLibrary.set(cmake.libraryDirectory.zip(task.libraryFileName) { directory, file -> directory.file(file) })
             }
+            override fun toolchain(binding: BindingSpec) = binding.ffm.cmake.toolchain.get()
         }
     }
 }

@@ -50,13 +50,25 @@ object JextractGenerator : BindingGenerator<GeneratorRequest.Jextract> {
             val process = ProcessBuilder(command).redirectErrorStream(true).start()
             val log = process.inputStream.bufferedReader().readText()
             check(process.waitFor() == 0) { "jextract failed:\n${command.joinToString(" ")}\n$log" }
+            val sources = outputDirectory.resolve("java").walk().filter { it.extension == "java" }.toList()
             when (request.api) {
-                FfmApi.JAVA -> {}
-                FfmApi.PANAMA_PORT -> outputDirectory.resolve("java").walk().filter { it.extension == "java" }.forEach(::portToPanamaPort)
+                // On Android the library is in the APK; on a JVM it may be in the jar.
+                FfmApi.JAVA -> {
+                    sources.forEach(::loadThroughKonanLoader)
+                    outputDirectory.resolve("java/${context.packageName.replace('.', '/')}/KonanNativeLoader.java")
+                        .apply { parentFile.mkdirs() }
+                        .writeText(NativeLoaderSource.java(context.packageName))
+                }
+                FfmApi.PANAMA_PORT -> sources.forEach(::portToPanamaPort)
             }
         } finally {
             scratch.deleteRecursively()
         }
+    }
+
+    /** jextract's `System.loadLibrary` becomes [NativeLoaderSource]'s, which also finds a library bundled in the jar. */
+    private fun loadThroughKonanLoader(source: File) {
+        source.writeText(source.readText().replace("System.loadLibrary(", "KonanNativeLoader.load("))
     }
 
     private fun portToPanamaPort(source: File) {

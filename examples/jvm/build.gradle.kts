@@ -24,11 +24,6 @@ konan {
 
 kotlin { jvmToolchain(17) }
 
+// The JNI library travels in the jar (konan/natives/<target>/), where the bindings load it from:
+// `run`, `installDist` and a plain `java -cp` need no java.library.path.
 application { mainClass.set("example.MainKt") }
-
-tasks.named<JavaExec>("run") {
-    dependsOn("linkJniMymath")
-    // loadLibrary() resolves the stub from java.library.path.
-    val libDir = konan.bindings.named("mymath").flatMap { it.jni.libraryDirectory }
-    jvmArgumentProviders.add { listOf("-Djava.library.path=${libDir.get().asFile.absolutePath}") }
-}

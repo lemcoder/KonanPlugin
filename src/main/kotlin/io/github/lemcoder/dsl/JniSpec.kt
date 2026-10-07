@@ -18,7 +18,14 @@ import javax.inject.Inject
 abstract class JniSpec @Inject constructor(objects: ObjectFactory) {
     init {
         visibility.convention(BindingVisibility.INTERNAL)
+        bundleInJar.convention(true)
     }
+
+    /**
+     * Whether a JVM project's jar carries the JNI library of each JVM target, under `konan/natives/`: the
+     * bindings then load it from there when `java.library.path` does not have it. On by default.
+     */
+    abstract val bundleInJar: Property<Boolean>
 
     /**
      * Visibility of the generated bindings. They are an implementation detail — the idiomatic API is
@@ -69,6 +76,14 @@ abstract class JniSpec @Inject constructor(objects: ObjectFactory) {
     fun external(action: Action<in ExternalBuildSettings>) {
         selectedStubBuilds += JniStubBuild.External.Generic
         action.execute(external)
+    }
+
+    /** The project's Makefile compiles the stub, once per target; replaces the plugin's own link. */
+    val make: MakeSettings = objects.newInstance(MakeSettings::class.java)
+
+    fun make(action: Action<in MakeSettings>) {
+        selectedStubBuilds += JniStubBuild.External.Make
+        action.execute(make)
     }
 
     /** The directory holding the generated `.c` stub — what an external build compiles. */

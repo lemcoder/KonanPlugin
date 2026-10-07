@@ -184,7 +184,9 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         appendLine("// Generated JNI bindings; do not edit. Strings and primitive buffers are marshalled,")
         appendLine("// structs by value cross as their bytes, and other pointers as addresses (Long).")
         appendLine()
-        appendLine("""private val nativeLibrary: Unit = System.loadLibrary("$stubLibrary")""")
+        appendLine("""private val nativeLibrary: Unit = loadNativeLibrary("$stubLibrary")""")
+        appendLine()
+        append(NativeLoaderSource.kotlin())
         bound.forEach { b ->
             val params = b.params.joinToString { (name, crossing) -> "${kotlinIdentifier(name)}: ${crossing.kotlinType}" }
             appendLine()

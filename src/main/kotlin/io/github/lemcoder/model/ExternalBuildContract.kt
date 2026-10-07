@@ -63,6 +63,24 @@ internal enum class ExternalFfmVariable(override val variableName: String) : Ext
     ABI("KONAN_FFM_ABI"),
 }
 
+/**
+ * Kotlin/Native's toolchain for the target, when the build uses it ([ExternalToolchain.KONAN]): the
+ * standard names Make, autotools and most build scripts read.
+ */
+internal enum class ToolchainVariable(override val variableName: String) : ExternalBuildVariable {
+    /** A C compiler driver: Kotlin/Native's clang with the target's flags and sysroot. */
+    CC("CC"),
+
+    /** The C++ driver, likewise. */
+    CXX("CXX"),
+
+    /** llvm-ar. */
+    AR("AR"),
+
+    /** A CMake toolchain file naming all three, with the target's system and processor. */
+    CMAKE_TOOLCHAIN_FILE("KONAN_CMAKE_TOOLCHAIN_FILE"),
+}
+
 /** What an external build is told for one [target]: where to leave its output, and its contract. */
 internal class ExternalBuildContext(
     val target: NativeTarget,

@@ -2,6 +2,11 @@ package io.github.lemcoder.kotlin
 
 import io.github.lemcoder.model.HostOs
 import io.github.lemcoder.model.NativeTarget
+import io.github.lemcoder.model.TargetFamily
+import io.github.lemcoder.toolchain.Xcode
+import io.github.lemcoder.util.ExecCaptureResult
+import io.github.lemcoder.util.execCapture
+import org.gradle.process.ExecOperations
 import java.io.File
 
 /**
@@ -19,9 +24,37 @@ internal class KonanDistribution(val home: File) {
     /** Native libraries the compiler jar loads, libclang among them. */
     val nativeLibraryDirectory: File get() = home.resolve("konan/nativelib")
 
-    /** clang for [target], with Kotlin/Native's sysroot and flags for it. */
-    fun clang(target: NativeTarget, arguments: List<String>): List<String> =
-        listOf(runKonan.absolutePath, "clang", "clang", target.konanName) + arguments
+    /** clang (or [driver]) for [target], with Kotlin/Native's sysroot and flags for it. */
+    fun clang(target: NativeTarget, arguments: List<String>, driver: ClangDriver = ClangDriver.C): List<String> =
+        listOf(runKonan.absolutePath, "clang", driver.toolName, target.konanName) + arguments
+
+    /**
+     * What clang needs, beyond what `run_konan` sets, to link a shared library or executable for
+     * [target] — the one place these are known, for the plugin's own links and the toolchain it hands
+     * to external builds:
+     * - Linux: `lld`. The GCC toolchain's own `ld.bfd` is a Linux binary, so a cross link fails without it.
+     * - Android: the NDK's compiler-rt, which Kotlin/Native's LLVM lacks, and no unwinder, which the NDK
+     *   sysroot lacks.
+     * - macOS: Xcode's compiler-rt, which Apple-framework code needs and Kotlin/Native's LLVM lacks.
+     */
+    fun linkArguments(target: NativeTarget, exec: ExecOperations): List<String> = when (target.family) {
+        TargetFamily.LINUX -> listOf("-fuse-ld=lld")
+        TargetFamily.ANDROID -> listOfNotNull(ndkResourceDirectory()?.let { "-resource-dir=${it.absolutePath}" }, "--unwindlib=none")
+        TargetFamily.OSX -> listOfNotNull(Xcode.macosCompilerRt(exec)?.absolutePath)
+        else -> emptyList()
+    }
+
+    /**
+     * The clang command line `run_konan` builds for [target] — the compiler and every flag it adds — without
+     * running a JVM per compile: `run_konan` echoes the command it runs, so one `--version` call yields it.
+     */
+    fun clangCommand(target: NativeTarget, driver: ClangDriver, exec: ExecOperations): List<String> {
+        val result = exec.execCapture { commandLine(clang(target, listOf("--version"), driver)) }
+        check(result is ExecCaptureResult.Success) { "run_konan could not run ${driver.toolName} for ${target.konanName}:\n${result.output}" }
+        val line = result.output.lineSequence().firstOrNull { it.endsWith(" --version") && it.contains(" -target ") }
+            ?: error("run_konan did not echo its ${driver.toolName} command for ${target.konanName}:\n${result.output}")
+        return line.removeSuffix(" --version").split(' ').filter { it.isNotEmpty() }
+    }
 
     /** llvm-ar, for archiving. */
     fun llvmAr(arguments: List<String>): List<String> = listOf(runKonan.absolutePath, "llvm", "llvm-ar") + arguments
@@ -72,3 +105,6 @@ internal class KonanDistribution(val home: File) {
                 ?.let(::KonanDistribution)
     }
 }
+
+/** The clang drivers `run_konan` runs. */
+internal enum class ClangDriver(val toolName: String) { C("clang"), CXX("clang++") }

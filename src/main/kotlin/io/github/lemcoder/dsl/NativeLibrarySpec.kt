@@ -16,7 +16,7 @@ import javax.inject.Inject
 
 /**
  * A C/C++ library built into a static archive per target, `<outputDirectory>/<target>/lib<name>.a`: by
- * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([zig], [external]), or built
+ * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([zig], [make], [external]), or built
  * elsewhere ([prebuilt]).
  */
 abstract class NativeLibrarySpec @Inject constructor(private val name: String, objects: ObjectFactory) : Named {
@@ -70,6 +70,18 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
     fun external(action: Action<in ExternalBuildSettings>) {
         selectedProviders += LibraryProvider.External.Generic
         action.execute(external)
+    }
+
+    /**
+     * Builds the library with the project's Makefile, once per target, with Kotlin/Native's compilers on
+     * make's command line when cross-compiling; the archive lands in `KONAN_LIBRARY_OUTPUT_DIR` as
+     * `lib<name>.a`, or where `producedLibrary` says.
+     */
+    val make: MakeSettings = objects.newInstance(MakeSettings::class.java)
+
+    fun make(action: Action<in MakeSettings>) {
+        selectedProviders += LibraryProvider.External.Make
+        action.execute(make)
     }
 
     /** Archives built elsewhere, one per target; [targets] default to the targets they are declared for. */

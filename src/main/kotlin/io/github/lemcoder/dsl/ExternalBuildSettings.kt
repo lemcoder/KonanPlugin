@@ -1,6 +1,7 @@
 package io.github.lemcoder.dsl
 
 import io.github.lemcoder.model.Executable
+import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
 import org.gradle.api.file.ConfigurableFileCollection
@@ -20,6 +21,17 @@ import javax.inject.Inject
  * says, or names where it leaves it with [producedLibrary], and the plugin copies it into place.
  */
 abstract class ExternalBuildSettings @Inject constructor(private val objects: ObjectFactory) {
+    init {
+        toolchain.convention(ExternalToolchain.SYSTEM)
+    }
+
+    /**
+     * Whose compilers the build gets. None by default: the steps are the build script's own. Set it to
+     * [ExternalToolchain.KONAN] or [ExternalToolchain.AUTO] to have Kotlin/Native's in the environment
+     * (`CC`, `CXX`, `AR`, `KONAN_CMAKE_TOOLCHAIN_FILE`).
+     */
+    abstract val toolchain: Property<ExternalToolchain>
+
     /**
      * What the build reads. With none, it runs every time and its own incrementality decides; with them,
      * it is up to date while they and its commands are unchanged.
