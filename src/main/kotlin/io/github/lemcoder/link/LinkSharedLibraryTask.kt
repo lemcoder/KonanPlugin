@@ -59,6 +59,7 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
         val distribution = KonanDistribution.resolve(konanHome.orNull?.asFile)
         check(distribution.runKonan.isFile) { "run_konan not found: ${distribution.runKonan}" }
         val nativeTarget = target.get()
+        distribution.ensureDependencies(nativeTarget, exec, temporaryDir.resolve("dependencies"))
 
         val outDir = outputDirectory.get().asFile
         outDir.deleteRecursively(); outDir.mkdirs()

@@ -233,6 +233,38 @@ class KonanPluginFunctionalTest {
         (0..size - sequence.size).firstOrNull { start -> sequence.indices.all { this[start + it] == sequence[it] } } ?: -1
 
     @Test
+    fun `cargo builds a Rust crate into the library's archive`() {
+        val cargo = File(System.getProperty("user.home"), ".cargo/bin/cargo")
+        assumeTrue(cargo.canExecute(), "needs cargo")
+        File(projectDir, "native/src").mkdirs()
+        File(projectDir, "native/Cargo.toml").writeText(
+            "[package]\nname = \"my-math\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[lib]\ncrate-type = [\"staticlib\"]\n"
+        )
+        File(projectDir, "native/src/lib.rs").writeText("#[no_mangle]\npub extern \"C\" fn my_add(a: i32, b: i32) -> i32 { a + b }\n")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.${host.name})
+                    cargo {
+                        executable.set(Executable.File(file("${cargo.absolutePath.replace("\\", "/")}")))
+                        crateName.set("my-math")
+                    }
+                }
+            }
+            """,
+        )
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        // Cargo names it libmy_math.a; consumers find the library's own name.
+        val archive = File(projectDir, "build/konan/libraries/mymath/${host.konanName}/libmymath.a")
+        assertTrue(archive.isFile && archive.readBytes().copyOfRange(0, 8).decodeToString() == "!<arch>\n", result.output)
+        assertTrue(":cargoBuildMymath$hostSuffix" in result.output, result.output)
+    }
+
+    @Test
     fun `zig builds each target's archive where every provider puts it`() {
         val zig = System.getenv("ZIG")
         assumeTrue(zig != null && File(zig).canExecute(), "Set ZIG to a zig executable")
@@ -303,6 +335,98 @@ class KonanPluginFunctionalTest {
         File(projectDir, "build.gradle.kts").appendText("konan.bindings.named(\"mymath\") { jni.bundleInJar.set(false) }\n")
         val plain = runner("jar", "--dry-run").withPluginClasspathAndKgp().build()
         assertFalse(":bundleJniMymath" in plain.output, plain.output)
+    }
+
+    @Test
+    fun `per-target DSL options reach the tasks`() {
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            """
+            val mymath = libraries.create("mymath") { androidTargets() }
+            bindings {
+                create("mymath") {
+                    defFile.set(file("mymath.def"))
+                    library(mymath)
+                    jni {
+                        targets(NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64)
+                        linkerOptions.add("-lcommon")
+                        linkerOptionsFor(NativeTarget.ANDROID_ARM64, "-larm64only")
+                    }
+                }
+            }
+            """,
+        )
+        // Read back what the tasks were given, through their declared inputs.
+        File(projectDir, "build.gradle.kts").appendText(
+            """
+            afterEvaluate {
+                println("TARGETS=" + konan.libraries.getByName("mymath").targets.get().map { it.konanName }.sorted())
+                listOf("Android_arm64", "Android_x64").forEach {
+                    println("LINK_${'$'}it=" + tasks.getByName("linkJniMymath${'$'}it").inputs.properties["additionalLinkerArgs"])
+                }
+            }
+            """.trimIndent()
+        )
+
+        val output = runner("help").withPluginClasspathAndKgp().build().output
+
+        assertTrue("TARGETS=[android_arm32, android_arm64, android_x64, android_x86]" in output, output)
+        assertTrue("LINK_Android_arm64=[-lcommon, -larm64only]" in output, output)
+        assertTrue("LINK_Android_x64=[-lcommon]" in output, output)
+    }
+
+    @Test
+    fun `an external step gets its per-target arguments`() {
+        assumeTrue(File("/bin/sh").canExecute(), "needs /bin/sh")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.LINUX_X64, NativeTarget.MINGW_X64)
+                    external {
+                        step {
+                            executable.set(Executable.OnPath("sh"))
+                            arguments.add("build.sh")
+                            argumentsFor(NativeTarget.LINUX_X64, "A=1", "B=2")
+                            argumentsFor(NativeTarget.MINGW_X64, provider { listOf("C=3") })
+                            workingDirectory.set(layout.projectDirectory)
+                        }
+                    }
+                }
+            }
+            """,
+        )
+        // Records the arguments it was run with as the "archive".
+        File(projectDir, "build.sh").writeText("printf '%s ' \"$@\" > \"${'$'}KONAN_LIBRARY_OUTPUT_DIR/lib${'$'}KONAN_LIBRARY_NAME.a\"\n")
+
+        runner("compileNativeLibraryMymath").build()
+
+        assertEquals("A=1 B=2 ", File(projectDir, "build/konan/libraries/mymath/linux_x64/libmymath.a").readText())
+        assertEquals("C=3 ", File(projectDir, "build/konan/libraries/mymath/mingw_x64/libmymath.a").readText())
+    }
+
+    @Test
+    fun `a multiplatform jvm() target compiles after its JNI bindings are generated`() {
+        write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath)
+        File(projectDir, "build.gradle.kts").appendText("kotlin { jvm() }\nrepositories { mavenCentral() }\n")
+
+        val result = runner("compileKotlinJvm", "--dry-run").withPluginClasspathAndKgp().build()
+
+        assertTrue(":generateJniMymath SKIPPED" in result.output, result.output)
+    }
+
+    @Test
+    fun `ffm() serves a multiplatform project's jvm() targets in place of JNI`() {
+        write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath.replace("library(mymath)", "library(mymath)\n        ffm()"))
+        File(projectDir, "build.gradle.kts").appendText("kotlin { jvm() }\nrepositories { mavenCentral() }\n")
+
+        val result = runner("jvmJar", "--dry-run").withPluginClasspathAndKgp().build()
+
+        listOf(":generateFfmMymath", ":compileJvmMainJava", ":linkFfmMymath$hostSuffix", ":bundleFfmMymath").forEach {
+            assertTrue("$it SKIPPED" in result.output, "expected $it:\n${result.output}")
+        }
+        assertFalse(":generateJniMymath" in result.output, "JNI is replaced on jvm():\n${result.output}")
     }
 
     @Test

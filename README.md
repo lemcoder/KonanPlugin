@@ -60,7 +60,7 @@ A binding is consumed wherever the project's Kotlin targets need it, with nothin
 |---|---|---|
 | Kotlin/Native targets (`kotlin("multiplatform")`) | a cinterop klib per target the library is built for | KGP's own `cinterops {}`, with the library's archive embedded |
 | `kotlin("jvm")`, multiplatform `jvm()` or Android targets, or an Android app | JNI bindings in the main sources, a JNI library per target | the plugin's JNI generator and link |
-| `ffm()` on the binding, in a `kotlin("jvm")` project | FFM bindings in place of JNI, the library as a shared library | jextract |
+| `ffm()` on the binding, in a `kotlin("jvm")` project or for a multiplatform `jvm()` target | FFM bindings in place of JNI, the library as a shared library | jextract |
 | `ffm()` on the binding, in an Android module | FFM bindings on PanamaPort in place of JNI, the library as `.so` per 64-bit ABI | jextract |
 
 ### `libraries { }`
@@ -77,6 +77,7 @@ either way.
 | `outputDirectory` | `Directory`         | `build/konan/libraries/<name>`   | Root of the per-target archives; `archive(target)` gives one. |
 | `zig { }`         |                     | —                                | Build with the project's `build.zig` instead; below. |
 | `external { }`    |                     | —                                | Build with any other build system, as commands; below. |
+| `cargo { }`       |                     | —                                | Build a Rust crate; below. |
 | `make { }`        |                     | —                                | Build with the project's Makefile; below. |
 | `prebuilt { }`    |                     | —                                | Use archives built elsewhere; below. |
 
@@ -102,6 +103,31 @@ library (`b.addLibrary(.{ .linkage = .static, … })`).
 | `artifactName`     | `String`       | the library's name  | The static library `build.zig` installs. |
 
 Android targets need a libc file for the NDK's bionic, which Zig does not bundle.
+
+#### Building a Rust crate — `cargo { }`
+```kotlin
+create("mymath") {
+    targets(NativeTarget.host, NativeTarget.ANDROID_ARM64)
+    cargo { }   // native/Cargo.toml, crate-type = ["staticlib"]
+}
+```
+
+`cargoBuild<Name><Target>` runs `cargo build --lib --target <rust triple> --release` per target into
+`build/konan/libraries/<name>/cargo`, and its `lib<crate>.a` becomes the library's archive: bindings
+written against a C header for the crate's `extern "C"` functions (cbindgen writes one) bind it like any
+C library, for every consumer. Each target's standard library must be installed (`rustup target add
+aarch64-linux-android`). Crates with C code get Kotlin/Native's compilers as `CC_<triple>`,
+`CXX_<triple>` and `AR_<triple>` — what the `cc` crate reads for the target, leaving build scripts on
+the host's. On Android, link with `panic = "abort"`: Kotlin/Native's NDK sysroot has no unwinder.
+
+| Property     | Type                | Default                  | Description |
+|--------------|---------------------|--------------------------|-------------|
+| `manifest`   | `File`              | `sourceDirectory/Cargo.toml` | The crate. |
+| `crateName`  | `String`            | the library's name       | As `Cargo.toml` spells it; `-` read as `_` in the archive name. |
+| `profile`    | `CargoProfile`      | `RELEASE`                | `DEBUG` or `RELEASE`. |
+| `arguments`  | `List<String>`      | —                        | Further `cargo build` arguments, e.g. `--features`. |
+| `toolchain`  | `ExternalToolchain` | `AUTO`                   | Whose C compilers C dependencies get. |
+| `executable` | `Executable`        | `OnPath("cargo")`        | The `cargo` program. |
 
 #### Building with Make — `make { }`
 ```kotlin
@@ -369,7 +395,9 @@ different Gradle module.
 ### `ffm { }`
 FFM (`java.lang.foreign`) bindings, written by jextract from the same `.def`, and the library linked
 as a shared library for the build host — FFM needs no stub. In a `kotlin("jvm")` project they replace
-the JNI bindings and are added to the main Java sources; compile them with a JDK 22+ toolchain and run
+the JNI bindings and are added to the main Java sources; in a multiplatform project they replace them on
+the `jvm()` targets, in each one's Java source set (`src/<target>Main/java`'s), while Android targets
+keep JNI; compile them with a JDK 22+ toolchain and run
 with `--enable-native-access`; the library travels in the jar (below), or put `ffm.libraryDirectory` on
 `java.library.path`.
 
@@ -433,7 +461,7 @@ with no stub. The app needs:
 | Task                          | Description |
 |-------------------------------|-------------|
 | `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` per target, with whichever provider it uses. |
-| `konanClang<Name>`, `zigBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
+| `konanClang<Name>`, `zigBuild<Name><Target>`, `cargoBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
 | `konanToolchain<Target>`      | Writes Kotlin/Native's compilers for a target, for external builds that use them. |
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |

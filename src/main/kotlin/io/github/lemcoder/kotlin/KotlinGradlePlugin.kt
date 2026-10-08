@@ -6,6 +6,8 @@ import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.api.tasks.TaskProvider
 import java.io.File
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
@@ -26,10 +28,34 @@ internal object KotlinGradlePlugin {
     }
 
     /** …and of the main compilation of every JVM and Android target of a multiplatform project. */
-    fun addKmpJvmSources(project: Project, sources: Provider<Directory>) {
+    fun addKmpJvmSources(project: Project, sources: Provider<Directory>, generate: TaskProvider<*>, onJvmTargets: () -> Boolean) {
+        // Decided when the sources are read, not now: targets are usually declared before konan { }. A
+        // provider of our own carries no producer, so the jvm() compile's dependency is spelled out too.
+        val jvmSources = project.provider { if (onJvmTargets()) listOf(sources.get()) else emptyList() }
+        val jvmGenerate = project.provider { if (onJvmTargets()) listOf(generate) else emptyList() }
         project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
             .matching { it.platformType in JVM_PLATFORMS }
-            .configureEach { compilations.matching { it.name == "main" }.configureEach { defaultSourceSet.kotlin.srcDir(sources) } }
+            .configureEach {
+                val jvm = platformType == KotlinPlatformType.jvm
+                compilations.matching { it.name == "main" }.configureEach {
+                    defaultSourceSet.kotlin.srcDir(if (jvm) jvmSources else sources)
+                    if (jvm) compileTaskProvider.configure { dependsOn(jvmGenerate) }
+                }
+            }
+    }
+
+    /**
+     * Java sources of every JVM target's main compilation in a multiplatform project: the Gradle source set
+     * Kotlin creates for it, `<target>Main`, compiled by `compile<Target>MainJava`.
+     */
+    fun addKmpJvmJava(project: Project, sources: Provider<Directory>) {
+        val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
+        project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
+            .matching { it.platformType == KotlinPlatformType.jvm }
+            .configureEach {
+                val name = "${targetName}Main"
+                sourceSets.matching { it.name == name }.configureEach { java.srcDir(sources) }
+            }
     }
 
     /** Resources of a `kotlin("jvm")` project's main source set. */

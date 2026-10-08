@@ -3,6 +3,7 @@ package io.github.lemcoder.consumer
 import io.github.lemcoder.ffm.FfmLibraryInputs
 import io.github.lemcoder.ffm.ffmLibraryBuildFor
 import io.github.lemcoder.index.FfmApi
+import io.github.lemcoder.kotlin.KotlinGradlePlugin
 import io.github.lemcoder.index.GenerateFromNativeIndexTask
 import io.github.lemcoder.index.GeneratorRequest
 import io.github.lemcoder.model.Architecture
@@ -35,7 +36,8 @@ internal class FfmConsumer(private val context: BindingContext) : BindingConsume
 
     private lateinit var linkAll: TaskProvider<Task>
 
-    private val isAndroid get() = context.hasPlugin(GradlePluginId.ANDROID_BASE)
+    /** An Android module: PanamaPort, 64-bit ABIs. A multiplatform project's FFM serves its `jvm()` targets instead. */
+    private val isAndroid get() = context.hasPlugin(GradlePluginId.ANDROID_BASE) && !context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM)
 
     override fun prepare() {
         val ffm = binding.ffm
@@ -90,22 +92,32 @@ internal class FfmConsumer(private val context: BindingContext) : BindingConsume
         } else {
             ffm.libraryDirectory.convention(ffm.libraryDirectoryFor(NativeTarget.host))
         }
-        if (context.hasPlugin(GradlePluginId.KOTLIN_JVM)) {
-            // Plain Gradle source sets: Java is compiled by the java plugin, which kotlin("jvm") applies.
-            val main = project.extensions.getByType(SourceSetContainer::class.java).getByName("main")
-            main.java.srcDir(generate.map { it.outputDirectory.dir("java") })
-            if (ffm.bundleInJar.get()) {
-                val bundle = project.registerJarBundle(
-                    taskName = taskName("bundleFfm", bindingName),
-                    taskDescription = "Put the libraries the '$bindingName' FFM bindings load in the jar.",
-                    libraries = targets.associateWith { target -> ffm.libraryDirectoryFor(target).map { it.file(target.sharedLibraryName(libraryName)) } },
-                    destination = context.buildDirectory.dir("konan/bindings/$bindingName/ffm/resources").get().asFile,
-                    builtBy = linkAll,
-                )
-                main.resources.srcDir(bundle.map { it.destinationDir })
+        val javaSources = generate.flatMap { it.outputDirectory.dir("java") }
+        val kmpJvm = context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project)
+        val bundle = if (!isAndroid && ffm.bundleInJar.get() && (context.hasPlugin(GradlePluginId.KOTLIN_JVM) || kmpJvm)) {
+            project.registerJarBundle(
+                taskName = taskName("bundleFfm", bindingName),
+                taskDescription = "Put the libraries the '$bindingName' FFM bindings load in the jar.",
+                libraries = targets.associateWith { target -> ffm.libraryDirectoryFor(target).map { it.file(target.sharedLibraryName(libraryName)) } },
+                destination = context.buildDirectory.dir("konan/bindings/$bindingName/ffm/resources").get().asFile,
+                builtBy = linkAll,
+            ).map { it.destinationDir }
+        } else null
+        when {
+            context.hasPlugin(GradlePluginId.KOTLIN_JVM) -> {
+                // Plain Gradle source sets: Java is compiled by the java plugin, which kotlin("jvm") applies.
+                val main = project.extensions.getByType(SourceSetContainer::class.java).getByName("main")
+                main.java.srcDir(javaSources)
+                bundle?.let { main.resources.srcDir(it) }
             }
-        } else if (!isAndroid) {
-            project.logger.info("konan.bindings.$bindingName: FFM bindings are wired into kotlin(\"jvm\") and Android projects; add build/generated/konan/$bindingName/ffm/java yourself.")
+            kmpJvm -> {
+                KotlinGradlePlugin.addKmpJvmJava(project, javaSources)
+                bundle?.let { KotlinGradlePlugin.addKmpJvmResources(project, it) }
+            }
+            !isAndroid -> project.logger.info(
+                "konan.bindings.$bindingName: FFM bindings are wired into kotlin(\"jvm\"), multiplatform jvm() and Android projects; " +
+                    "add build/generated/konan/$bindingName/ffm/java yourself."
+            )
         }
     }
 

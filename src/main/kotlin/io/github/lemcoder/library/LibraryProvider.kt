@@ -50,6 +50,9 @@ internal sealed interface LibraryProvider {
         /** Whose compilers the build gets; null when the build system brings its own. */
         protected abstract fun toolchain(library: NativeLibrarySpec): ExternalToolchain?
 
+        /** Whether those compilers go into the environment as `CC`, `CXX`, `AR`. */
+        protected open val toolchainInEnvironment: Boolean = true
+
         final override fun register(project: Project, konan: KonanExtension, library: NativeLibrarySpec): List<TaskProvider<*>> {
             val libraryName = library.name
             val fileName = project.providers.provider { NativeArtifacts.archiveFileName(libraryName) }
@@ -72,6 +75,7 @@ internal sealed interface LibraryProvider {
                 },
                 libraryFileName = { fileName },
                 toolchain = toolchain(library),
+                toolchainInEnvironment = toolchainInEnvironment,
             ) { context -> addCommands(this, project, library, context) }
         }
 
@@ -91,6 +95,17 @@ internal sealed interface LibraryProvider {
             override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) =
                 task.addMakeCommands(library.make, context, "konan.libraries.${library.name}.make")
             override fun toolchain(library: NativeLibrarySpec) = library.make.toolchain.get()
+        }
+
+        /** `cargo { }`: a Rust crate built as a static library, per Rust target triple. */
+        data object Cargo : External() {
+            override val taskPrefix = "cargoBuild"
+            override val toolName = "cargo"
+            override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) =
+                addCargoCommands(task, project, library, context)
+            override fun toolchain(library: NativeLibrarySpec): ExternalToolchain = library.cargo.toolchain.get()
+            // Under the cc crate's target-specific names instead; see addCargoCommands.
+            override val toolchainInEnvironment = false
         }
 
         /** `zig { }`: the project's own `build.zig`. */

@@ -2,11 +2,10 @@ package io.github.lemcoder.kotlin
 
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.model.Architecture
-import io.github.lemcoder.model.ExternalBuildVariable
 import io.github.lemcoder.model.HostOs
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.TargetFamily
-import io.github.lemcoder.model.ToolchainVariable
+import io.github.lemcoder.model.ToolchainFiles
 import io.github.lemcoder.model.taskName
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
@@ -34,13 +33,7 @@ internal class KonanToolchain(val task: TaskProvider<KonanToolchainTask>, direct
     val ar: Provider<File> = directory.map { it.file("bin/${script("ar")}").asFile }
     val cmakeToolchainFile: Provider<File> = directory.map { it.file("toolchain.cmake").asFile }
 
-    /** The [ToolchainVariable]s, for an external build's environment. */
-    val environment: Map<ExternalBuildVariable, Provider<String>> = mapOf(
-        ToolchainVariable.CC to cc.map { it.absolutePath },
-        ToolchainVariable.CXX to cxx.map { it.absolutePath },
-        ToolchainVariable.AR to ar.map { it.absolutePath },
-        ToolchainVariable.CMAKE_TOOLCHAIN_FILE to cmakeToolchainFile.map { it.absolutePath },
-    )
+    val files: ToolchainFiles = ToolchainFiles(cc, cxx, ar, cmakeToolchainFile)
 
     companion object {
         /** [target]'s toolchain, whose task is registered by the first build that asks for it. */
@@ -80,6 +73,7 @@ internal abstract class KonanToolchainTask @Inject constructor(private val exec:
     fun write() {
         val konan = KonanDistribution.resolve(konanHome.orNull?.asFile)
         val target = target.get()
+        konan.ensureDependencies(target, exec, temporaryDir.resolve("dependencies"))
         val cc = konan.clangCommand(target, ClangDriver.C, exec)
         val cxx = konan.clangCommand(target, ClangDriver.CXX, exec)
         val ar = File(cc.first()).resolveSibling("llvm-ar").absolutePath

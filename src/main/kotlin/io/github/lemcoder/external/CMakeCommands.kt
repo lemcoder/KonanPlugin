@@ -49,7 +49,7 @@ internal fun ExternalBuildTask.addCMakeCommands(
         // Kotlin/Native's compilers by toolchain file — the arguments after it can still name another, and
         // a preset names its own.
         if (!preset.isPresent) {
-            context.environment[ToolchainVariable.CMAKE_TOOLCHAIN_FILE]?.let { file -> arguments.add(file.map { "-DCMAKE_TOOLCHAIN_FILE=$it" }) }
+            context.toolchain?.let { toolchain -> arguments.add(toolchain.cmakeToolchainFile.map { "-DCMAKE_TOOLCHAIN_FILE=${it.absolutePath}" }) }
         }
         context.environment.filterKeys { it !is ToolchainVariable }
             .forEach { (variable, value) -> arguments.add(value.map { "-D${variable.variableName}=$it" }) }

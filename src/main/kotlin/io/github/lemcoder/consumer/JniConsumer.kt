@@ -40,7 +40,7 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
         val sources = generate.flatMap { it.kotlinSourceDirectory }
 
         // Eager: the variant API must be wired at configuration time.
-        project.withPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) { KotlinGradlePlugin.addKmpJvmSources(project, sources) }
+        project.withPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) { KotlinGradlePlugin.addKmpJvmSources(project, sources, generate) { !binding.ffm.isEnabled } }
         AgpWiring.addSources(project, SourceKind.KOTLIN, sources, generate, linkAll) { !replacedByFfm }
         AgpWiring.addJniLibs(project, binding.jni.jniLibsRoot, linkAll) { !replacedByFfm }
         // AGP looks for a `baselineProfiles` directory beside every source root, including the generated
@@ -50,10 +50,12 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
 
     /**
      * In a `kotlin("jvm")` project or an Android module, `ffm()` replaces JNI: both would define the same
-     * facade class. Read once the build script has run.
+     * facade class. In a multiplatform project it replaces JNI on the `jvm()` targets only — Android
+     * targets keep JNI. Read once the build script has run.
      */
     private val replacedByFfm get() =
-        binding.ffm.isEnabled && (context.hasPlugin(GradlePluginId.KOTLIN_JVM) || context.hasPlugin(GradlePluginId.ANDROID_BASE))
+        binding.ffm.isEnabled && !context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) &&
+            (context.hasPlugin(GradlePluginId.KOTLIN_JVM) || context.hasPlugin(GradlePluginId.ANDROID_BASE))
 
     private val isPlainJvmConsumer get() = context.hasPlugin(GradlePluginId.KOTLIN_JVM) && !replacedByFfm
 
@@ -74,7 +76,7 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
     /** The JVM targets' libraries into the jar of a `kotlin("jvm")` project or a multiplatform `jvm()` target. */
     private fun bundleInJar(jvmTargets: List<NativeTarget>) {
         val jni = binding.jni
-        val kmpJvm = context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project)
+        val kmpJvm = context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project) && !binding.ffm.isEnabled
         if (!jni.bundleInJar.get() || jvmTargets.isEmpty() || !(isPlainJvmConsumer || kmpJvm)) return
         val bundle = project.registerJarBundle(
             taskName = taskName("bundleJni", bindingName),

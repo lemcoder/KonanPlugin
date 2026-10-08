@@ -2,6 +2,7 @@ package io.github.lemcoder.model
 
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
+import java.io.File
 
 /** A variable of an external build's contract: what the plugin tells the build, by environment. */
 internal sealed interface ExternalBuildVariable {
@@ -86,6 +87,24 @@ internal class ExternalBuildContext(
     val target: NativeTarget,
     val outputDirectory: Provider<Directory>,
     val environment: Map<ExternalBuildVariable, Provider<String>>,
+    /** Kotlin/Native's compilers for [target], when the build uses them. */
+    val toolchain: ToolchainFiles? = null,
 ) {
     operator fun get(variable: ExternalBuildVariable): Provider<String> = environment.getValue(variable)
+}
+
+/** Kotlin/Native's compilers for one target, as files a build can be pointed at. */
+internal class ToolchainFiles(
+    val cc: Provider<File>,
+    val cxx: Provider<File>,
+    val ar: Provider<File>,
+    val cmakeToolchainFile: Provider<File>,
+) {
+    /** The [ToolchainVariable]s, under the standard names. */
+    val environment: Map<ExternalBuildVariable, Provider<String>> = mapOf(
+        ToolchainVariable.CC to cc.map { it.absolutePath },
+        ToolchainVariable.CXX to cxx.map { it.absolutePath },
+        ToolchainVariable.AR to ar.map { it.absolutePath },
+        ToolchainVariable.CMAKE_TOOLCHAIN_FILE to cmakeToolchainFile.map { it.absolutePath },
+    )
 }

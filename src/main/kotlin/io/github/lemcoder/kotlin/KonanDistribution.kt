@@ -56,6 +56,27 @@ internal class KonanDistribution(val home: File) {
         return line.removeSuffix(" --version").split(' ').filter { it.isNotEmpty() }
     }
 
+    /**
+     * Downloads what [target] needs — its sysroot and toolchain under `~/.konan/dependencies` — when
+     * missing. `run_konan` uses them but never fetches them; the compiler does when it links, so a trivial
+     * program is linked in [scratch]. A target Kotlin/Native itself has not built for yet would otherwise
+     * fail with "'string.h' file not found".
+     */
+    fun ensureDependencies(target: NativeTarget, exec: ExecOperations, scratch: File) {
+        val dependencies = home.parentFile.resolve("dependencies").absolutePath
+        val missing = clangCommand(target, ClangDriver.C, exec)
+            .mapNotNull { argument -> argument.indexOf(dependencies).takeIf { it >= 0 }?.let { File(argument.substring(it)) } }
+            .filterNot { it.exists() }
+        if (missing.isEmpty()) return
+        scratch.mkdirs()
+        val main = scratch.resolve("main.kt").apply { writeText("fun main() {}\n") }
+        val compiler = home.resolve(if (HostOs.current == HostOs.WINDOWS) "bin/kotlinc-native.bat" else "bin/kotlinc-native")
+        val result = exec.execCapture {
+            commandLine(compiler.absolutePath, "-target", target.konanName, "-p", "program", "-o", scratch.resolve("main").absolutePath, main.absolutePath)
+        }
+        check(result is ExecCaptureResult.Success) { "Downloading Kotlin/Native's dependencies for ${target.konanName} failed:\n${result.output}" }
+    }
+
     /** llvm-ar, for archiving. */
     fun llvmAr(arguments: List<String>): List<String> = listOf(runKonan.absolutePath, "llvm", "llvm-ar") + arguments
 

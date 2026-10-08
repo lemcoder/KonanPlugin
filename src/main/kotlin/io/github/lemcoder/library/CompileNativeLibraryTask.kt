@@ -76,6 +76,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
         val workingDir = workingDir.asFile.getOrElse(temporaryDir)
         val distribution = KonanDistribution.resolve(konanHome.orNull?.asFile)
         targets.get().forEach { target ->
+            distribution.ensureDependencies(target, exec, temporaryDir.resolve("dependencies"))
             // prepare output dirs
             val sourcesDir = workingDir.resolve("sources")
             val headersDir = workingDir.resolve("headers")

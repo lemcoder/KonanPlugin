@@ -95,8 +95,30 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
   `--unwindlib=none` for Android, Xcode's compiler-rt for macOS. The wrappers add them only when linking.
 - **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not
   compile anything, and must not need a Kotlin/Native distribution to run.
+- **Cargo gets the compilers under the `cc` crate's target-specific names** (`CC_<triple>`…), not `CC`:
+  a plain `CC` would also reach build scripts compiled for the host. `registerExternalBuilds` therefore
+  carries the toolchain in the context (`ToolchainFiles`) and puts the standard names in the environment
+  only where asked. Never register a toolchain task from inside another task's configuration — Gradle
+  forbids it; resolve it in `registerExternalBuilds`.
 - **Task names carry the side**: `<tool>Build<Name>` for a library, `<tool>BuildJni…`, `<tool>BuildFfm…`
   for a binding — a library and a binding are usually both called `mymath`.
+
+## Kotlin/Native's dependencies
+
+- **`run_konan` never downloads a target's sysroot**; the compiler does, when it links. So before
+  compiling or linking for a target, `KonanDistribution.ensureDependencies` checks the `~/.konan/
+  dependencies` paths in the clang command `run_konan` would run and, if any is missing, links a trivial
+  program for that target. Without it, a target Kotlin itself has not built yet fails with
+  "'string.h' file not found". Linux arm64's sysroot is glibc 2.25, x86-64's 2.19 — Zig's triples match.
+
+## Multiplatform projects
+
+- **FFM serves `jvm()` targets, JNI the Android ones**: one binding cannot be both the JDK's API and
+  PanamaPort's. FFM's Java goes into the Gradle source set Kotlin creates per JVM compilation
+  (`<target>Main`, compiled by `compile<Target>MainJava`).
+- **JNI's sources leave `jvm()` lazily**, since targets are declared before `ffm()` is known — and a
+  `project.provider { }` around a generated directory carries no producer, so the compile task's
+  dependency on generation is spelled out alongside it. A missing one compiles before generating.
 
 ## Libraries in the jar
 

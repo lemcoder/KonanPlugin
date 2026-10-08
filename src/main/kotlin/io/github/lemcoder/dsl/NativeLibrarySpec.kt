@@ -16,7 +16,7 @@ import javax.inject.Inject
 
 /**
  * A C/C++ library built into a static archive per target, `<outputDirectory>/<target>/lib<name>.a`: by
- * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([zig], [make], [external]), or built
+ * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([zig], [cargo], [make], [external]), or built
  * elsewhere ([prebuilt]).
  */
 abstract class NativeLibrarySpec @Inject constructor(private val name: String, objects: ObjectFactory) : Named {
@@ -84,6 +84,14 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
         action.execute(make)
     }
 
+    /** Builds the library from a Rust crate (`crate-type = ["staticlib"]`) with `cargo build`, once per target. */
+    val cargo: CargoSettings = objects.newInstance(CargoSettings::class.java)
+
+    fun cargo(action: Action<in CargoSettings>) {
+        selectedProviders += LibraryProvider.External.Cargo
+        action.execute(cargo)
+    }
+
     /** Archives built elsewhere, one per target; [targets] default to the targets they are declared for. */
     val prebuilt: PrebuiltSettings = objects.newInstance(PrebuiltSettings::class.java)
 
@@ -98,6 +106,7 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
     init {
         zig.projectDirectory.convention(sourceDirectory)
         zig.artifactName.convention(name)
+        cargo.crateName.convention(name)
         targets.convention(prebuilt.archives.keySet().map { it.toList() })
     }
 }

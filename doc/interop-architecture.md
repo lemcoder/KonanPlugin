@@ -107,7 +107,7 @@ flowchart TD
 | 1 | **DSL** | Declares libraries, bindings, toolchains and packaging; validates; no work of its own | Build script → model objects | `konan { libraries; bindings }` (section A) |
 | 2 | **Target model** | The plugin's own target type (OS, architecture, ABI) with mappings to every ecosystem's name | — | `model.NativeTarget`: one entry per Kotlin/Native target (checked by a test against the pinned version), with family, architecture, Android ABI, library naming and Zig triple; `NativeTarget.of(konanTarget)` is the only conversion |
 | 3 | **Toolchain** | Compile, archive and link C/C++ for one target | Sources + flags → `.o`, `.a`, `.so`/`.dylib`/`.dll` | Kotlin/Native's (clang + downloaded sysroots, `KonanDistribution`), also handed to external builds per target as `CC`/`CXX`/`AR` and a CMake toolchain file (`KonanToolchain`, chosen by `ExternalToolchain`); Zig brings its own; the system's for host builds |
-| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`, sealed: **KonanClang** (default, `konanClang<Name>`) or **External** — one `ExternalBuildTask` per target with the `ExternalLibraryVariable` contract: **Zig** (`zig { }`) and **Generic** (`external { step { } }`, any build system); or **Prebuilt** (`prebuilt { archive(target, file) }`, placed by `prebuilt<Name>`); all behind `compileNativeLibrary<Name>` |
+| 4 | **Library provider** | Makes a library's per-target artifacts exist | Declaration → native artifacts | `LibraryProvider`, sealed: **KonanClang** (default, `konanClang<Name>`) or **External** — one `ExternalBuildTask` per target with the `ExternalLibraryVariable` contract: **Zig** (`zig { }`), **Cargo** (`cargo { }`, a Rust `staticlib` per Rust triple), **Make** (`make { }`) and **Generic** (`external { step { } }`, any build system); or **Prebuilt** (`prebuilt { archive(target, file) }`, placed by `prebuilt<Name>`); all behind `compileNativeLibrary<Name>` |
 | 5 | **Binding spec** | What to bind | `.def` + cinterop command line → cinterop's `NativeIndex` | cinterop itself, in the index exporter (section B) |
 | 6 | **Binding generator** | Turns the spec into bindings for one kind of consumer | Index → generated bindings; or a binding → another tool's pipeline | Exporter generators **jni** (Kotlin + C stub), **jextract** (FFM Java), **dump** (text); the **KGP cinterop adapter** (`KotlinGradlePlugin.declareCinterops`) |
 | 7 | **Glue builder** | Compiles and links native glue a generator emits, such as the JNI stub | Glue sources + native artifacts + toolchain → shared library | `JniStubBuild`, a sealed hierarchy: **KonanLink** (`LinkSharedLibraryTask`) or **External** — the project's own build, one `ExternalBuildTask` per target running a list of commands with the `ExternalStubVariable` contract as environment: **Generic** (`jni { external { step { } } }`, any build system) and the **CMake** preset (configure + build, contract also as cache entries); for FFM there is no glue, but the shared library it loads is a sealed `FfmLibraryBuild` of the same shape: **KonanLink** (the archive linked whole), **Prebuilt** (`ffm { prebuilt { sharedLibrary(…) } }`), or **External** with the `ExternalFfmVariable` contract — **Generic** (`ffm { external { } }`) and the **CMake** preset (`ffm { cmake { } }`). Both CMake presets are one implementation, `external/CMakeCommands.kt` |
@@ -209,7 +209,7 @@ A **Prebuilt** provider takes an archive per target from local paths — a vendo
 each as `lib<name>.a`, so a Windows `name.lib` works unchanged; the library's targets default to the
 ones it has archives for. It is not an `External`: there is nothing to run.
 
-Still open: prebuilt archives from a Maven artifact, FFM in multiplatform projects, and publishing a
+Still open: prebuilt archives from a Maven artifact, and publishing a
 library's bindings and binaries.
 
 ## B. Generator model
@@ -318,8 +318,8 @@ Partly settled by what exists:
 
 ## D. Toolchains, prebuilt binaries and packaging
 
-What the generators showed each consumer needs. The plugin wires every row today, FFM only in a
-`kotlin("jvm")` project. Each row is a `BindingConsumer`, the binding-side counterpart of
+What the generators showed each consumer needs. The plugin wires every row today; in a multiplatform
+project FFM serves the `jvm()` targets and Android targets keep JNI. Each row is a `BindingConsumer`, the binding-side counterpart of
 `LibraryProvider`: `prepare()` runs when the binding is added, for wiring that must be eager (AGP's
 variant callbacks, the multiplatform source directory); `isUsed()` decides from the project's plugins
 and the binding's settings once the build script has run; `register()` then adds the tasks. Consumers
@@ -335,8 +335,6 @@ take the library only as `NativeArtifacts`. A new consumer is one more entry in 
 
 Gaps that remain:
 
-- **FFM outside `kotlin("jvm")`.** A multiplatform JVM target gets the bindings generated but not
-  wired; the runtime flags (`--enable-native-access`, `java.library.path`) stay the build's.
 - **Tool provisioning.** Generation needs the Kotlin/Native distribution of exactly
   `kotlinNativeVersion` in `~/.konan` (any KMP build of that version downloads it); jextract is a path
   option. The plugin should locate or download both.

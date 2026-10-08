@@ -18,8 +18,9 @@ import org.gradle.api.tasks.TaskProvider
  * [libraryFileName] in the context's output directory. [configure] adds the build system's commands —
  * the only part that differs between build systems and between a library and a JNI stub.
  *
- * Where [toolchain] picks Kotlin/Native's for a target, the context also carries its [ToolchainVariable]s
- * and the build waits for its files; null means the build system brings its own (Zig).
+ * Where [toolchain] picks Kotlin/Native's for a target, the build waits for its files and the context
+ * carries them — and, with [toolchainInEnvironment], its [ToolchainVariable]s under the standard names.
+ * Null means the build system brings its own (Zig).
  */
 internal fun Project.registerExternalBuilds(
     taskPrefix: String,
@@ -29,13 +30,17 @@ internal fun Project.registerExternalBuilds(
     contextFor: (NativeTarget) -> ExternalBuildContext,
     libraryFileName: (NativeTarget) -> Provider<String>,
     toolchain: ExternalToolchain?,
+    toolchainInEnvironment: Boolean = true,
     configure: ExternalBuildTask.(ExternalBuildContext) -> Unit,
 ): List<TaskProvider<ExternalBuildTask>> {
     val clean = cleanTask()
     return targets.map { target ->
         val konanToolchain = toolchain?.takeIf { it.usesKonan(target) }?.let { KonanToolchain.of(this, target) }
         val context = contextFor(target).let { context ->
-            konanToolchain?.let { ExternalBuildContext(context.target, context.outputDirectory, context.environment + it.environment) } ?: context
+            konanToolchain?.let {
+                val environment = if (toolchainInEnvironment) context.environment + it.files.environment else context.environment
+                ExternalBuildContext(context.target, context.outputDirectory, environment, it.files)
+            } ?: context
         }
         val taskDescription = description(target)
         val fileName = libraryFileName(target)
