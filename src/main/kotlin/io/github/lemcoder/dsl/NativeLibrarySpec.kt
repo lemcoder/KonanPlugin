@@ -16,7 +16,7 @@ import javax.inject.Inject
 
 /**
  * A C/C++ library built into a static archive per target, `<outputDirectory>/<target>/lib<name>.a`: by
- * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([zig], [cargo], [make], [external]), or built
+ * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([cmake], [zig], [cargo], [make], [external]), or built
  * elsewhere ([prebuilt]).
  */
 abstract class NativeLibrarySpec @Inject constructor(private val name: String, objects: ObjectFactory) : Named {
@@ -84,6 +84,19 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
         action.execute(make)
     }
 
+    /**
+     * Builds the library with the project's CMakeLists, once per target: the contract as cache entries,
+     * `CMAKE_ARCHIVE_OUTPUT_DIRECTORY` set to where the archive must land, and Kotlin/Native's compilers
+     * as a toolchain file when cross-compiling — `add_library(${KONAN_LIBRARY_NAME} STATIC …)` is all the
+     * CMakeLists needs.
+     */
+    val cmake: CMakeSettings = objects.newInstance(CMakeSettings::class.java)
+
+    fun cmake(action: Action<in CMakeSettings>) {
+        selectedProviders += LibraryProvider.External.CMake
+        action.execute(cmake)
+    }
+
     /** Builds the library from a Rust crate (`crate-type = ["staticlib"]`) with `cargo build`, once per target. */
     val cargo: CargoSettings = objects.newInstance(CargoSettings::class.java)
 
@@ -107,6 +120,7 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
         zig.projectDirectory.convention(sourceDirectory)
         zig.artifactName.convention(name)
         cargo.crateName.convention(name)
+        cmake.path.convention(sourceDirectory.file("CMakeLists.txt"))
         targets.convention(prebuilt.archives.keySet().map { it.toList() })
     }
 }

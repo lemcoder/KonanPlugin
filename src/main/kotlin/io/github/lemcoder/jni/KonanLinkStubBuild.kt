@@ -7,7 +7,6 @@ import io.github.lemcoder.model.DefFile
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.taskName
-import io.github.lemcoder.toolchain.Jdk
 import io.github.lemcoder.util.cleanTask
 import org.gradle.api.Project
 import org.gradle.api.tasks.TaskProvider
@@ -26,11 +25,6 @@ internal fun registerKonanLink(
     val bindingName = binding.name
     val generate = inputs.generate
     val artifacts = inputs.artifacts
-    val jniIncludeDirs = project.providers.provider {
-        binding.jni.jdkHome.orNull?.asFile
-            ?.let { Jdk.jniIncludeDirectoriesOf(it) ?: error("No include/jni.h under $it") }
-            ?: Jdk.detectJniIncludeDirectories()
-    }
     return inputs.targets.map { target ->
         // Where a consumer looks for the library: the host's, the one a JVM running this build loads.
         if (target == NativeTarget.host) binding.jni.libraryDirectory.convention(binding.jni.libraryDirectoryFor(target))
@@ -41,7 +35,7 @@ internal fun registerKonanLink(
             dependsOn(generate)
             artifacts?.let { dependsOn(it.builtBy) }
             mustRunAfter(project.cleanTask())
-            konanHome.set(konan.konanHome)
+            androidApiLevel.set(konan.androidApiLevel)
             this.target.set(target)
             libraryBaseName.set(generate.flatMap { it.stubLibraryBaseName })
             stubCFile.set(generate.flatMap { it.stubSourceFile })
@@ -50,20 +44,21 @@ internal fun registerKonanLink(
             // project, build/ included, an input of this task.
             includePaths.add(binding.defFile.map { it.asFile.parentFile.absolutePath })
             staticLibrary.set(project.layout.file(project.provider { archive(binding, artifacts, target) }))
-            if (!target.isAndroid) this.jniIncludeDirs.from(jniIncludeDirs)
+            if (!target.isAndroid) jniIncludeDirs.from(generate.flatMap { it.jniIncludeDirectory })
             additionalLinkerArgs.set(
                 binding.jni.linkerOptions.zip(binding.jni.targetLinkerOptions) { common, perTarget ->
-                    common + perTarget[target].orEmpty()
+                    defLinkerOpts(binding) + common + perTarget[target].orEmpty()
                 }
             )
             outputDirectory.set(binding.jni.libraryDirectoryFor(target))
             // From the task's own property: a closure over the artifacts would drag their TaskProvider into
             // the configuration cache.
+            // Linker options alone are enough: `-laaudio` links the stub against a platform library.
             onlyIf {
-                staticLibrary.isPresent || run {
+                staticLibrary.isPresent || additionalLinkerArgs.getOrElse(emptyList()).isNotEmpty() || run {
                     logger.lifecycle(
-                        "konan.bindings.$bindingName: no library(), jni.archive or staticLibraries in the .def, so only " +
-                            "the JNI bindings and the .c stub were generated — link them from your own build."
+                        "konan.bindings.$bindingName: no library(), jni.archive, staticLibraries or linkerOpts in the .def, so " +
+                            "only the JNI bindings and the .c stub were generated — link them from your own build."
                     )
                     false
                 }
@@ -71,6 +66,10 @@ internal fun registerKonanLink(
         }
     }
 }
+
+/** The `.def`'s `linkerOpts`. */
+private fun defLinkerOpts(binding: BindingSpec): List<String> =
+    binding.defFile.orNull?.asFile?.takeIf { it.isFile }?.let { DefFile.parse(it).linkerOpts }.orEmpty()
 
 /**
  * The archive to link: `jni.archive` if set, else the library's for [target], else the `.def`'s

@@ -1,6 +1,5 @@
 package io.github.lemcoder.dsl
 
-import io.github.lemcoder.model.Executable
 import io.github.lemcoder.model.ExternalToolchain
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.ListProperty
@@ -14,7 +13,6 @@ import org.gradle.api.provider.Property
  */
 abstract class CargoSettings {
     init {
-        executable.convention(Executable.OnPath("cargo"))
         profile.convention(CargoProfile.RELEASE)
         toolchain.convention(ExternalToolchain.AUTO)
     }
@@ -30,9 +28,6 @@ abstract class CargoSettings {
 
     /** Further `cargo build` arguments, e.g. `--features`. */
     abstract val arguments: ListProperty<String>
-
-    /** The `cargo` program. Defaults to `cargo` on the PATH or in the usual install locations. */
-    abstract val executable: Property<Executable>
 
     /**
      * Whose C compilers crates with C code (the `cc` crate) get, as `CC_<triple>`, `CXX_<triple>` and

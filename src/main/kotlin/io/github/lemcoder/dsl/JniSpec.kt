@@ -42,9 +42,6 @@ abstract class JniSpec @Inject constructor(objects: ObjectFactory) {
     /** An archive to link instead of the library's, e.g. one built elsewhere. */
     abstract val archive: RegularFileProperty
 
-    /** A JDK home that ships `include/jni.h`. Defaults to a scan of installed JDKs. */
-    abstract val jdkHome: DirectoryProperty
-
     /** Extra options for every target's link command. */
     abstract val linkerOptions: ListProperty<String>
 

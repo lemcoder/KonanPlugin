@@ -6,6 +6,8 @@ import org.gradle.api.Project
 internal enum class GradlePluginId(val id: String) {
     KOTLIN_JVM("org.jetbrains.kotlin.jvm"),
     KOTLIN_MULTIPLATFORM("org.jetbrains.kotlin.multiplatform"),
+    /** Consumes as Android does; only its version matters, for `kotlinNativeDistribution()`. */
+    KOTLIN_ANDROID("org.jetbrains.kotlin.android"),
     /** Every AGP application and library plugin; the KMP Android plugin does not apply it. */
     ANDROID_BASE("com.android.base"),
     ANDROID_KMP_LIBRARY("com.android.kotlin.multiplatform.library"),

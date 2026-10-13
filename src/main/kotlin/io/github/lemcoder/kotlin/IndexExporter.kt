@@ -4,6 +4,7 @@ import io.github.lemcoder.index.ExporterInvocation
 import io.github.lemcoder.index.GeneratorRequest
 import io.github.lemcoder.util.ExecCaptureResult
 import io.github.lemcoder.util.javaExecCapture
+import org.gradle.api.InvalidUserDataException
 import org.gradle.process.ExecOperations
 import java.io.File
 import java.nio.file.Files
@@ -18,31 +19,33 @@ import java.nio.file.StandardCopyOption
  * cinterop may already have loaded it there. Not in a Gradle worker either: that process carries Gradle's
  * Kotlin stdlib, which would meet the one bundled in the compiler jar.
  *
- * @param konanHome the distribution to run in; by default the installed one of [KonanDistribution.pinnedVersion].
+ * The plugin carries one exporter per Kotlin/Native version, each compiled against that version's compiler,
+ * and runs the one matching [distribution]; a version it has none for is an error.
+ *
+ * @param distribution the distribution to run in, one of [KonanDistribution.supportedVersions].
  * @param workDir where the exporter jar is extracted, e.g. the task's temporary directory.
  */
 internal fun ExecOperations.runIndexExporter(
     request: GeneratorRequest,
     outputDirectory: File,
     cinteropArgs: List<String>,
-    konanHome: File? = null,
+    distribution: KonanDistribution,
     workDir: File,
 ) {
-    val distribution = konanHome?.let(::KonanDistribution) ?: KonanDistribution.pinned() ?: error(
-        "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed; generating bindings needs exactly that " +
-            "version. A Kotlin Multiplatform build of ${KonanDistribution.pinnedVersion} with a native target downloads it."
-    )
     val home = distribution.home
     check(distribution.compilerJar.isFile) { "Not a Kotlin/Native distribution: $home" }
 
-    val exporterJar = workDir.resolve(EXPORTER_JAR)
+    val version = distribution.version
+    if (version !in KonanDistribution.supportedVersions) throw unsupported(distribution)
+    val jarName = "native-index-exporter-$version.jar"
+    val exporterJar = workDir.resolve(jarName)
     workDir.mkdirs()
-    KonanDistribution::class.java.getResourceAsStream("/io/github/lemcoder/index/$EXPORTER_JAR").use { input ->
-        checkNotNull(input) { "Index exporter missing from the plugin jar: $EXPORTER_JAR" }
+    KonanDistribution::class.java.getResourceAsStream("/io/github/lemcoder/index/exporters/$jarName").use { input ->
+        checkNotNull(input) { "Index exporter missing from the plugin jar: $jarName" }
         Files.copy(input, exporterJar.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 
-    val invocation = ExporterInvocation(request, outputDirectory, listOf("-Xkonan-home", home.absolutePath) + cinteropArgs)
+    val invocation = ExporterInvocation(request, outputDirectory, cinteropArgs)
     val result = javaExecCapture {
         classpath(distribution.compilerJar, exporterJar)
         mainClass.set(EXPORTER_MAIN)
@@ -54,5 +57,14 @@ internal fun ExecOperations.runIndexExporter(
     check(result is ExecCaptureResult.Success) { "Generating bindings ($request) failed:\n${result.output}" }
 }
 
-private const val EXPORTER_JAR = "native-index-exporter.jar"
+private fun unsupported(distribution: KonanDistribution) = InvalidUserDataException(
+    buildString {
+        appendLine("konan.config.konanHome ${distribution.description} is Kotlin/Native ${distribution.version}, which this plugin cannot generate bindings with.")
+        appendLine("Point it at one of the versions it supports:")
+        KonanDistribution.supportedVersions.groupBy { it.substringBeforeLast('.') }.values
+            .forEach { appendLine("  " + it.joinToString(", ")) }
+        append("Its default location is ${KonanDistribution.defaultHome("<version>")}.")
+    }
+)
+
 private const val EXPORTER_MAIN = "io.github.lemcoder.index.exporter.NativeIndexExporterKt"

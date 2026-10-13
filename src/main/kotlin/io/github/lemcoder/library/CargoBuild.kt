@@ -2,7 +2,9 @@ package io.github.lemcoder.library
 
 import io.github.lemcoder.dsl.CargoProfile
 import io.github.lemcoder.dsl.NativeLibrarySpec
+import io.github.lemcoder.dsl.konanConfig
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.model.ConfigField
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.toolchain.rustTriple
 import org.gradle.api.Project
@@ -18,8 +20,9 @@ internal fun addCargoCommands(task: ExternalBuildTask, project: Project, library
     val targetDirectory = project.layout.buildDirectory.dir("konan/libraries/${library.name}/cargo")
     val manifest = cargo.manifest.orElse(library.sourceDirectory.file("Cargo.toml"))
 
+    val cargoExecutable = project.konanConfig.executable(ConfigField.CARGO, task.path)
     task.command {
-        executable.set(cargo.executable)
+        executable.set(cargoExecutable)
         arguments.addAll("build", "--lib", "--target", triple)
         arguments.addAll(manifest.map { listOf("--manifest-path", it.asFile.absolutePath) })
         arguments.addAll(targetDirectory.map { listOf("--target-dir", it.asFile.absolutePath) })

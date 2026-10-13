@@ -3,6 +3,7 @@ package io.github.lemcoder.library
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.NativeLibrarySpec
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.external.addCMakeCommands
 import io.github.lemcoder.external.addMakeCommands
 import io.github.lemcoder.external.addSteps
 import io.github.lemcoder.external.registerExternalBuilds
@@ -86,6 +87,22 @@ internal sealed interface LibraryProvider {
             override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) =
                 task.addSteps(library.external, context.target, "konan.libraries.${library.name}")
             override fun toolchain(library: NativeLibrarySpec) = library.external.toolchain.get()
+        }
+
+        /** `cmake { }`: the project's CMakeLists, building a static library per target. */
+        data object CMake : External() {
+            override val taskPrefix = "cmakeBuild"
+            override val toolName = "CMake"
+            override fun addCommands(task: ExternalBuildTask, project: Project, library: NativeLibrarySpec, context: ExternalBuildContext) {
+                val cmake = library.cmake
+                task.addCMakeCommands(
+                    project, cmake, context, "konan.libraries.${library.name}.cmake",
+                    project.layout.buildDirectory.dir("konan/libraries/${library.name}/cmake"),
+                )
+                // A build that ignores CMAKE_ARCHIVE_OUTPUT_DIRECTORY: its archive is copied into place.
+                task.producedLibrary.set(cmake.libraryDirectory.zip(task.libraryFileName) { directory, file -> directory.file(file) })
+            }
+            override fun toolchain(library: NativeLibrarySpec) = library.cmake.toolchain.get()
         }
 
         /** `make { }`: the project's Makefile, with Kotlin/Native's compilers when cross-compiling. */

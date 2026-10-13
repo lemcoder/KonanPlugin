@@ -1,8 +1,11 @@
 package io.github.lemcoder.jni
 
 import io.github.lemcoder.index.GeneratorRequest
+import io.github.lemcoder.kotlin.UsesKonanDistribution
+import io.github.lemcoder.kotlin.distribution
 import io.github.lemcoder.kotlin.runIndexExporter
 import io.github.lemcoder.model.BindingVisibility
+import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.stubLibraryBaseName
 import org.gradle.api.DefaultTask
@@ -38,7 +41,9 @@ import javax.inject.Inject
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native distribution, which is not a tracked input")
 internal abstract class GenerateJniBindingsTask @Inject constructor(
     private val exec: ExecOperations,
-) : DefaultTask() {
+) : DefaultTask(), UsesKonanDistribution {
+    @get:Internal abstract override val konanHome: Property<ConfigValue>
+
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val defFile: RegularFileProperty
 
@@ -75,6 +80,13 @@ internal abstract class GenerateJniBindingsTask @Inject constructor(
     @get:Internal
     val stubLibraryBaseName: Provider<String> get() = packageName.map { stubLibraryBaseName(it) }
 
+    /**
+     * Directory holding `jni.h` — Android's, which is VM-neutral and Apache-licensed — for compiling the stub
+     * for a desktop JVM without a JDK. Android builds use the NDK sysroot's.
+     */
+    @get:Internal
+    val jniIncludeDirectory: Provider<Directory> get() = outputDirectory.dir(INCLUDE_DIR)
+
     /** Directory holding the generated Kotlin bindings. */
     @get:Internal
     val kotlinSourceDirectory: Provider<Directory> get() = outputDirectory.dir(KOTLIN_DIR)
@@ -93,13 +105,19 @@ internal abstract class GenerateJniBindingsTask @Inject constructor(
                 includes.filter { it.exists() }.forEach { add("-compiler-option"); add("-I${it.absolutePath}") }
                 compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
             },
+            distribution = distribution(),
             workDir = temporaryDir,
         )
+        val header = outputDirectory.get().asFile.resolve("$INCLUDE_DIR/jni.h").apply { parentFile.mkdirs() }
+        GenerateJniBindingsTask::class.java.getResourceAsStream("/io/github/lemcoder/jni/jni.h").use { input ->
+            header.outputStream().use { checkNotNull(input) { "jni.h missing from the plugin jar" }.copyTo(it) }
+        }
     }
 
     private companion object {
         // The jni generator's layout: kotlin/<package>/<facade>.kt and c/<stubLibrary>.c.
         const val C_DIR = "c"
         const val KOTLIN_DIR = "kotlin"
+        const val INCLUDE_DIR = "include"
     }
 }

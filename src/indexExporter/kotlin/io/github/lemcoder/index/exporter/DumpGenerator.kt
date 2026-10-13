@@ -72,17 +72,12 @@ private fun renderFunction(f: FunctionDecl): String {
         "${p.name ?: "_"}: ${render(p.type)}" + if (p.nsConsumed) " nsConsumed" else ""
     }
     val vararg = if (f.isVararg) ", ..." else ""
-    return "function ${f.fullName}($params$vararg): ${render(f.returnType)} ${renderAccess(f.directAccess)}"
+    return "function ${f.fullName}($params$vararg): ${render(f.returnType)}${access(f)}"
 }
 
 private fun renderGlobal(g: GlobalDecl): String {
     val const = if (g.isConst) "const " else ""
-    return "global $const${g.fullName}: ${render(g.type)} ${renderAccess(g.directAccess)}"
-}
-
-private fun renderAccess(access: DirectAccess): String = when (access) {
-    is DirectAccess.Symbol -> "symbol=${access.name}"
-    is DirectAccess.Unavailable -> "unavailable(${access.reason})"
+    return "global $const${g.fullName}: ${render(g.type)}${access(g)}"
 }
 
 private fun renderConstant(c: ConstantDef): String {

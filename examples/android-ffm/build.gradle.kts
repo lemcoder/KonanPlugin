@@ -1,6 +1,6 @@
 // An Android app that calls a C library through FFM bindings: jextract writes them from the same .def,
 // the plugin moves them onto PanamaPort (the FFM API backported to Android 8.0+) and links the library
-// itself as libmymath.so per ABI — no JNI stub. Needs jextract on the PATH (or ffm { jextract.set(…) }).
+// itself as libmymath.so per ABI — no JNI stub. Needs konan.config.jextract — e.g. in ~/.gradle/gradle.properties.
 
 import io.github.lemcoder.model.NativeTarget
 
@@ -10,6 +10,9 @@ plugins {
 }
 
 konan {
+    // Where the Kotlin plugin installs the Kotlin/Native version this plugin needs; or set
+    // konan.config.konanHome in ~/.gradle/gradle.properties.
+    config { konanHome.set(kotlinNativeDistribution()) }
     // 64-bit ABIs only: jextract writes the host's LP64 layouts.
     val mymath = libraries.create("mymath") { targets(NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64) }
     bindings {

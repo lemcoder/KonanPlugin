@@ -1,6 +1,5 @@
 package io.github.lemcoder.dsl
 
-import io.github.lemcoder.model.Executable
 import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.file.ConfigurableFileCollection
@@ -23,7 +22,6 @@ import java.io.File
  */
 abstract class MakeSettings {
     init {
-        executable.convention(Executable.OnPath("make"))
         toolchain.convention(ExternalToolchain.AUTO)
         jobs.convention(Runtime.getRuntime().availableProcessors())
     }
@@ -45,9 +43,6 @@ abstract class MakeSettings {
 
     /** `-j`. Defaults to the number of processors. */
     abstract val jobs: Property<Int>
-
-    /** The `make` program. Defaults to `make` on the PATH or in the usual install locations. */
-    abstract val executable: Property<Executable>
 
     /** Whose compilers make gets: Kotlin/Native's when cross-compiling, by default. */
     abstract val toolchain: Property<ExternalToolchain>

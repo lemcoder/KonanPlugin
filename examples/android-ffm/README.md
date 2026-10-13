@@ -10,7 +10,7 @@ An Android app that calls `native/mymath.c` through **FFM** bindings instead of 
 
 ## Requirements
 
-- jextract on the `PATH` (or `ffm { jextract.set(Executable.File(file(…))) }`).
+- jextract, as `konan.config.jextract=/path/to/jextract` in `~/.gradle/gradle.properties` (or `KONAN_JEXTRACT`).
 - `compileSdk` 37 and `minSdk` 26, which PanamaPort requires; Java 21 source, which jextract's output uses.
 - 64-bit ABIs: jextract writes the build host's LP64 layouts, so 32-bit ABIs get no library.
 

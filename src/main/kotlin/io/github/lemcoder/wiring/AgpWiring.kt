@@ -32,8 +32,14 @@ internal object AgpWiring {
         link: TaskProvider<Task>,
         enabled: () -> Boolean,
     ) {
+        val relative = sources.get().asFile.relativeTo(project.projectDir).path
+        val ordering = {
+            project.tasks.matching { it.name == "preBuild" }.configureEach { if (enabled()) dependsOn(generate, link) }
+            project.tasks
+                .matching { (it.name.startsWith("compile") && (it.name.contains("Kotlin") || it.name.contains("Java"))) || it.name == "compileJava" }
+                .configureEach { if (enabled()) dependsOn(generate) }
+        }
         project.withPlugin(GradlePluginId.ANDROID_BASE) {
-            val relative = sources.get().asFile.relativeTo(project.projectDir).path
             project.extensions.findByType(AndroidComponentsExtension::class.java)?.onVariants { variant ->
                 if (!enabled()) return@onVariants
                 project.file(relative).mkdirs()
@@ -43,11 +49,38 @@ internal object AgpWiring {
                     SourceKind.JAVA -> variant.sources.java?.addStaticSourceDirectory(relative)
                 }
             }
-            project.tasks.matching { it.name == "preBuild" }.configureEach { if (enabled()) dependsOn(generate, link) }
-            project.tasks
-                .matching { (it.name.startsWith("compile") && (it.name.contains("Kotlin") || it.name.contains("JavaWithJavac"))) || it.name == "compileJava" }
-                .configureEach { if (enabled()) dependsOn(generate) }
+            ordering()
         }
+        // The multiplatform Android library plugin: Kotlin sources reach it through its Kotlin target; Java
+        // ones need the target's withJava().
+        if (kind == SourceKind.JAVA) project.withPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) {
+            project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)?.onVariants { variant ->
+                if (!enabled()) return@onVariants
+                project.file(relative).mkdirs()
+                val java = variant.sources.java
+                if (java == null) {
+                    project.logger.warn("${project.path}: the Android target compiles no Java — call withJava() in kotlin { android { } } for the FFM bindings.")
+                } else {
+                    java.addStaticSourceDirectory(relative)
+                }
+            }
+            ordering()
+        }
+    }
+
+    /**
+     * The lowest `minSdk` among the module's variants, once AGP has computed them; absent outside Android.
+     * The API level Android links target, so they see every platform library the app may call.
+     */
+    fun minSdk(project: Project): Provider<Int> {
+        val levels = mutableSetOf<Int>()
+        project.withPlugin(GradlePluginId.ANDROID_BASE) {
+            project.extensions.findByType(AndroidComponentsExtension::class.java)?.onVariants { levels += it.minSdk.apiLevel }
+        }
+        project.withPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) {
+            project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)?.onVariants { levels += it.minSdk.apiLevel }
+        }
+        return project.provider { levels.minOrNull() }
     }
 
     /**

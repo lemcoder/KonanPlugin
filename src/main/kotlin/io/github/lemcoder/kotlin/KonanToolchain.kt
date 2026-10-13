@@ -1,7 +1,7 @@
 package io.github.lemcoder.kotlin
 
-import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.model.Architecture
+import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.HostOs
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.TargetFamily
@@ -31,9 +31,10 @@ internal class KonanToolchain(val task: TaskProvider<KonanToolchainTask>, direct
     val cc: Provider<File> = directory.map { it.file("bin/${script("cc")}").asFile }
     val cxx: Provider<File> = directory.map { it.file("bin/${script("c++")}").asFile }
     val ar: Provider<File> = directory.map { it.file("bin/${script("ar")}").asFile }
+    val ranlib: Provider<File> = directory.map { it.file("bin/${script("ranlib")}").asFile }
     val cmakeToolchainFile: Provider<File> = directory.map { it.file("toolchain.cmake").asFile }
 
-    val files: ToolchainFiles = ToolchainFiles(cc, cxx, ar, cmakeToolchainFile)
+    val files: ToolchainFiles = ToolchainFiles(cc, cxx, ar, ranlib, cmakeToolchainFile)
 
     companion object {
         /** [target]'s toolchain, whose task is registered by the first build that asks for it. */
@@ -43,13 +44,11 @@ internal class KonanToolchain(val task: TaskProvider<KonanToolchainTask>, direct
             val task = if (name in project.tasks.names) {
                 project.tasks.named(name, KonanToolchainTask::class.java)
             } else {
-                val konan = project.extensions.getByType(KonanExtension::class.java)
                 project.tasks.register(name, KonanToolchainTask::class.java) {
                     group = "konan"
                     description = "Write Kotlin/Native's compilers for ${target.konanName} as files external builds can use."
-                    konanHome.set(konan.konanHome)
-                    // An input so another distribution regenerates the wrappers; resolved again when the task runs.
-                    distribution.set(konan.konanHome.map { it.asFile.absolutePath }.orElse(project.provider { KonanDistribution.findHome()?.absolutePath ?: "" }))
+                    // An input so another distribution regenerates the wrappers.
+                    distribution.set(konanHome.map { it.raw.orEmpty() })
                     this.target.set(target)
                     outputDirectory.set(directory)
                 }
@@ -63,15 +62,15 @@ internal class KonanToolchain(val task: TaskProvider<KonanToolchainTask>, direct
 
 /** Writes [KonanToolchain]'s files for [target]. */
 @DisableCachingByDefault(because = "The files name absolute paths into the local Kotlin/Native distribution")
-internal abstract class KonanToolchainTask @Inject constructor(private val exec: ExecOperations) : DefaultTask() {
-    @get:Internal abstract val konanHome: DirectoryProperty
+internal abstract class KonanToolchainTask @Inject constructor(private val exec: ExecOperations) : DefaultTask(), UsesKonanDistribution {
+    @get:Internal abstract override val konanHome: Property<ConfigValue>
     @get:Input abstract val distribution: Property<String>
     @get:Input abstract val target: Property<NativeTarget>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun write() {
-        val konan = KonanDistribution.resolve(konanHome.orNull?.asFile)
+        val konan = distribution()
         val target = target.get()
         konan.ensureDependencies(target, exec, temporaryDir.resolve("dependencies"))
         val cc = konan.clangCommand(target, ClangDriver.C, exec)
@@ -89,7 +88,8 @@ internal abstract class KonanToolchainTask @Inject constructor(private val exec:
         val ccFile = script("cc", driver(target, cc, link, windows))
         val cxxFile = script("c++", driver(target, cxx, link, windows))
         val arFile = script("ar", if (windows) "@\"$ar\" %*\r\n" else "#!/bin/sh\nexec ${quote(ar)} \"$@\"\n")
-        directory.resolve("toolchain.cmake").writeText(cmakeToolchain(target, cc, ccFile, cxxFile, arFile))
+        val ranlibFile = script("ranlib", if (windows) "@\"$ar\" s %*\r\n" else "#!/bin/sh\nexec ${quote(ar)} s \"$@\"\n")
+        directory.resolve("toolchain.cmake").writeText(cmakeToolchain(target, cc, ccFile, cxxFile, arFile, ranlibFile))
     }
 
     /**
@@ -118,7 +118,7 @@ internal abstract class KonanToolchainTask @Inject constructor(private val exec:
      * looks for an NDK, and the compilers already target Android. Apple targets name the SDK clang uses,
      * or CMake would add the host's after it.
      */
-    private fun cmakeToolchain(target: NativeTarget, cc: List<String>, ccFile: File, cxxFile: File, arFile: File): String {
+    private fun cmakeToolchain(target: NativeTarget, cc: List<String>, ccFile: File, cxxFile: File, arFile: File, ranlibFile: File): String {
         val system = when (target.family) {
             TargetFamily.LINUX, TargetFamily.ANDROID -> "Linux"
             TargetFamily.MINGW -> "Windows"
@@ -139,6 +139,7 @@ internal abstract class KonanToolchainTask @Inject constructor(private val exec:
             appendLine("set(CMAKE_C_COMPILER \"${path(ccFile)}\")")
             appendLine("set(CMAKE_CXX_COMPILER \"${path(cxxFile)}\")")
             appendLine("set(CMAKE_AR \"${path(arFile)}\" CACHE FILEPATH \"Archiver\")")
+            appendLine("set(CMAKE_RANLIB \"${path(ranlibFile)}\" CACHE FILEPATH \"Archive indexer\")")
             sysroot?.let { appendLine("set(CMAKE_OSX_SYSROOT \"$it\" CACHE PATH \"SDK\")") }
             // A cross toolchain may not link executables for the build machine to run; libraries are what we build.
             appendLine("set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)")

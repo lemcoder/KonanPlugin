@@ -1,6 +1,8 @@
 package io.github.lemcoder.link
 
-import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.kotlin.UsesKonanDistribution
+import io.github.lemcoder.kotlin.distribution
+import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.util.execCapture
 import org.gradle.api.DefaultTask
@@ -24,15 +26,15 @@ import javax.inject.Inject
 
 /**
  * Links a target's static archive into a shared library with Kotlin/Native's clang: with [stubCFile], the
- * generated JNI stub compiled against it (JNI); without, the whole archive on its own, every symbol
- * exported (FFM).
+ * generated JNI stub compiled against it (JNI) — or against [additionalLinkerArgs] alone, for a platform
+ * library; without, the whole archive on its own, every symbol exported (FFM).
  */
 @DisableCachingByDefault(because = "Native link output depends on the local toolchain; cheap to rebuild")
 internal abstract class LinkSharedLibraryTask @Inject constructor(
     private val exec: ExecOperations,
-) : DefaultTask() {
+) : DefaultTask(), UsesKonanDistribution {
     /** The Kotlin/Native distribution whose clang links; resolved when the task runs. */
-    @get:Internal abstract val konanHome: DirectoryProperty
+    @get:Internal abstract override val konanHome: Property<ConfigValue>
     @get:Input abstract val target: Property<NativeTarget>
 
     /** Base name of the library, e.g. `examplestubs` for `libexamplestubs.so`. */
@@ -46,17 +48,20 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
     /** Further include roots, as paths: ones that must not be tracked as inputs, like the `.def`'s directory. */
     @get:Input @get:Optional abstract val includePaths: ListProperty<String>
 
-    /** The JDK's `include` directories, for `jni.h`; Android gets it from the NDK sysroot instead. */
+    /** The directory holding the generator's `jni.h`; Android gets it from the NDK sysroot instead. */
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val jniIncludeDirs: ConfigurableFileCollection
 
-    @get:InputFile @get:PathSensitive(PathSensitivity.NONE) abstract val staticLibrary: RegularFileProperty
+    @get:InputFile @get:Optional @get:PathSensitive(PathSensitivity.NONE) abstract val staticLibrary: RegularFileProperty
     @get:Input @get:Optional abstract val additionalLinkerArgs: ListProperty<String>
+
+    /** For Android targets, the API level whose sysroot to link against instead of Kotlin/Native's. */
+    @get:Input @get:Optional abstract val androidApiLevel: Property<Int>
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
     @TaskAction
     fun run() {
-        val distribution = KonanDistribution.resolve(konanHome.orNull?.asFile)
+        val distribution = distribution()
         check(distribution.runKonan.isFile) { "run_konan not found: ${distribution.runKonan}" }
         val nativeTarget = target.get()
         distribution.ensureDependencies(nativeTarget, exec, temporaryDir.resolve("dependencies"))
@@ -64,7 +69,7 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
         val outDir = outputDirectory.get().asFile
         outDir.deleteRecursively(); outDir.mkdirs()
         val outLib = outDir.resolve(nativeTarget.sharedLibraryName(libraryBaseName.get()))
-        val archive = staticLibrary.get().asFile.absolutePath
+        val archive = staticLibrary.orNull?.asFile?.absolutePath
         val stub = stubCFile.orNull?.asFile
 
         val arguments = buildList {
@@ -74,13 +79,15 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
             // On Android jni.h comes from the NDK sysroot.
             if (!nativeTarget.isAndroid) jniIncludeDirs.files.forEach { add("-I${it.absolutePath}") }
             addAll(distribution.linkArguments(nativeTarget, exec))
+            // After run_konan's own --sysroot, so this one wins.
+            if (nativeTarget.isAndroid) androidApiLevel.orNull?.let { add("--sysroot=${distribution.androidSysroot(nativeTarget, it, exec)}") }
             if (stub != null) {
                 add(stub.absolutePath)
-                add(archive)
-            } else if (nativeTarget.family.isApple) {
-                add("-Wl,-force_load,$archive")
+                archive?.let(::add)
             } else {
-                add("-Wl,--whole-archive"); add(archive); add("-Wl,--no-whole-archive")
+                val whole = checkNotNull(archive) { "Nothing to link: neither an archive nor a JNI stub" }
+                if (nativeTarget.family.isApple) add("-Wl,-force_load,$whole")
+                else { add("-Wl,--whole-archive"); add(whole); add("-Wl,--no-whole-archive") }
             }
             add("-o"); add(outLib.absolutePath)
             // A C++ runtime, extra -L, frameworks: all caller-supplied. Adding konan's own NDK lib

@@ -6,13 +6,16 @@ import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.TaskProvider
-import java.io.File
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget
+import org.jetbrains.kotlin.gradle.plugin.getKotlinPluginVersion
+import java.io.File
 
 /**
  * Everything that touches the Kotlin Gradle plugin's types. Called only from `plugins.withId` callbacks
@@ -22,38 +25,71 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 internal object KotlinGradlePlugin {
     private val JVM_PLATFORMS = setOf(KotlinPlatformType.jvm, KotlinPlatformType.androidJvm)
 
+    /** The Kotlin plugin's version, which is the Kotlin/Native version it downloads. */
+    fun version(project: Project): String = project.getKotlinPluginVersion()
+
     /** Generated bindings are sources of a `kotlin("jvm")` project's main source set. */
     fun addJvmSources(project: Project, sources: Provider<Directory>) {
         project.extensions.getByType(KotlinJvmProjectExtension::class.java).sourceSets.getByName("main").kotlin.srcDir(sources)
     }
 
     /** …and of the main compilation of every JVM and Android target of a multiplatform project. */
-    fun addKmpJvmSources(project: Project, sources: Provider<Directory>, generate: TaskProvider<*>, onJvmTargets: () -> Boolean) {
+    fun addKmpJvmSources(project: Project, sources: Provider<Directory>, generate: TaskProvider<*>, enabled: () -> Boolean) {
         // Decided when the sources are read, not now: targets are usually declared before konan { }. A
-        // provider of our own carries no producer, so the jvm() compile's dependency is spelled out too.
-        val jvmSources = project.provider { if (onJvmTargets()) listOf(sources.get()) else emptyList() }
-        val jvmGenerate = project.provider { if (onJvmTargets()) listOf(generate) else emptyList() }
+        // provider of our own carries no producer, so the compile's dependency is spelled out too.
+        val lazySources = project.provider { if (enabled()) listOf(sources.get()) else emptyList() }
+        val lazyGenerate = project.provider { if (enabled()) listOf(generate) else emptyList() }
         project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
             .matching { it.platformType in JVM_PLATFORMS }
             .configureEach {
-                val jvm = platformType == KotlinPlatformType.jvm
                 compilations.matching { it.name == "main" }.configureEach {
-                    defaultSourceSet.kotlin.srcDir(if (jvm) jvmSources else sources)
-                    if (jvm) compileTaskProvider.configure { dependsOn(jvmGenerate) }
+                    defaultSourceSet.kotlin.srcDir(lazySources)
+                    compileTaskProvider.configure { dependsOn(lazyGenerate) }
                 }
             }
     }
 
+    /** Whether a multiplatform project has a `jvm()` target. */
+    fun hasKmpPlainJvmTarget(project: Project): Boolean =
+        project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets.any { it.platformType == KotlinPlatformType.jvm }
+
+    /** Whether a multiplatform project has an Android target. */
+    fun hasKmpAndroidTarget(project: Project): Boolean =
+        project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets.any { it.platformType == KotlinPlatformType.androidJvm }
+
+    /**
+     * Makes every Android target's compilations wait for [task] when [enabled]: their Kotlin reads the
+     * Java the task generates, which reaches them through AGP's variant API with no producer attached.
+     */
+    fun dependOnForKmpAndroid(project: Project, task: TaskProvider<*>, enabled: () -> Boolean) {
+        val lazyTask = project.provider { if (enabled()) listOf(task) else emptyList() }
+        project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
+            .matching { it.platformType == KotlinPlatformType.androidJvm }
+            .configureEach { compilations.configureEach { compileTaskProvider.configure { dependsOn(lazyTask) } } }
+    }
+
+    /** An `implementation` dependency of a multiplatform project's `androidMain`. */
+    fun addKmpAndroidDependency(project: Project, notation: Provider<String>) {
+        project.extensions.getByType(KotlinMultiplatformExtension::class.java).sourceSets
+            .matching { it.name == "androidMain" }
+            .configureEach { dependencies { implementation(notation) } }
+    }
+
     /**
      * Java sources of every JVM target's main compilation in a multiplatform project: the Gradle source set
-     * Kotlin creates for it, `<target>Main`, compiled by `compile<Target>MainJava`.
+     * Kotlin creates for it, `<target>Main`, compiled by `compile<Target>MainJava`. Before Kotlin 2.1.20 a
+     * `jvm()` target has none unless the build calls `withJava()`, so the plugin calls it; its Java is then
+     * the project's `main` source set, compiled by `compileJava`.
      */
     fun addKmpJvmJava(project: Project, sources: Provider<Directory>) {
         val sourceSets = project.extensions.getByType(SourceSetContainer::class.java)
+        val javaByDefault = KotlinVersion.fromString(version(project)) >= KotlinVersion(2, 1, 20)
         project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
             .matching { it.platformType == KotlinPlatformType.jvm }
             .configureEach {
-                val name = "${targetName}Main"
+                @Suppress("DEPRECATION")
+                if (!javaByDefault) (this as KotlinJvmTarget).withJava()
+                val name = if (javaByDefault) "${targetName}Main" else SourceSet.MAIN_SOURCE_SET_NAME
                 sourceSets.matching { it.name == name }.configureEach { java.srcDir(sources) }
             }
     }
@@ -101,4 +137,10 @@ internal object KotlinGradlePlugin {
             }
         }
     }
+}
+
+/** `2.1.20`, `2.2.0-RC` as comparable numbers; a pre-release counts as its release. */
+private fun KotlinVersion.Companion.fromString(version: String): KotlinVersion {
+    val parts = version.split('.', '-').take(3).map { part -> part.takeWhile(Char::isDigit).toIntOrNull() ?: 0 }
+    return KotlinVersion(parts[0], parts.getOrElse(1) { 0 }, parts.getOrElse(2) { 0 })
 }

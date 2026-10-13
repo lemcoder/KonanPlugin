@@ -10,11 +10,14 @@ import java.io.File
  * @property staticLibraries archives to link into the JNI library. On the native side cinterop embeds
  *   these into the klib; here they decide whether there is anything to link at all — a def without
  *   them yields bindings and a `.c` stub for someone else's build to compile.
+ * @property linkerOpts options for linking against the C library — `-laaudio` for a platform library,
+ *   which needs no archive at all. Added to the JNI library's link, which they make worth running.
  */
 internal data class DefFile(
     val packageName: String?,
     val staticLibraries: List<String>,
     val libraryPaths: List<String>,
+    val linkerOpts: List<String> = emptyList(),
 ) {
     /** Resolves [staticLibraries] against [libraryPaths], relative to [base] for relative paths. */
     fun resolveStaticLibraries(base: File): List<File> = staticLibraries.mapNotNull { name ->
@@ -39,6 +42,7 @@ internal data class DefFile(
                 packageName = properties["package"],
                 staticLibraries = tokens("staticLibraries"),
                 libraryPaths = tokens("libraryPaths"),
+                linkerOpts = tokens("linkerOpts"),
             )
         }
     }

@@ -16,6 +16,9 @@ kotlin {
 }
 
 konan {
+    // Where the Kotlin plugin installs the Kotlin/Native version this plugin needs; or set
+    // konan.config.konanHome in ~/.gradle/gradle.properties.
+    config { konanHome.set(kotlinNativeDistribution()) }
     // native/*.c -> build/konan/libraries/mymath/macos_arm64/libmymath.a.
     val mymath = libraries.create("mymath") { targets(NativeTarget.MACOS_ARM64) }
     // Every Kotlin/Native target the library is built for gets KGP's cinterop for the .def, with the

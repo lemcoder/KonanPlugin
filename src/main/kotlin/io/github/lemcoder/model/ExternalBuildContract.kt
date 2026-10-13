@@ -45,8 +45,8 @@ internal enum class ExternalStubVariable(override val variableName: String) : Ex
     /** The target's Android ABI, e.g. `arm64-v8a`; the target's name elsewhere. */
     ABI("KONAN_JNI_ABI"),
 
-    /** A JDK that ships `include/jni.h`. */
-    JAVA_HOME("JAVA_HOME"),
+    /** The directory holding `jni.h`, which the plugin ships: no JDK needed. */
+    JNI_INCLUDE_DIR("KONAN_JNI_INCLUDE_DIR"),
 }
 
 /** The contract of a build that makes the shared library FFM bindings load (`ffm { external { } }`). */
@@ -78,6 +78,9 @@ internal enum class ToolchainVariable(override val variableName: String) : Exter
     /** llvm-ar. */
     AR("AR"),
 
+    /** llvm-ar's `s`, as `ranlib`: a host ranlib — Apple's, say — drops objects it cannot read. */
+    RANLIB("RANLIB"),
+
     /** A CMake toolchain file naming all three, with the target's system and processor. */
     CMAKE_TOOLCHAIN_FILE("KONAN_CMAKE_TOOLCHAIN_FILE"),
 }
@@ -98,6 +101,7 @@ internal class ToolchainFiles(
     val cc: Provider<File>,
     val cxx: Provider<File>,
     val ar: Provider<File>,
+    val ranlib: Provider<File>,
     val cmakeToolchainFile: Provider<File>,
 ) {
     /** The [ToolchainVariable]s, under the standard names. */
@@ -105,6 +109,7 @@ internal class ToolchainFiles(
         ToolchainVariable.CC to cc.map { it.absolutePath },
         ToolchainVariable.CXX to cxx.map { it.absolutePath },
         ToolchainVariable.AR to ar.map { it.absolutePath },
+        ToolchainVariable.RANLIB to ranlib.map { it.absolutePath },
         ToolchainVariable.CMAKE_TOOLCHAIN_FILE to cmakeToolchainFile.map { it.absolutePath },
     )
 }

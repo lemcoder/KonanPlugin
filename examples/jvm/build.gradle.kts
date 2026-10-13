@@ -9,6 +9,9 @@ plugins {
 repositories { mavenCentral() }
 
 konan {
+    // Where the Kotlin plugin installs the Kotlin/Native version this plugin needs; or set
+    // konan.config.konanHome in ~/.gradle/gradle.properties.
+    config { konanHome.set(kotlinNativeDistribution()) }
     // native/*.c -> one static archive per target.
     val mymath = libraries.create("mymath") { targets(NativeTarget.host) }
     // The C API in the .def, linked against that library. A kotlin("jvm") project gets JNI bindings,

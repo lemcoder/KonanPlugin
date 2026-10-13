@@ -1,20 +1,26 @@
 package io.github.lemcoder.index
 
 import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.testRunner
 import org.gradle.testkit.runner.GradleRunner
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.DynamicTest
+import org.junit.jupiter.api.DynamicTest.dynamicTest
+import org.junit.jupiter.api.TestFactory
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Runs [GenerateFromNativeIndexTask] in a TestKit build: cinterop's own indexer in the pinned Kotlin/Native
+ * Runs [GenerateFromNativeIndexTask] in a TestKit build: cinterop's own indexer in the default Kotlin/Native
  * distribution, then the `dump` generator over the index it built.
  *
  * Skipped when that distribution is not installed; any Kotlin Multiplatform build of
- * [KonanDistribution.pinnedVersion] downloads it.
+ * [KonanDistribution.defaultVersion] downloads it. Every other supported version installed under `~/.konan`
+ * must generate the same JNI bindings.
  */
 class GenerateFromNativeIndexTest {
 
@@ -50,8 +56,32 @@ class GenerateFromNativeIndexTest {
         assertContains(kotlin, "internal external fun sample_name(): String?")
         assertContains(kotlin, "internal external fun sample_buffer(handle: Long, c: Int, s: Int): ByteArray")
         assertContains(kotlin, "internal external fun sample_bits(f: ByteArray): ByteArray")
-        assertContains(kotlin, "internal external fun sample_sort(base: Long, n: Long, cmp: Long): Unit")
+        assertContains(kotlin, "internal external fun sample_sort(base: java.nio.Buffer?, n: Long, cmp: Long): Unit")
+        // A typedef'd void* is a handle, not memory.
+        assertContains(kotlin, "internal external fun sample_release(handle: Long): Unit")
         assertContains(kotlin, "// - sample_log: variadic")
+        assertContains(kotlin, "internal external fun sample_open(out: LongArray?): Int")
+    }
+
+    @Test
+    fun `the jni generator turns enum and macro constants into const vals`() {
+        val kotlin = jni().resolve("kotlin/sample/sample.kt").readText()
+        assertContains(kotlin, "internal const val GREEN: Int = 5")
+        assertContains(kotlin, "internal const val LARGE: Int = 100")
+        assertContains(kotlin, "internal const val SAMPLE_VERSION: Int = 3")
+        assertContains(kotlin, "internal const val SAMPLE_MASK: Int = 16")
+        assertContains(kotlin, "internal const val SAMPLE_PI: Double = 3.14159")
+        assertContains(kotlin, "internal const val SAMPLE_NAME: String = \"sample\"")
+    }
+
+    @Test
+    fun `the jni stub copies pointer out-parameters through a pointer array`() {
+        val c = jni().resolve("c/samplestubs.c").readText()
+        assertContains(c, "for (jsize k = 0; k < n0; k++) t0[k] = (void*)(intptr_t)a0[k];")
+        assertContains(c, "sample_open(p0 ? (struct opaque **)t0 : 0);")
+        assertContains(c, "for (jsize k = 0; k < n0; k++) a0[k] = (jlong)(intptr_t)t0[k];")
+        // A const pointee is read, not written back.
+        assertContains(c, "if (p0) (*env)->ReleaseLongArrayElements(env, p0, a0, JNI_ABORT);")
     }
 
     @Test
@@ -63,7 +93,8 @@ class GenerateFromNativeIndexTest {
         assertContains(c, "if (p0) (*env)->ReleaseIntArrayElements(env, p0, a0, JNI_ABORT);")
         assertContains(c, "jstring result = r ? (*env)->NewStringUTF(env, r) : 0;")
         assertContains(c, "if (!p0 || (*env)->GetArrayLength(env, p0) < (jsize)sizeof(struct flags)) {")
-        assertContains(c, "sample_sort((void *)(intptr_t)p0, p1, (compare_fn)(intptr_t)p2);")
+        assertContains(c, "void* d0 = p0 ? (*env)->GetDirectBufferAddress(env, p0) : 0;")
+        assertContains(c, "sample_sort((void *)d0, p1, (compare_fn)(intptr_t)p2);")
     }
 
     @Test
@@ -84,33 +115,56 @@ class GenerateFromNativeIndexTest {
             .forEach { assertContains(header, it) }
     }
 
+    @TestFactory
+    fun `every installed Kotlin-Native version generates the same JNI bindings`(): List<DynamicTest> =
+        KonanDistribution.supportedVersions
+            .filter { it != KonanDistribution.defaultVersion && KonanDistribution.installed(it) != null }
+            .map { version ->
+                dynamicTest(version) {
+                    assumeInstalled()
+                    val expected = generated().getValue("jni_sample")
+                    val actual = generated(version).getValue("jni_sample")
+                    assertEquals(files(expected).keys, files(actual).keys)
+                    files(expected).forEach { (path, text) -> assertEquals(text, files(actual).getValue(path), "$path on $version") }
+
+                    val dump = generated(version).getValue("sample").resolve("index.txt").readText()
+                    assertContains(dump, "field next: ptr typedef node_t `node_t *` offset=64 size=8 align=8")
+                    assertContains(dump, "const SAMPLE_MASK: int32u(unsigned int) = 16")
+                }
+            }
+
+    private fun files(directory: File): Map<String, String> =
+        directory.walk().filter { it.isFile }.associate { it.relativeTo(directory).invariantSeparatorsPath to it.readText() }
+
     private fun dump(name: String): String {
         assumeInstalled()
-        return generated.getValue(name).resolve("index.txt").readText()
+        return generated().getValue(name).resolve("index.txt").readText()
     }
 
     private fun jni(): File {
         assumeInstalled()
-        return generated.getValue("jni_sample")
+        return generated().getValue("jni_sample")
     }
 
     private fun assumeInstalled() =
-        assumeTrue(KonanDistribution.pinned() != null, "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed")
+        assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
 
     private companion object {
         val sampleDef = File(checkNotNull(GenerateFromNativeIndexTest::class.java.classLoader.getResource("nativeindex/sample.def")).toURI())
         val mymathDef = File("examples/jvm/src/main/nativeInterop/mymath.def").absoluteFile
         val mymathHeaders = File("examples/jvm/native").absoluteFile
 
-        /** One build runs every generator the tests read: output directory by task name. */
-        val generated: Map<String, File> by lazy {
+        private val builds = mutableMapOf<String, Map<String, File>>()
+
+        /** One build per version runs every generator the tests read: output directory by task name. */
+        fun generated(version: String = KonanDistribution.defaultVersion): Map<String, File> = builds.getOrPut(version) {
             val projectDir = project(
                 exportTask(GeneratorRequest.Dump, "mymath", mymathDef, mymathHeaders),
                 exportTask(GeneratorRequest.Dump, "sample", sampleDef, sampleDef.parentFile),
                 exportTask(GeneratorRequest.Jni(stubLibrary = "samplestubs"), "jni_sample", sampleDef, sampleDef.parentFile),
             )
             val names = listOf("mymath", "sample", "jni_sample")
-            runner(projectDir, *names.map { "generate_$it" }.toTypedArray()).build()
+            runner(projectDir, *names.map { "generate_$it" }.toTypedArray(), version = version).build()
             names.associateWith { projectDir.resolve("build/generated/$it") }
         }
 
@@ -148,10 +202,11 @@ class GenerateFromNativeIndexTest {
             return projectDir
         }
 
-        fun runner(projectDir: File, vararg tasks: String): GradleRunner = GradleRunner.create()
-            .withProjectDir(projectDir)
-            .withPluginClasspath()
-            .withArguments(*tasks, "--stacktrace")
+        fun runner(projectDir: File, vararg tasks: String, version: String = KonanDistribution.defaultVersion): GradleRunner =
+            testRunner()
+                .withProjectDir(projectDir)
+                .withPluginClasspath()
+                .withArguments(*tasks, "--stacktrace", "-Pkonan.config.konanHome=${KonanDistribution.installed(version)?.home?.absolutePath}")
 
         fun path(file: File) = file.absolutePath.replace("\\", "/")
     }

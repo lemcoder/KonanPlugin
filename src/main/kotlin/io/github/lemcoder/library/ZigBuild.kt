@@ -1,7 +1,9 @@
 package io.github.lemcoder.library
 
 import io.github.lemcoder.dsl.NativeLibrarySpec
+import io.github.lemcoder.dsl.konanConfig
 import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.model.ConfigField
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.model.TargetFamily
 import io.github.lemcoder.toolchain.zigTriple
@@ -19,8 +21,9 @@ internal fun addZigCommands(task: ExternalBuildTask, project: Project, library: 
     val work = project.layout.buildDirectory.dir("konan/libraries/${library.name}/zig")
     val prefix = work.map { it.dir(target.konanName) }
 
+    val zigExecutable = project.konanConfig.executable(ConfigField.ZIG, task.path)
     task.command {
-        executable.set(zig.executable)
+        executable.set(zigExecutable)
         arguments.addAll(prefix.map { listOf("build", "--prefix", it.asFile.absolutePath) })
         arguments.addAll(work.map { listOf("--cache-dir", it.dir("cache").asFile.absolutePath) })
         arguments.add("-Dtarget=${target.zigTriple()}")

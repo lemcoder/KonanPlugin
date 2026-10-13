@@ -2,8 +2,8 @@ package io.github.lemcoder.dsl
 
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
-import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
+import org.gradle.api.provider.Property
 import javax.inject.Inject
 
 /**
@@ -27,11 +27,18 @@ import javax.inject.Inject
  * [BindingSpec.ffm] — the JVM through jextract's FFM bindings.
  */
 abstract class KonanExtension @Inject constructor(objects: ObjectFactory) {
+    /** The paths the plugin needs from the machine: the Kotlin/Native distribution and the programs it runs. */
+    val config: KonanConfig = objects.newInstance(KonanConfig::class.java)
+
+    fun config(action: Action<in KonanConfig>) = action.execute(config)
+
     /**
-     * The Kotlin/Native distribution that compiles libraries and links JNI stubs. Defaults to
-     * `$KONAN_HOME`, else the newest `~/.konan/kotlin-native-prebuilt-*`, found when a task runs.
+     * The Android API level whose platform libraries the plugin's Android links see: `libaaudio`,
+     * `libcamera2ndk` and the other later ones are missing from the API 21 Kotlin/Native links against.
+     * Defaults to the module's lowest `minSdk`, else Kotlin/Native's; Kotlin/Native's NDK stops at 29, so
+     * a higher level links against the highest it has.
      */
-    abstract val konanHome: DirectoryProperty
+    abstract val androidApiLevel: Property<Int>
 
     /** Native libraries this project builds or brings in, one archive per target. */
     val libraries: NamedDomainObjectContainer<NativeLibrarySpec> =

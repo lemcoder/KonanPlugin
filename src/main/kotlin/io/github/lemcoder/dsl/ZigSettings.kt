@@ -1,6 +1,5 @@
 package io.github.lemcoder.dsl
 
-import io.github.lemcoder.model.Executable
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
@@ -11,15 +10,11 @@ import org.gradle.api.provider.Property
  */
 abstract class ZigSettings {
     init {
-        executable.convention(Executable.OnPath("zig"))
         optimize.convention(ZigOptimize.RELEASE_FAST)
     }
 
     /** The directory holding `build.zig`. Defaults to the library's `sourceDirectory`. */
     abstract val projectDirectory: DirectoryProperty
-
-    /** The `zig` program. Defaults to `zig` on the PATH or in the usual install locations. */
-    abstract val executable: Property<Executable>
 
     /**
      * `-Doptimize`. Defaults to [ZigOptimize.RELEASE_FAST]: Zig's `DEBUG` and `RELEASE_SAFE` compile C with

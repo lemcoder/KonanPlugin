@@ -9,7 +9,7 @@ plugin. Both plugins are applied to this single module:
 
 ## Prerequisites
 
-- A Kotlin/Native distribution (auto-detected, or `KONAN_HOME`).
+- The Kotlin/Native distribution the plugin needs (`config { konanHome.set(kotlinNativeDistribution()) }` in the build script).
 - Android SDK (`local.properties` → `sdk.dir`); the example targets `compileSdk 36`, `minSdk 21`.
 - The plugin published to mavenLocal:
   ```bash
@@ -70,7 +70,7 @@ konan {
 
 - the library → `libmymath.a` per ABI, from `native/`, in `build/konan/libraries/mymath/<target>/`.
 - the binding → Kotlin bindings and a `.so` per ABI the library is built for: an Android app gets JNI.
-  The Kotlin/Native distribution is auto-detected from `$KONAN_HOME` / `~/.konan`.
+  The Kotlin/Native distribution comes from `konan.config.konanHome`.
 
 When AGP is present the plugin **automatically** adds the generated Kotlin bridges as a source
 directory and the per-ABI `jniLibs/` as native libraries (via the AGP variant API), and orders

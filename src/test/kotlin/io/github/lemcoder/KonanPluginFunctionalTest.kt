@@ -6,9 +6,13 @@ import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.TaskOutcome
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.File
+import java.util.jar.Attributes
+import java.util.jar.JarOutputStream
+import java.util.jar.Manifest
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -22,7 +26,7 @@ class KonanPluginFunctionalTest {
     private val host = NativeTarget.host
     private val hostSuffix = host.konanName.replaceFirstChar { it.uppercase() }
 
-    private fun runner(vararg args: String) = GradleRunner.create()
+    private fun runner(vararg args: String) = testRunner()
         .withProjectDir(projectDir)
         .withPluginClasspath()
         .withArguments(*args)
@@ -37,8 +41,15 @@ class KonanPluginFunctionalTest {
         File(projectDir, "build.gradle.kts").writeText(
             "import io.github.lemcoder.model.NativeTarget\nimport io.github.lemcoder.model.Executable\n\n" +
                 "plugins {\n${plugins.trimIndent().prependIndent("    ")}\n}\n\n" +
-                "konan {\n    konanHome.set(file(\"${konanStub()}\"))\n${konan.trimIndent().prependIndent("    ")}\n}\n"
+                "konan {\n    config.konanHome.set(file(\"${konanStub()}\"))\n$installedTools${konan.trimIndent().prependIndent("    ")}\n}\n"
         )
+    }
+
+    /** make and cmake as this machine has them, for fixtures that run them; the plugin no longer looks. */
+    private val installedTools: String = listOf("make", "cmake").joinToString("") { name ->
+        val directories = System.getenv("PATH").orEmpty().split(File.pathSeparator) + listOf("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin")
+        directories.map { File(it, name) }.firstOrNull { it.canExecute() }
+            ?.let { "    config.$name.set(file(\"${it.absolutePath.replace("\\", "/")}\"))\n" }.orEmpty()
     }
 
     private val mymath = """
@@ -50,6 +61,54 @@ class KonanPluginFunctionalTest {
             }
         }
     """.trimIndent()
+
+    @Test
+    fun `config reads the build script, then Gradle properties, then the environment`() {
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            config.jextract.set(file("/from/dsl/jextract"))
+            libraries { create("mymath") { targets(NativeTarget.LINUX_X64); cmake { } } }
+            """,
+        )
+
+        val output = runner("konanConfig", "-Pkonan.config.jextract=/from/property/jextract", "-Pkonan.config.zig=/from/property/zig")
+            .withEnvironment(System.getenv() + mapOf("KONAN_ZIG" to "/from/env/zig", "KONAN_CARGO" to "/from/env/cargo"))
+            .build().output
+
+        assertContains(output, "jextract   /from/dsl/jextract (build script) — not needed here")
+        assertContains(output, "zig        /from/property/zig (Gradle property konan.config.zig) — not needed here")
+        assertContains(output, "cargo      /from/env/cargo (environment variable KONAN_CARGO) — not needed here")
+        assertContains(output, "needed by :cmakeBuildMymathLinux_x64")
+    }
+
+    @Test
+    fun `a task needing an unset path says how to set it`() {
+        write("""id("io.github.lemcoder.konanplugin")""", """libraries { create("mymath") { targets(NativeTarget.${host.name}); cargo { } } }""")
+
+        val output = runner("cargoBuildMymath$hostSuffix").withEnvironment(System.getenv() - "KONAN_CARGO").buildAndFail().output
+
+        assertContains(output, "konan.config.cargo is not set — :cargoBuildMymath$hostSuffix needs it.")
+        assertContains(output, "KONAN_CARGO=/path/to/cargo")
+    }
+
+    @Test
+    fun `binding generation refuses a Kotlin-Native version it has no exporter for`() {
+        write("""id("io.github.lemcoder.konanplugin")""", """bindings { create("mymath") { defFile.set(file("mymath.def")) } }""")
+        // A distribution as far as the plugin looks: run_konan, and a compiler jar that says 1.9.24.
+        File(konanStub(), "bin/run_konan").apply { parentFile.mkdirs(); writeText("#!/bin/sh\n"); setExecutable(true) }
+        val manifest = Manifest().apply {
+            mainAttributes[Attributes.Name.MANIFEST_VERSION] = "1.0"
+            mainAttributes[Attributes.Name.IMPLEMENTATION_VERSION] = "1.9.24"
+        }
+        File(konanStub(), "konan/lib/kotlin-native-compiler-embeddable.jar").apply { parentFile.mkdirs() }
+            .outputStream().use { JarOutputStream(it, manifest).close() }
+
+        val output = runner("generateJniMymath").buildAndFail().output
+
+        assertContains(output, "is Kotlin/Native 1.9.24, which this plugin cannot generate bindings with.")
+        assertContains(output, "2.0.0, 2.0.10, 2.0.20, 2.0.21")
+    }
 
     @Test
     fun `a library compiles from conventions alone`() {
@@ -156,8 +215,8 @@ class KonanPluginFunctionalTest {
 
     /** The installed Kotlin/Native distribution, for tests that really cross-compile with it. */
     private fun realKonanHome(): String {
-        assumeTrue(KonanDistribution.pinned() != null, "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed")
-        return KonanDistribution.pinned()!!.home.absolutePath.replace("\\", "/")
+        assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
+        return KonanDistribution.installed()!!.home.absolutePath.replace("\\", "/")
     }
 
     @Test
@@ -175,7 +234,7 @@ class KonanPluginFunctionalTest {
         write(
             """id("io.github.lemcoder.konanplugin")""",
             """
-            konanHome.set(file("$home"))
+            config.konanHome.set(file("$home"))
             libraries {
                 create("mymath") {
                     targets(NativeTarget.LINUX_X64)
@@ -192,6 +251,42 @@ class KonanPluginFunctionalTest {
         // An x86-64 ELF object: e_machine 0x3e, 18 bytes into the member.
         val elf = archive.indexOfSequence(byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))
         assertTrue(elf > 0 && archive[elf + 18] == 0x3e.toByte(), "expected an x86-64 ELF member:\n${result.output}")
+    }
+
+    @Test
+    fun `CMake builds a library's archive for the host and, cross-compiled, for linux_x64`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        assumeTrue(host != NativeTarget.LINUX_X64, "needs a host other than linux_x64")
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        File(projectDir, "native/CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.16)
+            project(mymath C)
+            add_library(${'$'}{KONAN_LIBRARY_NAME} STATIC mymath.c)
+            """.trimIndent()
+        )
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            config.konanHome.set(file("$home"))
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.${host.name}, NativeTarget.LINUX_X64)
+                    cmake { }
+                }
+            }
+            """,
+        )
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        assertTrue(File(projectDir, "build/konan/libraries/mymath/${host.konanName}/libmymath.a").isFile, result.output)
+        val linux = File(projectDir, "build/konan/libraries/mymath/linux_x64/libmymath.a").readBytes()
+        val elf = linux.indexOfSequence(byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))
+        assertTrue(elf > 0 && linux[elf + 18] == 0x3e.toByte(), "expected an x86-64 ELF member:\n${result.output}")
     }
 
     @Test
@@ -212,7 +307,7 @@ class KonanPluginFunctionalTest {
         write(
             """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
             """
-            konanHome.set(file("$home"))
+            config.konanHome.set(file("$home"))
             bindings {
                 create("mymath") {
                     defFile.set(file("mymath.def"))
@@ -244,11 +339,11 @@ class KonanPluginFunctionalTest {
         write(
             """id("io.github.lemcoder.konanplugin")""",
             """
+            config.cargo.set(file("${cargo.absolutePath.replace("\\", "/")}"))
             libraries {
                 create("mymath") {
                     targets(NativeTarget.${host.name})
                     cargo {
-                        executable.set(Executable.File(file("${cargo.absolutePath.replace("\\", "/")}")))
                         crateName.set("my-math")
                     }
                 }
@@ -285,10 +380,11 @@ class KonanPluginFunctionalTest {
         write(
             """id("io.github.lemcoder.konanplugin")""",
             """
+            config.zig.set(file("${zig.replace("\\", "/")}"))
             libraries {
                 create("mymath") {
                     targets(NativeTarget.MACOS_ARM64, NativeTarget.LINUX_X64, NativeTarget.MINGW_X64)
-                    zig { executable.set(Executable.File(file("${zig.replace("\\", "/")}"))) }
+                    zig { }
                 }
             }
             """,
@@ -423,9 +519,12 @@ class KonanPluginFunctionalTest {
 
         val result = runner("jvmJar", "--dry-run").withPluginClasspathAndKgp().build()
 
-        listOf(":generateFfmMymath", ":compileJvmMainJava", ":linkFfmMymath$hostSuffix", ":bundleFfmMymath").forEach {
+        listOf(":generateFfmMymath", ":linkFfmMymath$hostSuffix", ":bundleFfmMymath").forEach {
             assertTrue("$it SKIPPED" in result.output, "expected $it:\n${result.output}")
         }
+        // jvm()'s own Java source set from Kotlin 2.1.20; before, withJava()'s, which is main.
+        val compileJava = listOf(":compileJvmMainJava", ":compileJava").firstOrNull { "$it SKIPPED" in result.output }
+        assertTrue(compileJava != null && result.output.indexOf(compileJava) > result.output.indexOf(":generateFfmMymath"), result.output)
         assertFalse(":generateJniMymath" in result.output, "JNI is replaced on jvm():\n${result.output}")
     }
 
@@ -473,9 +572,12 @@ class KonanPluginFunctionalTest {
     fun `CMake receives the contract as cache entries and builds into the plugin's directory`() {
         val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
         assumeTrue(cmake != null, "needs cmake")
+        // The generator runs in the real distribution.
+        val home = realKonanHome()
         write(
             """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
             """
+            config.konanHome.set(file("$home"))
             bindings {
                 create("mymath") {
                     defFile.set(file("mymath.def"))
@@ -488,7 +590,7 @@ class KonanPluginFunctionalTest {
             """
             cmake_minimum_required(VERSION 3.16)
             project(contract NONE)
-            file(WRITE "${'$'}{CMAKE_LIBRARY_OUTPUT_DIRECTORY}/contract.txt" "${'$'}{KONAN_JNI_LIB_NAME}|${'$'}{KONAN_JNI_STUB_DIR}")
+            file(WRITE "${'$'}{CMAKE_LIBRARY_OUTPUT_DIRECTORY}/contract.txt" "${'$'}{KONAN_JNI_LIB_NAME}|${'$'}{KONAN_JNI_STUB_DIR}|${'$'}{KONAN_JNI_INCLUDE_DIR}")
             """.trimIndent()
         )
 
@@ -497,14 +599,17 @@ class KonanPluginFunctionalTest {
         val contract = File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}/contract.txt").readText().split('|')
         assertTrue(contract[0].isNotEmpty(), "library name: $contract")
         assertTrue(File(contract[1]).isDirectory, "stub directory: $contract")
+        assertTrue(File(contract[2], "jni.h").isFile, "the plugin's jni.h, no JDK: $contract")
     }
 
     @Test
     fun `a generic external build runs its steps with the contract and its library is copied into place`() {
         assumeTrue(File("/bin/sh").canExecute(), "needs /bin/sh")
+        val home = realKonanHome()
         write(
             """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
             """
+            config.konanHome.set(file("$home"))
             bindings {
                 create("mymath") {
                     defFile.set(file("mymath.def"))
@@ -642,7 +747,7 @@ class KonanPluginFunctionalTest {
 
     @Test
     fun `a multiplatform project binds through KGP's cinterop, after compiling the library`() {
-        assumeTrue(KonanDistribution.pinned() != null, "Kotlin/Native ${KonanDistribution.pinnedVersion} is not installed")
+        assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
         // KMP's DSL names targets in camelCase: macos_arm64 -> macosArm64.
         val dslName = host.konanName.split('_').mapIndexed { i, part -> if (i == 0) part else part.replaceFirstChar { it.uppercase() } }.joinToString("")
         val targetSuffix = dslName.replaceFirstChar { it.uppercase() }
@@ -657,7 +762,7 @@ class KonanPluginFunctionalTest {
         write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath)
         // The real distribution, not the stub: this one compiles.
         File(projectDir, "build.gradle.kts").appendText(
-            "\nkonan.konanHome.set(file(\"${KonanDistribution.pinned()!!.home.absolutePath.replace("\\", "/")}\"))\n" +
+            "\nkonan.config.konanHome.set(file(\"${KonanDistribution.installed()!!.home.absolutePath.replace("\\", "/")}\"))\n" +
                 "kotlin { $dslName() }\nrepositories { mavenCentral() }\n"
         )
         File(projectDir, "mymath.def").writeText("headers = mymath.h\npackage = example\n")

@@ -1,6 +1,8 @@
 package io.github.lemcoder.external
 
 import io.github.lemcoder.dsl.CMakeSettings
+import io.github.lemcoder.dsl.konanConfig
+import io.github.lemcoder.model.ConfigField
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.model.ToolchainVariable
 import org.gradle.api.Project
@@ -10,8 +12,9 @@ import org.gradle.api.provider.Provider
 /**
  * The CMake preset of an external build: configure, then build, the project's CMakeLists for one target.
  * The contract also goes in as cache entries — what a CMakeLists conventionally reads — and
- * `CMAKE_LIBRARY_OUTPUT_DIRECTORY` lands the library in the context's output directory, so the
- * CMakeLists needs no knowledge of the layout. Used for the JNI stub and for the library FFM loads.
+ * `CMAKE_LIBRARY_OUTPUT_DIRECTORY` and `CMAKE_ARCHIVE_OUTPUT_DIRECTORY` land the library in the context's
+ * output directory, so the CMakeLists needs no knowledge of the layout. Used for a library's archive, the
+ * JNI stub and the library FFM loads.
  *
  * Both commands are one task, which always runs: CMake tracks its own sources, and a changed configure
  * argument then always reaches the build.
@@ -28,6 +31,8 @@ internal fun ExternalBuildTask.addCMakeCommands(
 ) {
     val perTarget = cmake.targetSettings[context.target]
     val preset = perTarget?.preset?.orElse(cmake.preset) ?: cmake.preset
+    // Read before command { }, whose receiver has neither the task's path nor its project.
+    val cmakeExecutable = project.konanConfig.executable(ConfigField.CMAKE, path)
     check(cmake.path.isPresent || preset.isPresent) { "$owner needs a path or a preset." }
     val sourceDirectory = cmake.path.map { it.asFile.parentFile }
     // With a preset the binary directory is the preset's to choose, and `-B` cannot override it; the
@@ -40,7 +45,7 @@ internal fun ExternalBuildTask.addCMakeCommands(
     )
 
     command {
-        executable.set(cmake.executable)
+        executable.set(cmakeExecutable)
         arguments.addAll(
             preset.map { listOf("--preset", it) }.orElse(
                 sourceDirectory.zip(buildDirectory) { source, build -> listOf("-S", source.absolutePath, "-B", build.asFile.absolutePath) }
@@ -53,14 +58,16 @@ internal fun ExternalBuildTask.addCMakeCommands(
         }
         context.environment.filterKeys { it !is ToolchainVariable }
             .forEach { (variable, value) -> arguments.add(value.map { "-D${variable.variableName}=$it" }) }
+        // Shared libraries go to the library directory, static ones to the archive directory: both land in place.
         arguments.add(context.outputDirectory.map { "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=${it.asFile.absolutePath}" })
+        arguments.add(context.outputDirectory.map { "-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY=${it.asFile.absolutePath}" })
         arguments.addAll(cmake.arguments)
         perTarget?.let { arguments.addAll(it.arguments) }
         // `--preset` resolves CMakePresets.json from the working directory.
         workingDirectory.set(sourceDirectory.map { it.absolutePath })
     }
     command {
-        executable.set(cmake.executable)
+        executable.set(cmakeExecutable)
         arguments.addAll(buildDirectory.map { listOf("--build", it.asFile.absolutePath) })
         arguments.addAll(cmake.buildTargets.map { targets -> targets.flatMap { listOf("--target", it) } })
         arguments.add("--parallel")

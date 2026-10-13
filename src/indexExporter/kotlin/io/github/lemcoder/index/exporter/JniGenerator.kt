@@ -15,8 +15,15 @@ import java.io.File
  *  - `const char*`: `String?` in both directions, through `GetStringUTFChars` / `NewStringUTF`;
  *  - other pointers to integers or floating point (`int*`, `uint8_t*`, `float*`, …): the matching
  *    primitive array, pinned for the call and written back afterwards unless the pointee is `const`;
+ *  - pointers to pointers (`handle_t**`, the usual out-parameter): a `LongArray?` of addresses, copied
+ *    into a C array of pointers for the call and back afterwards unless the pointee is `const`;
  *  - structs by value: a `ByteArray` holding the struct's bytes;
- *  - every other pointer (opaque handles, `void*`, structs, function pointers): its address as a `Long`.
+ *  - `void*` and `const void*` arguments, spelled as such: a direct `java.nio.Buffer?`, whose start
+ *    address — not its position — is passed; a heap buffer is an `IllegalArgumentException`;
+ *  - every other pointer (opaque handles, typedef'd `void*`, structs, function pointers, results): its
+ *    address as a `Long`.
+ *
+ * Enum constants and the integer, floating-point and string macro constants become `const val`s.
  *
  * Functions it cannot bind (variadic, `long double`, an anonymous struct by value, …) are listed with the
  * reason at the end of the Kotlin file instead.
@@ -43,7 +50,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
 
         val kotlinFile = outputDirectory.resolve("kotlin/${packageName.replace('.', '/')}/$facade.kt")
         kotlinFile.parentFile.mkdirs()
-        kotlinFile.writeText(kotlinSource(packageName, facade, stubLibrary, visibility, bound, skipped))
+        kotlinFile.writeText(kotlinSource(packageName, facade, stubLibrary, visibility, constants(context.index), bound, skipped))
 
         val cFile = outputDirectory.resolve("c/$stubLibrary.c")
         cFile.parentFile.mkdirs()
@@ -95,6 +102,20 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         class PrimitiveArray(val element: JvmPrimitive, val cType: String, val readOnly: Boolean) :
             Crossing("${element.kotlinName}Array?", "${element.jniName}Array")
 
+        /**
+         * A pointer to pointers as a `LongArray?` of addresses, through a C array of `void*`; [cType] spells
+         * the pointer. A [readOnly] one (`const` pointee) is not copied back. Pointers may be narrower than a
+         * `jlong`, so the array cannot be pinned and passed as is.
+         */
+        class AddressArray(val cType: String, val readOnly: Boolean) :
+            Crossing("${JvmPrimitive.LONG.kotlinName}Array?", "${JvmPrimitive.LONG.jniName}Array")
+
+        /**
+         * A `void*` argument as a direct `java.nio.Buffer`'s address; [cType] spells the pointer. A typedef'd
+         * `void*` is a handle more often than memory, and stays an [Address].
+         */
+        class DirectBuffer(val cType: String) : Crossing("java.nio.Buffer?", "jobject")
+
         /** A struct by value as its bytes; [cType] spells the struct. */
         class StructBytes(val cType: String) :
             Crossing("${JvmPrimitive.BYTE.kotlinName}Array", "${JvmPrimitive.BYTE.jniName}Array")
@@ -138,7 +159,12 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
             is FloatingType -> JvmPrimitive.floating(pointee.size)
             else -> null
         }
-        return if (element != null) Crossing.PrimitiveArray(element, cType, isConst) else Crossing.Address(cType)
+        return when {
+            element != null -> Crossing.PrimitiveArray(element, cType, isConst)
+            pointee == VoidType && declared !is Typedef -> Crossing.DirectBuffer(cType)
+            pointee is PointerType -> Crossing.AddressArray(cType, isConst)
+            else -> Crossing.Address(cType)
+        }
     }
 
     private fun primitive(type: Type): Crossing.Primitive = when (type) {
@@ -174,6 +200,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         facade: String,
         stubLibrary: String,
         visibility: BindingVisibility,
+        constants: List<Pair<String, String>>,
         bound: List<Binding>,
         skipped: List<Pair<String, String>>,
     ) = buildString {
@@ -181,12 +208,15 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         appendLine("""@file:Suppress("FunctionName", "LocalVariableName", "unused")""")
         if (packageName.isNotEmpty()) appendLine("package $packageName")
         appendLine()
-        appendLine("// Generated JNI bindings; do not edit. Strings and primitive buffers are marshalled,")
-        appendLine("// structs by value cross as their bytes, and other pointers as addresses (Long).")
+        appendLine("// Generated JNI bindings; do not edit. Strings and primitive buffers are marshalled, void*")
+        appendLine("// arguments are direct Buffers, structs by value cross as their bytes, and other pointers as")
+        appendLine("// addresses (Long).")
         appendLine()
         appendLine("""private val nativeLibrary: Unit = loadNativeLibrary("$stubLibrary")""")
         appendLine()
         append(NativeLoaderSource.kotlin())
+        if (constants.isNotEmpty()) appendLine()
+        constants.forEach { (name, value) -> appendLine("${visibility.name.lowercase()} const val ${kotlinIdentifier(name)}$value") }
         bound.forEach { b ->
             val params = b.params.joinToString { (name, crossing) -> "${kotlinIdentifier(name)}: ${crossing.kotlinType}" }
             appendLine()
@@ -217,7 +247,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         appendLine("#include <jni.h>")
         context.headers.forEach { appendLine("#include <$it>") }
         context.preambleLines.forEach { appendLine(it) }
-        if (bound.any { b -> b.params.any { it.second is Crossing.StructBytes } }) {
+        if (bound.any { b -> b.params.any { it.second is Crossing.StructBytes || it.second is Crossing.DirectBuffer } }) {
             appendLine()
             appendLine("static void kniThrowIllegalArgument(JNIEnv* env, const char* message) {")
             appendLine("    jclass type = (*env)->FindClass(env, \"java/lang/IllegalArgumentException\");")
@@ -236,6 +266,13 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
 
         // Checks first, so a failing one leaves nothing acquired.
         b.params.forEachIndexed { i, (_, c) ->
+            if (c is Crossing.DirectBuffer) {
+                appendLine("    void* d$i = p$i ? (*env)->GetDirectBufferAddress(env, p$i) : 0;")
+                appendLine("    if (p$i && !d$i) {")
+                appendLine("        kniThrowIllegalArgument(env, \"$name: argument $i must be a direct buffer\");")
+                appendLine("        $failure")
+                appendLine("    }")
+            }
             if (c is Crossing.StructBytes) {
                 appendLine("    if (!p$i || (*env)->GetArrayLength(env, p$i) < (jsize)sizeof(${c.cType})) {")
                 appendLine("        kniThrowIllegalArgument(env, \"$name: argument $i must hold sizeof(${c.cType}) bytes\");")
@@ -247,6 +284,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
             when (c) {
                 is Crossing.Primitive -> "p$i"
                 is Crossing.Address -> "(${c.cType})(intptr_t)p$i"
+                is Crossing.DirectBuffer -> "(${c.cType})d$i"
                 Crossing.CString -> {
                     appendLine("    const char* s$i = p$i ? (*env)->GetStringUTFChars(env, p$i, 0) : 0;")
                     "s$i"
@@ -254,6 +292,13 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
                 is Crossing.PrimitiveArray -> {
                     appendLine("    ${c.element.jniName}* a$i = p$i ? (*env)->Get${c.element.kotlinName}ArrayElements(env, p$i, 0) : 0;")
                     "(${c.cType})a$i"
+                }
+                is Crossing.AddressArray -> {
+                    appendLine("    jsize n$i = p$i ? (*env)->GetArrayLength(env, p$i) : 0;")
+                    appendLine("    jlong* a$i = p$i ? (*env)->GetLongArrayElements(env, p$i, 0) : 0;")
+                    appendLine("    void* t$i[n$i > 0 ? n$i : 1];")
+                    appendLine("    for (jsize k = 0; k < n$i; k++) t$i[k] = (void*)(intptr_t)a$i[k];")
+                    "p$i ? (${c.cType})t$i : 0"
                 }
                 is Crossing.StructBytes -> {
                     appendLine("    jbyte* b$i = (*env)->GetByteArrayElements(env, p$i, 0);")
@@ -276,7 +321,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
                 appendLine("    jbyteArray result = (*env)->NewByteArray(env, (jsize)sizeof r);")
                 appendLine("    if (result) (*env)->SetByteArrayRegion(env, result, 0, (jsize)sizeof r, (const jbyte*)&r);")
             }
-            is Crossing.PrimitiveArray -> error("array result")
+            is Crossing.PrimitiveArray, is Crossing.AddressArray, is Crossing.DirectBuffer -> error("not a result crossing")
         }
         // Released in reverse acquisition order; writable arrays with mode 0, so the callee's writes are
         // copied back.
@@ -287,12 +332,65 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
                     val mode = if (c.readOnly) "JNI_ABORT" else "0"
                     appendLine("    if (p$i) (*env)->Release${c.element.kotlinName}ArrayElements(env, p$i, a$i, $mode);")
                 }
+                is Crossing.AddressArray -> {
+                    if (!c.readOnly) appendLine("    for (jsize k = 0; k < n$i; k++) a$i[k] = (jlong)(intptr_t)t$i[k];")
+                    val mode = if (c.readOnly) "JNI_ABORT" else "0"
+                    appendLine("    if (p$i) (*env)->ReleaseLongArrayElements(env, p$i, a$i, $mode);")
+                }
                 is Crossing.StructBytes -> appendLine("    (*env)->ReleaseByteArrayElements(env, p$i, b$i, JNI_ABORT);")
                 else -> {}
             }
         }
         if (b.result !is Crossing.Void) appendLine("    return result;")
         appendLine("}")
+    }
+
+    /**
+     * Enum constants and macro constants, as (name, `": Type = value"`), sorted by name. Unsigned values
+     * become the signed Kotlin type of the same size, as unsigned parameters do.
+     */
+    private fun constants(index: NativeIndex): List<Pair<String, String>> {
+        val enumConstants = index.enums.flatMap { enum ->
+            val type = runCatching { primitive(resolved(enum.baseType)).primitive }.getOrNull() ?: return@flatMap emptyList()
+            enum.constants.map { it.name to integerLiteral(type, it.value) }
+        }
+        val macroConstants = index.macroConstants.mapNotNull { c ->
+            when (c) {
+                is IntegerConstantDef -> runCatching { primitive(resolved(c.type)).primitive }.getOrNull()
+                    ?.let { c.name to integerLiteral(it, c.value) }
+                is FloatingConstantDef -> when (JvmPrimitive.floating((resolved(c.type) as? FloatingType)?.size ?: 0)) {
+                    JvmPrimitive.FLOAT -> c.name to ": Float = ${c.value.toFloat()}f"
+                    JvmPrimitive.DOUBLE -> c.name to ": Double = ${c.value}"
+                    else -> null
+                }
+                is StringConstantDef -> c.name to ": String = \"${kotlinStringContent(c.value)}\""
+                else -> null
+            }
+        }
+        return (enumConstants + macroConstants).distinctBy { it.first }.sortedBy { it.first }
+    }
+
+    /** `": Type = value"` for [value] as [type], wrapped to its size the way C converts it. */
+    private fun integerLiteral(type: JvmPrimitive, value: Long): String = when (type) {
+        JvmPrimitive.BOOLEAN -> ": Boolean = ${value != 0L}"
+        JvmPrimitive.BYTE -> ": Byte = ${value.toByte()}"
+        JvmPrimitive.SHORT -> ": Short = ${value.toShort()}"
+        JvmPrimitive.INT -> ": Int = ${value.toInt()}"
+        // Long.MIN_VALUE has no literal: -9223372036854775808 is the negation of an out-of-range one.
+        JvmPrimitive.LONG -> if (value == Long.MIN_VALUE) ": Long = Long.MIN_VALUE" else ": Long = ${value}L"
+        JvmPrimitive.FLOAT, JvmPrimitive.DOUBLE -> error("not an integer")
+    }
+
+    private fun kotlinStringContent(value: String): String = buildString {
+        value.forEach { c ->
+            when {
+                c == '\\' -> append("\\\\")
+                c == '"' -> append("\\\"")
+                c == '$' -> append("\\$")
+                c.code < 0x20 || c.code > 0x7e -> append("\\u%04x".format(c.code))
+                else -> append(c)
+            }
+        }
     }
 
     /** `Java_<mangled class>`: the prefix of every JNI symbol for methods of the facade class. */

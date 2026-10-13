@@ -1,6 +1,8 @@
 package io.github.lemcoder.library
 
-import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.kotlin.UsesKonanDistribution
+import io.github.lemcoder.kotlin.distribution
+import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.util.execCapture
@@ -33,7 +35,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     private val exec: ExecOperations,
     private val fs: FileSystemOperations,
     private val objects: ObjectFactory,
-) : DefaultTask() {
+) : DefaultTask(), UsesKonanDistribution {
 
     /** Destination of compiled `.o` object files */
     @get:InputFiles
@@ -50,9 +52,8 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     @get:PathSensitive(RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection
 
-    /** The Kotlin/Native distribution whose clang compiles; resolved when the task runs. */
-    @get:Internal
-    abstract val konanHome: DirectoryProperty
+    /** The Kotlin/Native distribution whose clang compiles. */
+    @get:Internal abstract override val konanHome: Property<ConfigValue>
 
     /** Targets to compile for */
     @get:Input
@@ -74,7 +75,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     @TaskAction
     fun compileAndLink() {
         val workingDir = workingDir.asFile.getOrElse(temporaryDir)
-        val distribution = KonanDistribution.resolve(konanHome.orNull?.asFile)
+        val distribution = distribution()
         targets.get().forEach { target ->
             distribution.ensureDependencies(target, exec, temporaryDir.resolve("dependencies"))
             // prepare output dirs

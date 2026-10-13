@@ -18,4 +18,12 @@ internal fun GradleRunner.withPluginClasspathAndKgp(): GradleRunner {
     return withPluginClasspath((plugin + kgp).filter { it.isNotEmpty() }.map(::File))
 }
 
+/**
+ * A runner on the Gradle version `-PtestGradleVersion` names, else the one building the plugin: how the
+ * suite checks the oldest Gradle a supported Kotlin version runs on.
+ */
+internal fun testRunner(): GradleRunner = GradleRunner.create().apply {
+    System.getProperty("test.gradle.version")?.takeIf { it.isNotEmpty() }?.let(::withGradleVersion)
+}
+
 private object TestKitSupport

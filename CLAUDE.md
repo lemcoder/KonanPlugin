@@ -22,7 +22,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   a Kotlin bump adds or retires a target; add the `NativeTarget` entry (and its Zig triple, if any).
 - **One home per concept.** `model/` holds the domain (targets, naming, the artifact layout, the
   external-build contract, `selectOne`), `kotlin/` the touchpoints with Kotlin, `toolchain/` the
-  others (JDK, Xcode, executables, Zig). Task names come from `taskName(...)`, OS checks from
+  others (Xcode, running executables, Zig). Task names come from `taskName(...)`, OS checks from
   `HostOs`, the distribution's layout from `KonanDistribution` — add to those, don't re-derive.
   `BindingVisibility` lives in `src/exporterProtocol` so the DSL and the generator share one enum.
 - AGP types are only touched inside `plugins.withId(...)` blocks. A plain reference in an eagerly
@@ -30,11 +30,25 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   plugin-only build. The KMP Android plugin does **not** apply `com.android.base`, so both ids need
   handling.
 
+## Machine paths: `konan { config { } }`
+
+- **The single source of every path the plugin needs from the machine** — `konanHome`, `jextract`,
+  `cmake`, `make`, `cargo`, `zig`. Nothing is searched for: no `PATH` scan, no install-directory or
+  `~/.konan` lookup, no JDK. `KonanConfig.readConfigField(field, usedBy)` reads the DSL, then the Gradle
+  property `konan.config.<field>`, then the environment variable, and records `usedBy` for `konanConfig`.
+  Add a path by adding a `ConfigField` entry and a property, never a per-block `executable`.
+- **Tasks that run Kotlin/Native implement `UsesKonanDistribution`**; the plugin sets their `konanHome`
+  in one `withType().configureEach`, and `distribution()` checks it when the task runs.
+- **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/jni/`, Apache 2.0): the
+  JNI generator writes it to its `include/` output, the host link and `KONAN_JNI_INCLUDE_DIR` use it. Its
+  JNI is 1.6 — enough for the generated stubs.
+
 ## Ordering rules that are not obvious
 
 - **Configuration cache resolves conventions when it stores.** A `konanHome` convention that threw
   broke *configuration*; one that returned absent got the absent value cached before KGP had
-  downloaded the distribution. Toolchain detection happens in the task action.
+  downloaded the distribution. So `konan.config` fields are always-present providers of a
+  `ConfigValue` (possibly unset), and `ConfigValue.require()` checks them in the task action.
 - **`all`/`whenObjectAdded` fires before `create(name) { … }` runs its configure block.** Reading a
   binding's `library` or a library's `targets` there gives the default, not what the build declared —
   per-target tasks, consumer detection and KGP's cinterops are deferred to `afterEvaluate` (KGP
@@ -68,7 +82,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `System.loadLibrary`. It, and the stub directory, are reported by the task
   (`stubLibraryBaseName`, `stubSourceDirectory`, `kotlinSourceDirectory`) — consumers must never
   reconstruct them. The external-build contract is `ExternalStubVariable` (`KONAN_JNI_STUB_DIR`,
-  `KONAN_JNI_LIB_NAME`, `KONAN_JNI_OUTPUT_DIR`, `KONAN_TARGET`, `KONAN_JNI_ABI`, `JAVA_HOME`): every
+  `KONAN_JNI_LIB_NAME`, `KONAN_JNI_OUTPUT_DIR`, `KONAN_TARGET`, `KONAN_JNI_ABI`, `KONAN_JNI_INCLUDE_DIR`): every
   `JniStubBuild.External` gets it as environment in `External.register`; a subclass only adds commands
   (CMake also passes it as cache entries). The same values are on `JniSpec` as providers.
 - **`cmake --preset` resolves `CMakePresets.json` from the working directory**, so configure runs
@@ -93,6 +107,8 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 - **Link flags live in `KonanDistribution.linkArguments`**: `-fuse-ld=lld` for Linux (the GCC toolchain's
   `ld.bfd` is a Linux binary; a cross link from macOS fails without it), NDK compiler-rt and
   `--unwindlib=none` for Android, Xcode's compiler-rt for macOS. The wrappers add them only when linking.
+- **The toolchain needs its own `ranlib`** (`llvm-ar s`): CMake indexes static archives with the host's,
+  and Apple's `ranlib` silently drops ELF objects — a cross-built archive came out empty.
 - **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not
   compile anything, and must not need a Kotlin/Native distribution to run.
 - **Cargo gets the compilers under the `cc` crate's target-specific names** (`CC_<triple>`…), not `CC`:
@@ -113,9 +129,14 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 
 ## Multiplatform projects
 
-- **FFM serves `jvm()` targets, JNI the Android ones**: one binding cannot be both the JDK's API and
-  PanamaPort's. FFM's Java goes into the Gradle source set Kotlin creates per JVM compilation
-  (`<target>Main`, compiled by `compile<Target>MainJava`).
+- **`ffm()` replaces JNI everywhere, generated once per API**: `generateFfm<Name>` (JDK) for
+  `kotlin("jvm")` and `jvm()` targets, `generateFfmAndroid<Name>` (PanamaPort) for Android modules and
+  multiplatform Android targets. The JDK's Java goes into the Gradle source set Kotlin creates per JVM
+  compilation (`<target>Main`, compiled by `compile<Target>MainJava`); PanamaPort's through AGP's
+  variant API — the multiplatform Android plugin's only with `withJava()`, and its Kotlin compile
+  (`compileAndroidMain`, no `Kotlin` in the name) gets the dependency through KGP, not by task name.
+- **Before Kotlin 2.1.20 a `jvm()` target has no Java source set** unless the build calls `withJava()`, so
+  `addKmpJvmJava` calls it there, and the Java goes into `main` (`compileJava`) rather than `jvmMain`.
 - **JNI's sources leave `jvm()` lazily**, since targets are declared before `ffm()` is known — and a
   `project.provider { }` around a generated directory carries no producer, so the compile task's
   dependency on generation is spelled out alongside it. A missing one compiles before generating.
@@ -164,9 +185,22 @@ distribution's JVM: the exporter (`src/indexExporter`) indexes headers with cint
 `BindingGenerator` over the index in the same process. Only generated files leave it; the plugin never
 holds a `NativeIndex`.
 
-- **One version everywhere.** `kotlinNativeVersion` in `gradle.properties` sets `kotlin-native-utils`,
-  the compiler jar the exporter compiles against, and the distribution it must run in. The wiring lives
-  in `buildSrc/src/main/kotlin/native-index.gradle.kts`.
+- **One exporter per Kotlin/Native version.** It runs only in the distribution whose compiler it was
+  compiled against, so it is compiled once per entry of `kotlinNativeVersions` in `gradle.properties` —
+  every patch release from 2.0.0 — into `native-index-exporter-<version>.jar`, and `runIndexExporter` runs
+  the one matching `konanHome`'s version (its compiler jar's `Implementation-Version`); any other version
+  is an error. A jar per patch, not per minor: the `$default` overloads of cinterop's functions change
+  shape between patches. Each variant compiles with `apiVersion` of its own minor, since it runs on that
+  distribution's stdlib. `kotlinNativeVersion` is the default: `kotlin-native-utils`, KGP and the tests.
+- **What differs between versions lives in `src/indexExporter/compat`**, one directory per facet variant,
+  picked by a version threshold in `native-index.gradle.kts` (its README has the table). The shared
+  sources call the same declarations whichever variant they got. When a Kotlin release breaks the
+  exporter, add a variant and a threshold; check every version with
+  `./gradlew compileIndexExporter<version>Kotlin`. Variants compile non-incrementally, two at a time: each
+  holds a compiler jar, and twenty in parallel exhaust the heap.
+- **Adding a Kotlin release**: append it to `kotlinNativeVersions`; if it compiles, run
+  `GenerateFromNativeIndexTest` with that distribution installed — its `@TestFactory` requires every
+  installed version to generate the same JNI bindings as the default.
 - **The exporter is its own source set** because it compiles against the compiler jar, and anything it
   links against exists only in the distribution.
 - **It calls cinterop's `internal` functions** (`prepareTool`, `buildNativeLibrary`) by compiling with
@@ -188,6 +222,9 @@ holds a `NativeIndex`.
   loaded libclang there, and a native library loads in one classloader per JVM.
 
 ## Testing and publishing
+
+`-PtestGradleVersion=8.7 -PkgpTestVersion=2.0.0` runs the suite as a Kotlin 2.0 project would: TestKit on
+that Gradle, that KGP on the plugin-under-test classpath. Run it after touching the KGP adapter.
 
 The TestKit functional tests are what catch decoration and classloading failures, because they apply
 the plugin to a project with neither KGP nor AGP. Keep at least one fixture like that.

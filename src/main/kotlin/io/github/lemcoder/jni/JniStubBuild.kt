@@ -14,7 +14,6 @@ import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.selectOne
-import io.github.lemcoder.toolchain.Jdk
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
@@ -61,7 +60,6 @@ internal sealed interface JniStubBuild {
         final override fun register(project: Project, konan: KonanExtension, binding: BindingSpec, inputs: JniStubInputs): List<TaskProvider<*>> {
             val bindingName = binding.name
             val jni = binding.jni
-            val javaHome = jni.jdkHome.map { it.asFile.absolutePath }.orElse(project.provider { Jdk.detectHome().absolutePath })
             val targets = targets(binding, inputs)
             val tasks = project.registerExternalBuilds(
                 taskPrefix = taskPrefix,
@@ -78,7 +76,7 @@ internal sealed interface JniStubBuild {
                             ExternalStubVariable.OUTPUT_DIR to output.map { it.asFile.absolutePath },
                             ExternalStubVariable.TARGET to project.provider { target.konanName },
                             ExternalStubVariable.ABI to project.provider { target.libraryDirectoryName },
-                            ExternalStubVariable.JAVA_HOME to javaHome,
+                            ExternalStubVariable.JNI_INCLUDE_DIR to inputs.generate.flatMap { it.jniIncludeDirectory }.map { it.asFile.absolutePath },
                         ),
                     )
                 },

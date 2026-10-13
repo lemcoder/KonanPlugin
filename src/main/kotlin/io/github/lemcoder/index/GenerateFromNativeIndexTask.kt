@@ -1,7 +1,9 @@
 package io.github.lemcoder.index
 
-import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.kotlin.UsesKonanDistribution
+import io.github.lemcoder.kotlin.distribution
 import io.github.lemcoder.kotlin.runIndexExporter
+import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
@@ -30,7 +32,7 @@ import javax.inject.Inject
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native distribution, which is not a tracked input")
 abstract class GenerateFromNativeIndexTask @Inject constructor(
     private val exec: ExecOperations,
-) : DefaultTask() {
+) : DefaultTask(), UsesKonanDistribution {
     @get:InputFile @get:PathSensitive(PathSensitivity.RELATIVE)
     abstract val defFile: RegularFileProperty
 
@@ -48,9 +50,11 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @get:Input
     abstract val target: Property<NativeTarget>
 
-    /** Defaults to the installed distribution of [KonanDistribution.pinnedVersion], found at execution. */
-    @get:Internal
-    abstract val konanHome: DirectoryProperty
+    /** One of [io.github.lemcoder.kotlin.KonanDistribution.supportedVersions]: the exporter links against its compiler. */
+    @get:Internal abstract override val konanHome: Property<ConfigValue>
+
+    /** The jextract program, when [request] is [GeneratorRequest.Jextract]; checked when the task runs. */
+    @get:Internal abstract val jextract: Property<ConfigValue>
 
     /** What to generate, with that generator's settings, e.g. `GeneratorRequest.Dump`. */
     @get:Input
@@ -63,7 +67,9 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
     @TaskAction
     fun generate() {
         exec.runIndexExporter(
-            request = request.get(),
+            request = request.get().let { request ->
+                if (request is GeneratorRequest.Jextract && jextract.isPresent) request.copy(jextract = jextract.get().require()) else request
+            },
             outputDirectory = outputDirectory.get().asFile,
             cinteropArgs = buildList {
                 val def = defFile.get().asFile
@@ -76,7 +82,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
                 compilerOptions.getOrElse(emptyList()).forEach { add("-compiler-option"); add(it) }
                 addAll(extraCinteropArgs.getOrElse(emptyList()))
             },
-            konanHome = konanHome.orNull?.asFile,
+            distribution = distribution(),
             workDir = temporaryDir,
         )
     }

@@ -1,7 +1,6 @@
 package io.github.lemcoder.dsl
 
 import io.github.lemcoder.ffm.FfmLibraryBuild
-import io.github.lemcoder.model.Executable
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
 import org.gradle.api.file.Directory
@@ -21,7 +20,6 @@ import javax.inject.Inject
  */
 abstract class FfmSpec @Inject constructor(objects: ObjectFactory) {
     init {
-        jextract.convention(Executable.OnPath("jextract"))
         panamaPortVersion.convention("v0.1.5")
         bundleInJar.convention(true)
     }
@@ -31,9 +29,6 @@ abstract class FfmSpec @Inject constructor(objects: ObjectFactory) {
      * bindings then load it from there when `java.library.path` does not have it. On by default.
      */
     abstract val bundleInJar: Property<Boolean>
-
-    /** The jextract program. Defaults to `jextract` on the PATH or in the usual install locations. */
-    abstract val jextract: Property<Executable>
 
     /**
      * The version of PanamaPort (`io.github.vova7878.panama:Core`), the FFM backport an Android module's

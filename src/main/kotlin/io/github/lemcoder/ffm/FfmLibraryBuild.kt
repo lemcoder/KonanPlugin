@@ -32,7 +32,14 @@ internal sealed interface FfmLibraryBuild {
     data object KonanLink : FfmLibraryBuild {
         override fun register(project: Project, konan: KonanExtension, binding: BindingSpec, inputs: FfmLibraryInputs): List<TaskProvider<*>> {
             val artifacts = inputs.artifacts
-            val built = artifacts?.targets?.getOrElse(emptyList()).orEmpty()
+            if (artifacts == null) {
+                // Nothing to link: a platform library (libaaudio), or one the app gets some other way.
+                project.logger.info(
+                    "konan.bindings.${binding.name}.ffm: no library(), so the bindings load lib${inputs.libraryName} as the system provides it."
+                )
+                return emptyList()
+            }
+            val built = artifacts.targets.getOrElse(emptyList())
             val (linked, missing) = inputs.targets.partition { it in built }
             if (missing.isNotEmpty()) {
                 project.logger.warn(
@@ -40,7 +47,7 @@ internal sealed interface FfmLibraryBuild {
                         "is linked there — name one with library(…), or use ffm { external { } } or ffm { prebuilt { } }."
                 )
             }
-            return linked.map { target -> registerLink(project, konan, binding, artifacts!!, inputs.libraryName, target) }
+            return linked.map { target -> registerLink(project, konan, binding, artifacts, inputs.libraryName, target) }
         }
 
         private fun registerLink(
@@ -54,7 +61,7 @@ internal sealed interface FfmLibraryBuild {
             group = "konan"
             description = "Link the '$libraryName' library for ${target.konanName}, for the FFM bindings."
             dependsOn(artifacts.builtBy)
-            konanHome.set(konan.konanHome)
+            androidApiLevel.set(konan.androidApiLevel)
             this.target.set(target)
             libraryBaseName.set(libraryName)
             staticLibrary.set(artifacts.archive(target))

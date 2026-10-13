@@ -28,8 +28,9 @@ gradlePlugin {
             id = "io.github.lemcoder.konanplugin"
             implementationClass = "io.github.lemcoder.KonanPlugin"
             displayName = "Konan Plugin"
-            description = "Gradle plugin to compile C sources to static libraries using Kotlin Konan compiler"
-            tags.set(listOf("cross-compile", "konan", "c", "kotlin"))
+            description = "Builds C/C++ libraries with Kotlin/Native's toolchain and binds them to Kotlin/Native, " +
+                "the JVM and Android from one cinterop .def: generated JNI bindings, or FFM through jextract."
+            tags.set(listOf("kotlin-native", "cinterop", "jni", "ffm", "jextract", "android", "cross-compile", "c"))
         }
     }
 }
@@ -37,7 +38,11 @@ gradlePlugin {
 val kgpForTests: Configuration = configurations.create("kgpForTests")
 
 dependencies {
-    "kgpForTests"(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-gradle-plugin:$it" })
+    // -PkgpTestVersion runs the KGP fixtures on another Kotlin version; -PtestGradleVersion on another Gradle.
+    "kgpForTests"(
+        providers.gradleProperty("kgpTestVersion").orElse(providers.gradleProperty("kotlinNativeVersion"))
+            .map { "org.jetbrains.kotlin:kotlin-gradle-plugin:$it" }
+    )
     // KonanTarget, for NativeTarget.of(konanTarget) and the KGP adapter — both reached only where KGP, which
     // brings it, is applied. The DSL speaks the plugin's own NativeTarget, so nothing decorated needs it.
     compileOnly(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-native-utils:$it" })
@@ -63,5 +68,7 @@ tasks.test {
     // proving the plugin loads without KGP.
     val kgp: FileCollection = kgpForTests
     inputs.files(kgp).withPropertyName("kgpForTests").withNormalizer(ClasspathNormalizer::class.java)
-    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp.classpath=${kgp.asPath}") })
+    val gradleVersion = providers.gradleProperty("testGradleVersion").orElse("")
+    inputs.property("testGradleVersion", gradleVersion)
+    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp.classpath=${kgp.asPath}", "-Dtest.gradle.version=${gradleVersion.get()}") })
 }

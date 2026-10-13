@@ -18,8 +18,9 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
   Kotlin compiler's.
 - Wires generated sources, `jniLibs` and task order into Kotlin and Android builds; can hand the JNI
   stub to the project's own build — CMake, or any build system as a list of commands — instead.
-- Auto-detects the Kotlin/Native distribution, the JDK that supplies `jni.h`, and the compiler-rt
-  builtins each target needs (NDK on Android, Xcode on macOS).
+- Takes every machine path from one place, [`config { }`](#config--) — nothing is searched for — and
+  finds the compiler-rt builtins each target needs inside the distribution (NDK on Android, Xcode on
+  macOS). Ships `jni.h`, so no JDK is needed to link JNI.
 
 ## Installation
 1. Apply the plugin in your `build.gradle.kts`:
@@ -29,10 +30,33 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
    }
    ```
 
-2. Ensure a Kotlin/Native distribution is installed. It is found automatically via `$KONAN_HOME`, else
-   the newest `~/.konan/kotlin-native-prebuilt-*`; override with `konan.konanHome`. Generating JNI or
-   FFM bindings needs the version the plugin was built against (2.4.20), which any Kotlin
-   Multiplatform build of that version with a native target downloads.
+2. Tell it where the Kotlin/Native distribution is — nothing is searched for (see [`config { }`](#config--)):
+   ```properties
+   # ~/.gradle/gradle.properties, for every build on this machine
+   konan.config.konanHome=/Users/me/.konan/kotlin-native-prebuilt-macos-aarch64-2.4.20
+   ```
+   or `konan { config { konanHome.set(kotlinNativeDistribution()) } }`, which names where the Kotlin
+   plugin installs your project's Kotlin/Native version — see [Kotlin versions](#kotlin-versions).
+
+### Kotlin versions
+JNI and FFM bindings are generated from cinterop's own C model, by code that runs inside the
+Kotlin/Native distribution `konanHome` names and calls its compiler. The plugin carries that code for
+**every Kotlin/Native release from 2.0.0 to 2.4.21** and runs the one matching `konanHome`; any other
+version fails, listing the supported ones.
+
+`kotlinNativeDistribution()` names the distribution of your project's Kotlin version, the one the Kotlin
+plugin downloads for a native target:
+
+```kotlin
+konan { config { konanHome.set(kotlinNativeDistribution()) } }   // ~/.konan/kotlin-native-prebuilt-<host>-<your Kotlin version>
+```
+
+A project with no native target never makes the Kotlin plugin download it: build any Kotlin Multiplatform
+project with a native target on that version once, or unpack `kotlin-native-prebuilt-<host>-<version>`
+from [Maven Central](https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-native-prebuilt/).
+Kotlin/Native bindings (KGP's cinterop, the klib) always use your project's Kotlin, whatever `konanHome` is.
+
+The plugin itself is tested on Gradle 8.7 with Kotlin 2.0.0 and on Gradle 9.8 with Kotlin 2.4.20.
 
 ## Configuration
 Everything lives in one block: the **libraries** the project builds, and the **bindings** that reach
@@ -61,7 +85,57 @@ A binding is consumed wherever the project's Kotlin targets need it, with nothin
 | Kotlin/Native targets (`kotlin("multiplatform")`) | a cinterop klib per target the library is built for | KGP's own `cinterops {}`, with the library's archive embedded |
 | `kotlin("jvm")`, multiplatform `jvm()` or Android targets, or an Android app | JNI bindings in the main sources, a JNI library per target | the plugin's JNI generator and link |
 | `ffm()` on the binding, in a `kotlin("jvm")` project or for a multiplatform `jvm()` target | FFM bindings in place of JNI, the library as a shared library | jextract |
-| `ffm()` on the binding, in an Android module | FFM bindings on PanamaPort in place of JNI, the library as `.so` per 64-bit ABI | jextract |
+| `ffm()` on the binding, in an Android module or for a multiplatform Android target | FFM bindings on PanamaPort in place of JNI, the library as `.so` per 64-bit ABI | jextract |
+
+| Property          | Type  | Default | Description |
+|-------------------|-------|---------|-------------|
+| `androidApiLevel` | `Int` | the module's lowest `minSdk`, else Kotlin/Native's, 21 | The API level whose sysroot the plugin's Android links use, so platform libraries such as `libaaudio` or `libcamera2ndk` link. Kotlin/Native's NDK stops at 29; a higher level uses the highest it has. |
+| `config { }`      |       |         | The paths the plugin needs from the machine; below. |
+
+### `config { }`
+The machine's paths: the Kotlin/Native distribution and the programs the plugin runs. They are the
+plugin's only source — nothing is looked up on the `PATH` or in install directories. Each field is read
+from the build script, else the Gradle property `konan.config.<field>` (the build's `gradle.properties`,
+`~/.gradle/gradle.properties`, or `-P`), else its environment variable:
+
+| Field       | Gradle property            | Environment variable | Needed by |
+|-------------|----------------------------|----------------------|-----------|
+| `konanHome` | `konan.config.konanHome`   | `KONAN_HOME`         | anything that compiles, links or generates bindings |
+| `jextract`  | `konan.config.jextract`    | `KONAN_JEXTRACT`     | `ffm()` |
+| `cmake`     | `konan.config.cmake`       | `KONAN_CMAKE`        | `cmake { }` |
+| `make`      | `konan.config.make`        | `KONAN_MAKE`         | `make { }` |
+| `cargo`     | `konan.config.cargo`       | `KONAN_CARGO`        | `cargo { }` |
+| `zig`       | `konan.config.zig`         | `KONAN_ZIG`          | `zig { }` |
+
+```kotlin
+konan {
+    config {
+        konanHome.set(kotlinNativeDistribution())          // ~/.konan/kotlin-native-prebuilt-<host>-<Kotlin version>
+        jextract.set(file("/opt/jextract-25/bin/jextract"))
+    }
+}
+```
+
+Machine paths belong in `~/.gradle/gradle.properties` rather than a shared build script:
+
+```properties
+konan.config.jextract=/Users/me/opt/jextract-25/bin/jextract
+konan.config.cmake=/opt/homebrew/bin/cmake
+```
+
+Values are absolute paths. Every field is optional until a task that needs it runs; that task then fails
+naming the field and the three ways to set it:
+
+```
+konan.config.jextract is not set — :generateFfmAndroidAaudio needs it.
+Set it to an absolute path in one of these; the first one set wins:
+  1. build script         konan { config { jextract.set(file("/path/to/jextract")) } }
+  2. gradle.properties    konan.config.jextract=/path/to/jextract
+                          (~/.gradle/gradle.properties sets it for every build on this machine)
+  3. environment          KONAN_JEXTRACT=/path/to/jextract
+```
+
+`gradlew konanConfig` prints every field, where its value comes from, and which tasks need it.
 
 ### `libraries { }`
 A C/C++ library built to `<outputDirectory>/<target>/lib<name>.a` for each target: by Kotlin/Native's
@@ -77,6 +151,7 @@ either way.
 | `outputDirectory` | `Directory`         | `build/konan/libraries/<name>`   | Root of the per-target archives; `archive(target)` gives one. |
 | `zig { }`         |                     | —                                | Build with the project's `build.zig` instead; below. |
 | `external { }`    |                     | —                                | Build with any other build system, as commands; below. |
+| `cmake { }`       |                     | —                                | Build with the project's CMakeLists; below. |
 | `cargo { }`       |                     | —                                | Build a Rust crate; below. |
 | `make { }`        |                     | —                                | Build with the project's Makefile; below. |
 | `prebuilt { }`    |                     | —                                | Use archives built elsewhere; below. |
@@ -97,12 +172,25 @@ library (`b.addLibrary(.{ .linkage = .static, … })`).
 | Property           | Type           | Default             | Description |
 |--------------------|----------------|---------------------|-------------|
 | `projectDirectory` | `Directory`    | `sourceDirectory`   | Where `build.zig` is. |
-| `executable`       | `Executable`   | `OnPath("zig")`     | The `zig` program: `Executable.File(file(…))`, or `Executable.OnPath(name)`. |
 | `optimize`         | `ZigOptimize`  | `RELEASE_FAST`      | `-Doptimize`. Zig's `DEBUG` and `RELEASE_SAFE` compile C with UBSan traps, whose runtime the Kotlin/Native and JNI links do not have. |
 | `arguments`        | `List<String>` | —                   | Further `zig build` arguments. |
 | `artifactName`     | `String`       | the library's name  | The static library `build.zig` installs. |
 
 Android targets need a libc file for the NDK's bionic, which Zig does not bundle.
+
+#### Building with CMake — `cmake { }`
+```kotlin
+create("mymath") {
+    targets(NativeTarget.host, NativeTarget.LINUX_X64, NativeTarget.ANDROID_ARM64)
+    cmake { }   // native/CMakeLists.txt: add_library(${KONAN_LIBRARY_NAME} STATIC …)
+}
+```
+
+The same block as `jni { cmake { } }`, below, building the library's archive: `cmakeBuild<Name><Target>`
+configures and builds per target, with the contract as cache entries and `CMAKE_ARCHIVE_OUTPUT_DIRECTORY`
+set to where the archive must land. Cross-compiled targets get Kotlin/Native's toolchain file, so the
+Linux and Android archives above build on a Mac with no NDK or sysroot of your own. `path` defaults to
+`sourceDirectory/CMakeLists.txt`.
 
 #### Building a Rust crate — `cargo { }`
 ```kotlin
@@ -127,7 +215,6 @@ the host's. On Android, link with `panic = "abort"`: Kotlin/Native's NDK sysroot
 | `profile`    | `CargoProfile`      | `RELEASE`                | `DEBUG` or `RELEASE`. |
 | `arguments`  | `List<String>`      | —                        | Further `cargo build` arguments, e.g. `--features`. |
 | `toolchain`  | `ExternalToolchain` | `AUTO`                   | Whose C compilers C dependencies get. |
-| `executable` | `Executable`        | `OnPath("cargo")`        | The `cargo` program. |
 
 #### Building with Make — `make { }`
 ```kotlin
@@ -159,7 +246,6 @@ target reuses the first one's objects.
 | `arguments`        | `List<String>`      | —                  | Further arguments; `argumentsFor(target, …)` for one target. |
 | `jobs`             | `Int`               | processors         | `-j`. |
 | `toolchain`        | `ExternalToolchain` | `AUTO`             | Whose compilers; below. |
-| `executable`       | `Executable`        | `OnPath("make")`   | The `make` program. |
 | `sources`, `producedLibrary(target, file)` | | —            | As for `external { }`. |
 
 `jni { make { } }` and `ffm { make { } }` take the same block, for the libraries those load.
@@ -175,7 +261,7 @@ Linux, its NDK sysroot on Android):
 | `KONAN`       | Always Kotlin/Native's. |
 | `SYSTEM`      | Never: the build finds its own. The default of `external { }`, whose steps are the build script's own. |
 
-With Kotlin/Native's, the build gets `CC`, `CXX` and `AR` (and `KONAN_CMAKE_TOOLCHAIN_FILE`) in its
+With Kotlin/Native's, the build gets `CC`, `CXX`, `AR` and `RANLIB` (and `KONAN_CMAKE_TOOLCHAIN_FILE`) in its
 environment; `make { }` also passes them on the command line, and `cmake { }` passes the toolchain file
 as `-DCMAKE_TOOLCHAIN_FILE` unless it uses a preset — a toolchain file in `arguments` still wins, an NDK's
 say. They are written per target by `konanToolchain<Target>` under `build/konan/toolchains/<target>/`:
@@ -212,7 +298,7 @@ create("mymath") {
     targets(NativeTarget.LINUX_X64)
     external {
         step {
-            executable.set(Executable.OnPath("cargo"))
+            executable.set(Executable.File(file("/Users/me/.cargo/bin/cargo")))
             arguments.addAll("build", "--release", "--target", "x86_64-unknown-linux-gnu")
             workingDirectory.set(layout.projectDirectory.dir("native"))
         }
@@ -242,7 +328,6 @@ A C API described by a cinterop `.def`.
 | `visibility`         | `BindingVisibility`      | `INTERNAL` | `PUBLIC` when the idiomatic wrapper lives in another module. |
 | `targets`            | `List<NativeTarget>`     | the library's targets a JVM can load — the host and Android — else the host | Targets to link the JNI library for. |
 | `archive`            | `File`                   | the library's | An archive to link instead, e.g. one built elsewhere. |
-| `jdkHome`            | `Directory`              | auto-detected | A JDK shipping `include/jni.h`. |
 | `linkerOptions`      | `List<String>`           | — | Extra options for every target's link. |
 | `linkerOptionsFor(target, …)` |                 | — | Extra options for one target's link; `-framework` belongs here, since the Android linker rejects it. |
 | `libraryDirectory`   | `Directory`              | output | Where the host's JNI library ends up. |
@@ -251,8 +336,10 @@ A C API described by a cinterop `.def`.
 | `external { }`       |                          | — | Any other build system that compiles the stub, as commands; below. |
 | `stubDirectory`, `stubLibraryName`, `libraryDirectoryFor(target)` | read-only | — | The external-build contract as providers, for arguments. |
 
-Without a library, `jni.archive` or `staticLibraries` in the `.def`, the plugin stops after the Kotlin
-bindings and the `.c` stub, for another build system to compile. That is the mode for a native library
+A platform library needs no archive: `linkerOpts = -laaudio` in the `.def` (or `jni.linkerOptions`) is
+enough for the plugin to link the stub against it. Without a library, `jni.archive`, `staticLibraries`
+or linker options, the plugin stops after the Kotlin bindings and the `.c` stub, for another build system
+to compile. That is the mode for a native library
 owned by CMake, Bazel or a vendor: linking an archive built by a foreign toolchain with konan's linker
 is what produces mismatched C++ runtimes and missing compiler-rt.
 
@@ -273,12 +360,15 @@ Kotlin/Native's `toolchain`, `CC`, `CXX`, `AR`; see above):
 | `KONAN_JNI_OUTPUT_DIR` | where this target's library must land: `jniLibs/<abi>/` on Android, which the plugin packages |
 | `KONAN_TARGET` | the Kotlin/Native target, e.g. `android_arm64` |
 | `KONAN_JNI_ABI` | its Android ABI, e.g. `arm64-v8a`; the target's name elsewhere |
-| `JAVA_HOME` | `jni.jdkHome`, else a JDK that ships `include/jni.h` — IDE-bundled JBRs strip the headers |
+| `KONAN_JNI_INCLUDE_DIR` | the directory holding `jni.h`, which the plugin ships — no JDK needed |
 
 The same values are on `jni` as providers — `stubDirectory`, `stubLibraryName`,
-`libraryDirectoryFor(target)` — for building arguments. Programs are an `Executable`: `File(file)`, or
-`OnPath(name)`, looked up when the build runs on the `PATH` and in the usual install locations, because
-the Gradle daemon does not inherit a login shell's `PATH`.
+`libraryDirectoryFor(target)` — for building arguments. A step's program is an `Executable`:
+`File(file)`, or `OnPath(name)`, which the Gradle daemon's own `PATH` resolves — not a login shell's, so
+prefer `File` outside the system directories. `cmake { }` and `make { }` run `konan.config`'s.
+
+The plugin ships Android's `jni.h` (Apache 2.0, VM-neutral, JNI 1.6), so linking a JNI library for a
+desktop JVM needs no JDK. A build that needs a newer JNI, or calls `find_package(JNI)`, finds its own.
 
 ##### CMake — `jni { cmake { } }`
 ```kotlin
@@ -319,7 +409,6 @@ target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arriv
 | `buildTargets`   | `List<String>`   | the default target | `--target`s to build. |
 | `arguments`      | `List<String>`   | —                  | Extra configure arguments. |
 | `libraryDirectory` | `Directory`    | `KONAN_JNI_OUTPUT_DIR` | Where the library is, if the build ignores `CMAKE_LIBRARY_OUTPUT_DIRECTORY`. |
-| `executable`     | `Executable`     | `OnPath("cmake")`  | The `cmake` program. |
 | `target(t) { }`  |                  | the host           | A per-target build with its own `preset`, `buildDirectory`, `arguments`. |
 
 ##### Any build system — `jni { external { } }`
@@ -329,7 +418,7 @@ A list of commands, run in order once per JNI target (`jni.targets`):
 jni {
     external {
         step {
-            executable.set(Executable.OnPath("make"))
+            executable.set(Executable.File(file("/usr/bin/make")))
             arguments.addAll("-C", "native/jni")
             argumentsFor(NativeTarget.ANDROID_ARM64, "ARCH=arm64")
         }
@@ -380,10 +469,13 @@ plugin writes both sides of each JNI bridge from the C declarations:
 | `const char*` (argument or result)           | `String?`                        | `GetStringUTFChars` / `NewStringUTF`               |
 | `int*`, `uint8_t*`, `float*`, … buffer       | `IntArray?`, `ByteArray?`, `FloatArray?`, … | pinned for the call; written back unless `const` |
 | struct by value (argument or result)         | `ByteArray`                      | the struct's bytes                                 |
-| opaque handle, `void*`, struct or function pointer | `Long`                     | the address                                        |
+| pointer to pointer (`handle_t**` out-parameter) | `LongArray?`                 | addresses, copied into a C pointer array and back unless `const` |
+| `void*`, `const void*` argument               | `java.nio.Buffer?`               | a direct buffer's start address (`GetDirectBufferAddress`); a heap buffer throws |
+| opaque handle, typedef'd `void*`, struct or function pointer, any pointer result | `Long` | the address                         |
 
-Functions that cannot be bound — variadic ones, `long double` — are listed with the reason at the end of
-the generated file. Unsigned integers cross as the signed Kotlin type of the same size. Struct bytes are
+Enum constants and integer, floating-point and string macros become `const val`s. Functions that
+cannot be bound — variadic ones, `long double` — are listed with the reason at the end of the generated
+file. Unsigned integers cross as the signed Kotlin type of the same size. Struct bytes are
 in native order, so read them with `ByteBuffer.order(ByteOrder.nativeOrder())` and the layout from the
 C header.
 
@@ -396,14 +488,13 @@ different Gradle module.
 FFM (`java.lang.foreign`) bindings, written by jextract from the same `.def`, and the library linked
 as a shared library for the build host — FFM needs no stub. In a `kotlin("jvm")` project they replace
 the JNI bindings and are added to the main Java sources; in a multiplatform project they replace them on
-the `jvm()` targets, in each one's Java source set (`src/<target>Main/java`'s), while Android targets
-keep JNI; compile them with a JDK 22+ toolchain and run
+every target — the `jvm()` targets get the JDK's in their Java source set, the Android target
+PanamaPort's (below); compile the JVM side with a JDK 22+ toolchain and run
 with `--enable-native-access`; the library travels in the jar (below), or put `ffm.libraryDirectory` on
 `java.library.path`.
 
 | Property           | Type        | Default              | Description |
 |--------------------|-------------|----------------------|-------------|
-| `jextract`         | `Executable`| `OnPath("jextract")` | The jextract program. |
 | `panamaPortVersion`| `String`    | `v0.1.5`             | The PanamaPort an Android module's bindings use, added as a dependency. |
 | `libraryName`      | `String`    | the library's, else the binding's | What the bindings `System.loadLibrary`. Set it to a prebuilt library's own name. |
 | `targets`          | `List<NativeTarget>` | the library's loadable ones, else all loadable | The host on a JVM; 64-bit ABIs on Android. |
@@ -442,10 +533,16 @@ library's archive into it (`linkFfm<Name><Target>`). Instead:
   libraries, placed by `prebuiltFfm<Name>`. Set `libraryName` to their own name (`"ggml"`), so libraries
   that depend on them by that name still find them.
 
-Neither needs a `library(…)`; the bindings then come from the `.def` and its headers alone.
+Neither needs a `library(…)`; the bindings then come from the `.def` and its headers alone. With none of
+these and no `library(…)`, nothing is built: the bindings load `lib<libraryName>` as the system provides
+it — `ffm { libraryName.set("aaudio") }` binds Android's `libaaudio.so`.
 
 #### FFM on Android
-In an Android module `ffm()` replaces JNI there too. jextract's output is moved from `java.lang.foreign`
+In an Android module, and for a multiplatform project's Android target, `ffm()` replaces JNI there too.
+A multiplatform project with both `jvm()` and Android targets gets the bindings twice — `generateFfm<Name>`
+for the JDK, `generateFfmAndroid<Name>` for PanamaPort — so `jvmMain` and `androidMain` each implement
+your `expect`s over theirs. The multiplatform Android library plugin compiles Java only with
+`kotlin { android { withJava() } }`, which the bindings need. jextract's output is moved from `java.lang.foreign`
 onto PanamaPort's `com.v7878.foreign` — the FFM API backported to Android 8.0+ — which the plugin adds
 as an `implementation` dependency, and the library is linked as `lib<name>.so` per ABI into `jniLibs/`,
 with no stub. The app needs:
@@ -461,7 +558,7 @@ with no stub. The app needs:
 | Task                          | Description |
 |-------------------------------|-------------|
 | `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` per target, with whichever provider it uses. |
-| `konanClang<Name>`, `zigBuild<Name><Target>`, `cargoBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
+| `konanClang<Name>`, `cmakeBuild<Name><Target>`, `zigBuild<Name><Target>`, `cargoBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
 | `konanToolchain<Target>`      | Writes Kotlin/Native's compilers for a target, for external builds that use them. |
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
@@ -469,7 +566,7 @@ with no stub. The app needs:
 | `cmakeBuildJni<Name><Target>`, `makeBuildJni<Name><Target>`, `externalBuildJni<Name><Target>` | The project's own build, in place of the JNI link. |
 | `linkFfm<Name>`, `linkFfm<Name><Target>` | Makes the library FFM loads exist; the plugin's link of it for one target. |
 | `cmakeBuildFfm<Name><Target>`, `makeBuildFfm<Name><Target>`, `externalBuildFfm<Name><Target>`, `prebuiltFfm<Name>` | The project's own build of it, or placing a prebuilt one, in place of that link. |
-| `generateFfm<Name>`             | jextract's bindings. |
+| `generateFfm<Name>`, `generateFfmAndroid<Name>` | jextract's bindings: on the JDK's FFM, and on PanamaPort's for Android. |
 | `cinterop<Name><Target>`      | KGP's own cinterop, declared by the plugin. |
 
 On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks automatically, so
@@ -489,10 +586,10 @@ The DSL is new and there is no compatibility shim.
   from `build/native/<target>/` to `build/konan/libraries/<name>/<target>/`, and `runKonanClang` becomes
   `compileNativeLibrary<Name>` (which runs `konanClang<Name>`).
 - `jvmInterops { create(…) { … } }` — on a compilation or on the project — becomes
-  `konan { bindings { create(…) { … } } }`, with the JNI-only settings in `jni { }`: `jniHome` →
-  `jdkHome`, `library` → `archive`, `additionalLinkerArgs` → `linkerOptions`, `linkerArgsFor` →
+  `konan { bindings { create(…) { … } } }`, with the JNI-only settings in `jni { }`: `jniHome` is gone
+  (the plugin ships `jni.h`), `library` → `archive`, `additionalLinkerArgs` → `linkerOptions`, `linkerArgsFor` →
   `linkerOptionsFor`, `externalNativeBuild { cmake { } }` → `cmake { }` (`targets` → `buildTargets`,
-  `abi("arm64-v8a")` → `target(NativeTarget.ANDROID_ARM64)`, `executable` → an `Executable`, no `$CMAKE`;
+  `abi("arm64-v8a")` → `target(NativeTarget.ANDROID_ARM64)`, `executable` → `konan.config.cmake`, no `$CMAKE`;
   its tasks are `cmakeBuildJni<Name><Target>`),
   `resolvedLibraryDirectory` →
   `libraryDirectory`. `additionalCompilerArgs` becomes `compilerOptions`. Bindings are wired into the
@@ -504,11 +601,16 @@ The DSL is new and there is no compatibility shim.
 - Targets are `NativeTarget`s (`io.github.lemcoder.model`), not `KonanTarget`s: `KonanTarget.X` →
   `NativeTarget.X`, `hostKonanTarget()` → `NativeTarget.host`, a KGP target's `konanTarget` →
   `NativeTarget.of(konanTarget)` (`import io.github.lemcoder.kotlin.of`). `jniHome()` is gone: external
-  builds get `JAVA_HOME`. Programs (`zig`, `cmake`, `jextract`) are `Executable`s.
+  builds get `KONAN_JNI_INCLUDE_DIR`. Programs (`zig`, `cmake`, `jextract`) and the distribution come from
+  `konan { config { } }`.
 - JNI bindings are named after the C functions (`my_add`), not `kniBridge0`; tasks are `generateJni…` and
   `linkJni…`.
 
 ## License
 This project is licensed under the Apache 2.0 License. For more details, see the `LICENSE` file.
+
+The plugin bundles `jni.h` from the Android Open Source Project
+(`libnativehelper`), Copyright (C) 2006 The Android Open Source Project, licensed under the Apache
+License 2.0; its license header is kept in the file.
 
 Happy coding! 😊

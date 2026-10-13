@@ -36,7 +36,6 @@ internal fun registerKonanClang(project: Project, konan: KonanExtension, library
         libName.set(library.name)
         arguments.addAll(DEFAULT_COMPILER_OPTIONS)
         arguments.addAll(library.compilerOptions)
-        konanHome.set(konan.konanHome)
 
         onlyIf { targets.get().isNotEmpty() }
     }

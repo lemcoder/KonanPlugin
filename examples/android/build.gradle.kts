@@ -10,6 +10,9 @@ plugins {
 }
 
 konan {
+    // Where the Kotlin plugin installs the Kotlin/Native version this plugin needs; or set
+    // konan.config.konanHome in ~/.gradle/gradle.properties.
+    config { konanHome.set(kotlinNativeDistribution()) }
     // native/*.c -> one static archive per ABI: device + emulator.
     val mymath = libraries.create("mymath") { targets(NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64) }
     // An Android app gets JNI bindings, wired into its variants, and a JNI library per ABI the library

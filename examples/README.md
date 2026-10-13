@@ -8,16 +8,18 @@ and gets the binding its Kotlin targets need:
 |---|---|---|---|
 | [`jvm/`](jvm) | a library (.a) + a binding → JNI bindings and library | full JNI path, end to end | `../../gradlew -p jvm run` |
 | [`android/`](android) | same, cross-compiled per ABI, real app | APK with `.so` (arm64-v8a + x86_64) + `MainActivity` | `cd android && ./gradlew installDebug` |
-| [`android-ffm/`](android-ffm) | same library, FFM instead of JNI: jextract's bindings on PanamaPort, `libmymath.so` per ABI, no stub | FFM on Android, end to end on an emulator | `cd android-ffm && ./gradlew installDebug` |
+| [`android-ffm/`](android-ffm) | same library, FFM instead of JNI: jextract's bindings on PanamaPort, `libmymath.so` per ABI, no stub | FFM on Android, end to end on an emulator (a multiplatform library's Android target works the same, with `withJava()`) | `cd android-ffm && ./gradlew installDebug` |
 | [`native/`](native) | a library (.a) + a binding → KGP's cinterop | the native path | `../../gradlew -p native runDebugExecutableMacosArm64` |
 
 `jvm` and `native` build the plugin from source via `includeBuild`. `android` needs AGP 9 (Gradle 9.4,
 its own wrapper), so it consumes the plugin from mavenLocal — publish it first:
 `(cd ../.. && ./gradlew publishToMavenLocal)`.
 
-Each example auto-detects the newest `~/.konan/kotlin-native-prebuilt-*` (override with `KONAN_HOME`).
-The `jvm` example also needs a JDK with `include/jni.h` (auto-scanned; the Android leg gets `jni.h`
-from the NDK sysroot, so no JDK needed there).
+Each example sets `konan { config { konanHome.set(kotlinNativeDistribution()) } }`: the Kotlin/Native
+version the plugin needs, where the Kotlin plugin installs it. `android-ffm` also needs
+`konan.config.jextract=/path/to/jextract`, e.g. in `~/.gradle/gradle.properties`.
+No example needs a JDK's `jni.h`: the plugin ships one for desktop links, and Android's comes from the
+NDK sysroot.
 
 ## The two flows
 

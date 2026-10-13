@@ -1,6 +1,5 @@
 package io.github.lemcoder.dsl
 
-import io.github.lemcoder.model.Executable
 import io.github.lemcoder.model.ExternalToolchain
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
@@ -32,7 +31,6 @@ import javax.inject.Inject
 abstract class CMakeSettings @Inject constructor(private val objects: ObjectFactory) {
 
     init {
-        executable.convention(Executable.OnPath("cmake"))
         toolchain.convention(ExternalToolchain.AUTO)
     }
 
@@ -75,8 +73,6 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
     /** Extra arguments for the configure step, e.g. your own `-D` switches. */
     abstract val arguments: ListProperty<String>
 
-    /** The `cmake` program. Defaults to `cmake` on the PATH or in the usual install locations. */
-    abstract val executable: Property<Executable>
 }
 
 /** One target's build: everything not set here comes from the enclosing [CMakeSettings]. */

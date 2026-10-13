@@ -49,20 +49,17 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
     }
 
     /**
-     * In a `kotlin("jvm")` project or an Android module, `ffm()` replaces JNI: both would define the same
-     * facade class. In a multiplatform project it replaces JNI on the `jvm()` targets only — Android
-     * targets keep JNI. Read once the build script has run.
+     * `ffm()` replaces JNI wherever JNI would go — JVM, multiplatform and Android alike — since both would
+     * define the same facade class. Read once the build script has run.
      */
-    private val replacedByFfm get() =
-        binding.ffm.isEnabled && !context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) &&
-            (context.hasPlugin(GradlePluginId.KOTLIN_JVM) || context.hasPlugin(GradlePluginId.ANDROID_BASE))
+    private val replacedByFfm get() = binding.ffm.isEnabled
 
     private val isPlainJvmConsumer get() = context.hasPlugin(GradlePluginId.KOTLIN_JVM) && !replacedByFfm
 
-    override fun isUsed(): Boolean =
+    override fun isUsed(): Boolean = !replacedByFfm && (
         isPlainJvmConsumer ||
-            (context.hasPlugin(GradlePluginId.ANDROID_BASE) && !replacedByFfm) || context.hasPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) ||
-            (context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project))
+            context.hasPlugin(GradlePluginId.ANDROID_BASE) || context.hasPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) ||
+            (context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) && KotlinGradlePlugin.hasKmpJvmTarget(project)))
 
     override fun register() {
         if (isPlainJvmConsumer) KotlinGradlePlugin.addJvmSources(project, generate.flatMap { it.kotlinSourceDirectory })
