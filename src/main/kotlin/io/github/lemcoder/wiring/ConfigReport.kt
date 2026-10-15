@@ -1,6 +1,7 @@
 package io.github.lemcoder.wiring
 
-import io.github.lemcoder.dsl.KonanConfig
+import io.github.lemcoder.dsl.config.KonanConfig
+import io.github.lemcoder.dsl.config.konanConfig
 import io.github.lemcoder.external.ExternalBuildTask
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.model.ConfigField

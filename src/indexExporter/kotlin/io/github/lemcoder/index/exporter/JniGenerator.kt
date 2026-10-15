@@ -48,11 +48,11 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
             }
         }
 
-        val kotlinFile = outputDirectory.resolve("kotlin/${packageName.replace('.', '/')}/$facade.kt")
+        val kotlinFile = outputDirectory.resolve("${GeneratorRequest.Jni.KOTLIN_DIR}/${packageName.replace('.', '/')}/$facade.kt")
         kotlinFile.parentFile.mkdirs()
         kotlinFile.writeText(kotlinSource(packageName, facade, stubLibrary, visibility, constants(context.index), bound, skipped))
 
-        val cFile = outputDirectory.resolve("c/$stubLibrary.c")
+        val cFile = outputDirectory.resolve("${GeneratorRequest.Jni.C_DIR}/$stubLibrary.c")
         cFile.parentFile.mkdirs()
         cFile.writeText(cSource(context, jniClassPrefix(packageName, facade), bound))
     }

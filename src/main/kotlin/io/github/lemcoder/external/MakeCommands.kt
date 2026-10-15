@@ -1,7 +1,7 @@
 package io.github.lemcoder.external
 
-import io.github.lemcoder.dsl.MakeSettings
-import io.github.lemcoder.dsl.konanConfig
+import io.github.lemcoder.dsl.builds.MakeSettings
+import io.github.lemcoder.dsl.config.konanConfig
 import io.github.lemcoder.model.ConfigField
 import io.github.lemcoder.model.ExternalBuildContext
 import io.github.lemcoder.model.ToolchainVariable

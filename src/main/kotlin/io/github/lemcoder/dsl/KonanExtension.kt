@@ -1,10 +1,13 @@
 package io.github.lemcoder.dsl
 
+import io.github.lemcoder.dsl.bindings.BindingSpec
+import io.github.lemcoder.dsl.config.KonanConfig
+import io.github.lemcoder.dsl.libraries.NativeLibrarySpec
+import javax.inject.Inject
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
-import javax.inject.Inject
 
 /**
  * The `konan { }` block: the native libraries a project builds, and the bindings that reach them from

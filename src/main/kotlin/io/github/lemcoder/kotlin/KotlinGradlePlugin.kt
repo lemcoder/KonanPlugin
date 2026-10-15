@@ -1,8 +1,9 @@
 package io.github.lemcoder.kotlin
 
-import io.github.lemcoder.dsl.BindingSpec
+import io.github.lemcoder.dsl.bindings.BindingSpec
 import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
+import java.io.File
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
@@ -12,10 +13,9 @@ import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
+import org.jetbrains.kotlin.gradle.plugin.getKotlinPluginVersion
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget
-import org.jetbrains.kotlin.gradle.plugin.getKotlinPluginVersion
-import java.io.File
 
 /**
  * Everything that touches the Kotlin Gradle plugin's types. Called only from `plugins.withId` callbacks
@@ -92,6 +92,11 @@ internal object KotlinGradlePlugin {
                 val name = if (javaByDefault) "${targetName}Main" else SourceSet.MAIN_SOURCE_SET_NAME
                 sourceSets.matching { it.name == name }.configureEach { java.srcDir(sources) }
             }
+    }
+
+    /** Java sources of a `kotlin("jvm")` project's main source set, compiled by the java plugin it applies. */
+    fun addJvmJava(project: Project, sources: Provider<Directory>) {
+        project.extensions.getByType(SourceSetContainer::class.java).getByName(SourceSet.MAIN_SOURCE_SET_NAME).java.srcDir(sources)
     }
 
     /** Resources of a `kotlin("jvm")` project's main source set. */

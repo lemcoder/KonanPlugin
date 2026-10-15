@@ -1,6 +1,6 @@
 package io.github.lemcoder.model
 
-import io.github.lemcoder.dsl.NativeLibrarySpec
+import io.github.lemcoder.dsl.libraries.NativeLibrarySpec
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.file.RegularFile

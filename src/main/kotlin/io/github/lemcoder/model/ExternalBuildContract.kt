@@ -10,58 +10,35 @@ internal sealed interface ExternalBuildVariable {
     val variableName: String
 }
 
-/** The contract of a build that makes a library's archive (`libraries { zig { } }`, `external { }`). */
-internal enum class ExternalLibraryVariable(override val variableName: String) : ExternalBuildVariable {
-    /** The library's name: its archive must become `lib<name>.a`. */
-    LIB_NAME("KONAN_LIBRARY_NAME"),
-
-    /** Where this target's archive must land, unless the build names a produced library. */
-    OUTPUT_DIR("KONAN_LIBRARY_OUTPUT_DIR"),
-
-    /** The library's `sourceDirectory`. */
-    SOURCE_DIR("KONAN_LIBRARY_SOURCE_DIR"),
-
-    /** The Kotlin/Native target, e.g. `linux_x64`. */
-    TARGET("KONAN_TARGET"),
-}
-
 /**
- * The contract of a build that makes a binding's JNI library (`jni { cmake { } }`, `external { }`), read
- * the way an AGP project reads `ANDROID_ABI`.
+ * The contract every external build gets, whatever it makes — a library's archive (`libraries { cmake { } }`),
+ * a binding's JNI library (`jni { cmake { } }`) or the library FFM loads (`ffm { cmake { } }`): environment
+ * variables, and CMake cache entries. Read the way an AGP project reads `ANDROID_ABI`.
  */
-internal enum class ExternalStubVariable(override val variableName: String) : ExternalBuildVariable {
-    /** The directory holding the generated `.c` stub. */
-    STUB_DIR("KONAN_JNI_STUB_DIR"),
+internal enum class ExternalVariable(override val variableName: String) : ExternalBuildVariable {
+    /**
+     * The library's name: an archive must become `lib<name>.a`, a shared library what the bindings pass
+     * to `System.loadLibrary`.
+     */
+    LIB_NAME("KONAN_LIB_NAME"),
 
-    /** The library name the generated bindings pass to `System.loadLibrary`. */
-    LIB_NAME("KONAN_JNI_LIB_NAME"),
-
-    /** Where the target's library must land, unless the build names a produced library. */
-    OUTPUT_DIR("KONAN_JNI_OUTPUT_DIR"),
+    /** Where this target's library must land, unless the build names a produced library. */
+    OUTPUT_DIR("KONAN_OUTPUT_DIR"),
 
     /** The Kotlin/Native target, e.g. `android_arm64`. */
     TARGET("KONAN_TARGET"),
 
     /** The target's Android ABI, e.g. `arm64-v8a`; the target's name elsewhere. */
-    ABI("KONAN_JNI_ABI"),
+    ABI("KONAN_ABI"),
 
-    /** The directory holding `jni.h`, which the plugin ships: no JDK needed. */
+    /** A library's `sourceDirectory`; libraries only. */
+    SOURCE_DIR("KONAN_SOURCE_DIR"),
+
+    /** The directory holding the generated `.c` stub; JNI only. */
+    JNI_STUB_DIR("KONAN_JNI_STUB_DIR"),
+
+    /** The directory holding `jni.h`, which the plugin ships, so no JDK is needed; JNI only. */
     JNI_INCLUDE_DIR("KONAN_JNI_INCLUDE_DIR"),
-}
-
-/** The contract of a build that makes the shared library FFM bindings load (`ffm { external { } }`). */
-internal enum class ExternalFfmVariable(override val variableName: String) : ExternalBuildVariable {
-    /** The library name the bindings pass to `System.loadLibrary`. */
-    LIB_NAME("KONAN_FFM_LIB_NAME"),
-
-    /** Where the target's library must land, unless the build names a produced library. */
-    OUTPUT_DIR("KONAN_FFM_OUTPUT_DIR"),
-
-    /** The Kotlin/Native target, e.g. `android_arm64`. */
-    TARGET("KONAN_TARGET"),
-
-    /** The target's Android ABI, e.g. `arm64-v8a`; the target's name elsewhere. */
-    ABI("KONAN_FFM_ABI"),
 }
 
 /**

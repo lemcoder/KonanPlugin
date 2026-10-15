@@ -20,6 +20,15 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   (`KonanDistribution`) and the index exporter client. So `kotlin-native-utils` is `compileOnly` —
   everything that touches it runs where KGP, which brings it, is applied. `NativeTargetTest` fails when
   a Kotlin bump adds or retires a target; add the `NativeTarget` entry (and its Zig triple, if any).
+- **The `dsl` packages nest as the DSL does**: `dsl` is `konan { }`, then `dsl.config`, `dsl.libraries`,
+  `dsl.bindings` with `dsl.bindings.jni` and `dsl.bindings.ffm`. Build blocks appear at every level, so
+  they share `dsl.builds`. A new block goes in the package of the block that contains it.
+  Never name a source package `build`: `.gitignore`'s `build/` matches it, and `git add` silently skips it.
+- **`libraries` and `bindings` hold everything after the DSL**, nested as `dsl.libraries` and
+  `dsl.bindings` are. `libraries`: a library's registration and builds. `bindings`: a binding's
+  registration, the consumers (`BindingConsumer`, `KotlinNativeConsumer`) and what JNI and FFM share
+  (`BindingLibraryWiring`, the jar bundle, `LinkSharedLibraryTask`); `bindings.jni` and `bindings.ffm`
+  each hold one consumer and its own link. `wiring` keeps AGP, plugin ids and the config report.
 - **One home per concept.** `model/` holds the domain (targets, naming, the artifact layout, the
   external-build contract, `selectOne`), `kotlin/` the touchpoints with Kotlin, `toolchain/` the
   others (Xcode, running executables, Zig). Task names come from `taskName(...)`, OS checks from
@@ -39,7 +48,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   Add a path by adding a `ConfigField` entry and a property, never a per-block `executable`.
 - **Tasks that run Kotlin/Native implement `UsesKonanDistribution`**; the plugin sets their `konanHome`
   in one `withType().configureEach`, and `distribution()` checks it when the task runs.
-- **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/jni/`, Apache 2.0): the
+- **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/bindings/jni/`, Apache 2.0): the
   JNI generator writes it to its `include/` output, the host link and `KONAN_JNI_INCLUDE_DIR` use it. Its
   JNI is 1.6 — enough for the generated stubs.
 
@@ -52,13 +61,19 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 - **`all`/`whenObjectAdded` fires before `create(name) { … }` runs its configure block.** Reading a
   binding's `library` or a library's `targets` there gives the default, not what the build declared —
   per-target tasks, consumer detection and KGP's cinterops are deferred to `afterEvaluate` (KGP
-  accepts cinterops declared there). Both sides follow this split: a `LibraryProvider` registers
+  accepts cinterops declared there). Both sides follow this split: a library's build registers
   after evaluation (its block's conventions are set in the DSL constructors); a `BindingConsumer`
-  (`consumer/`) has `prepare()` for the eager part, then `isUsed()` and `register()` after evaluation.
-- **Build systems are sealed hierarchies with a shared `External` branch** — `LibraryProvider` for
-  libraries, `JniStubBuild` for the JNI stub, `FfmLibraryBuild` for the shared library FFM loads. Every external one is `ExternalBuildTask` per target
-  (`external/ExternalBuilds.kt`); a preset (Zig, CMake) only adds commands. Prefer a preset over a new
-  task type.
+  (`bindings/`) has `prepare()` for the eager part, then `isUsed()` and `register()` after evaluation.
+- **One set of build systems for every library the plugin makes.** A library's archive, a binding's JNI
+  library and the library FFM loads are each built by the plugin unless the script calls a block of
+  `ExternalBuildBlocks` (`cmake`, `make`, `external`; libraries add `zig`, `cargo`, `prebuilt`, FFM
+  `prebuilt`). Every block's settings live in `dsl.builds` and implement the sealed `BuildSettings`; calling a
+  block selects its settings object, and owners dispatch on `PrebuiltSettings` or `ExternalBuildSettings`.
+  `ExternalBuild.of(settings)` (`external/ExternalBuild.kt`) registers
+  one `ExternalBuildTask` per target from an `ExternalBuildOutput` — the only thing that differs between
+  owners: targets, output directory, file name, extra variables. A build system only adds commands, so a
+  new one is one `ExternalBuild` subclass and a block, never a new task type. JNI and FFM share
+  `BindingLibrarySpec` in the DSL and `BindingLibraryWiring` in `bindings/`.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
   binding-registration time and tolerates an empty directory.
@@ -78,13 +93,18 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `konan/bindings/<name>/jni/lib/`. This only reproduces on Linux: AGP ignores `.dylib`.
 - **`Family.dynamicSuffix` has no leading dot.** `"${prefix}$name${suffix}"` yields
   `libfoostubsdylib`.
-- **The stub library name is derived from the binding package** and baked into the generated
-  `System.loadLibrary`. It, and the stub directory, are reported by the task
-  (`stubLibraryBaseName`, `stubSourceDirectory`, `kotlinSourceDirectory`) — consumers must never
-  reconstruct them. The external-build contract is `ExternalStubVariable` (`KONAN_JNI_STUB_DIR`,
-  `KONAN_JNI_LIB_NAME`, `KONAN_JNI_OUTPUT_DIR`, `KONAN_TARGET`, `KONAN_JNI_ABI`, `KONAN_JNI_INCLUDE_DIR`): every
-  `JniStubBuild.External` gets it as environment in `External.register`; a subclass only adds commands
-  (CMake also passes it as cache entries). The same values are on `JniSpec` as providers.
+- **The stub library name is derived from the binding package** (`stubLibraryBaseName`) and baked into
+  the generated `System.loadLibrary`; `jni.stubLibraryName` and `jni.stubDirectory` carry it. The
+  generator's layout (`kotlin/`, `c/`, `include/`) is `GeneratorRequest.Jni`'s constants, shared with the
+  exporter — never spell the directories. JNI is generated by the same `GenerateFromNativeIndexTask` as
+  FFM; it writes `jni.h` for a JNI request.
+- **The external-build contract is one enum, `ExternalVariable`**: `KONAN_LIB_NAME`, `KONAN_OUTPUT_DIR`,
+  `KONAN_TARGET`, `KONAN_ABI` for every build, `KONAN_SOURCE_DIR` for libraries, `KONAN_JNI_STUB_DIR` and
+  `KONAN_JNI_INCLUDE_DIR` for JNI. Public: build scripts read it, so renaming one breaks them.
+- **A file under a generator's output needs the task's own property.** `generate.flatMap { it.outputDirectory.file(name) }`
+  carries the producer; `generate.flatMap { it.outputDirectory }.flatMap { it.file(name) }` does not, and
+  Gradle then rejects the link at execution ("implicit dependency") — only when several links run, so a
+  dry run never shows it.
 - **`cmake --preset` resolves `CMakePresets.json` from the working directory**, so configure runs
   from the CMakeLists directory rather than the project root.
 
@@ -112,10 +132,10 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 - **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not
   compile anything, and must not need a Kotlin/Native distribution to run.
 - **Cargo gets the compilers under the `cc` crate's target-specific names** (`CC_<triple>`…), not `CC`:
-  a plain `CC` would also reach build scripts compiled for the host. `registerExternalBuilds` therefore
+  a plain `CC` would also reach build scripts compiled for the host. `ExternalBuild.register` therefore
   carries the toolchain in the context (`ToolchainFiles`) and puts the standard names in the environment
   only where asked. Never register a toolchain task from inside another task's configuration — Gradle
-  forbids it; resolve it in `registerExternalBuilds`.
+  forbids it; resolve it in `ExternalBuild.register`.
 - **Task names carry the side**: `<tool>Build<Name>` for a library, `<tool>BuildJni…`, `<tool>BuildFfm…`
   for a binding — a library and a binding are usually both called `mymath`.
 

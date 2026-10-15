@@ -20,7 +20,18 @@ sealed class GeneratorRequest : Serializable {
      * @property stubLibrary the library the bindings `System.loadLibrary`; the plugin owns that name.
      */
     data class Jni(val stubLibrary: String, val visibility: BindingVisibility = BindingVisibility.INTERNAL) :
-        GeneratorRequest()
+        GeneratorRequest() {
+        companion object {
+            /** The Kotlin bindings: `kotlin/<package>/<facade>.kt`. */
+            const val KOTLIN_DIR = "kotlin"
+
+            /** The stub, `c/<stubLibrary>.c`: what the plugin or the project's own build compiles. */
+            const val C_DIR = "c"
+
+            /** `jni.h`, which the plugin ships, for compiling the stub without a JDK. */
+            const val INCLUDE_DIR = "include"
+        }
+    }
 
     /**
      * FFM bindings, by jextract.

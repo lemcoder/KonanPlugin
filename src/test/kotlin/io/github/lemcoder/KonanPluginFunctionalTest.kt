@@ -1,20 +1,21 @@
 package io.github.lemcoder
 
+import io.github.lemcoder.dsl.config.konanConfig
 import io.github.lemcoder.kotlin.KonanDistribution
 import io.github.lemcoder.model.NativeTarget
-import org.gradle.testkit.runner.GradleRunner
-import org.gradle.testkit.runner.TaskOutcome
-import org.junit.jupiter.api.Assumptions.assumeTrue
 import java.io.File
 import java.util.jar.Attributes
 import java.util.jar.JarOutputStream
 import java.util.jar.Manifest
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertContains
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import org.gradle.testkit.runner.GradleRunner
+import org.gradle.testkit.runner.TaskOutcome
+import org.junit.jupiter.api.Assumptions.assumeTrue
 
 /**
  * Functional tests of the `konan { libraries; bindings }` DSL with Gradle TestKit. Most only configure
@@ -155,7 +156,7 @@ class KonanPluginFunctionalTest {
         )
         // Writes straight into the output directory the contract names.
         File(projectDir, "build.sh").writeText(
-            "printf '%s' \"${'$'}KONAN_TARGET\" > \"${'$'}KONAN_LIBRARY_OUTPUT_DIR/lib${'$'}KONAN_LIBRARY_NAME.a\"\n"
+            "printf '%s' \"${'$'}KONAN_TARGET\" > \"${'$'}KONAN_OUTPUT_DIR/lib${'$'}KONAN_LIB_NAME.a\"\n"
         )
 
         val first = runner("compileNativeLibraryMymath").build()
@@ -179,8 +180,8 @@ class KonanPluginFunctionalTest {
             libraries {
                 create("mymath") {
                     prebuilt {
-                        archive(NativeTarget.LINUX_X64, file("libs/libmymath-linux.a"))
-                        archive(NativeTarget.MINGW_X64, file("libs/mymath.lib"))
+                        library(NativeTarget.LINUX_X64, file("libs/libmymath-linux.a"))
+                        library(NativeTarget.MINGW_X64, file("libs/mymath.lib"))
                     }
                 }
             }
@@ -202,7 +203,7 @@ class KonanPluginFunctionalTest {
             libraries {
                 create("mymath") {
                     targets(NativeTarget.LINUX_X64, NativeTarget.MACOS_ARM64)
-                    prebuilt { archive(NativeTarget.LINUX_X64, file("libs/absent.a")) }
+                    prebuilt { library(NativeTarget.LINUX_X64, file("libs/absent.a")) }
                 }
             }
             """,
@@ -228,8 +229,8 @@ class KonanPluginFunctionalTest {
         File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
         // Nothing but the contract and the compilers make is handed.
         File(projectDir, "native/Makefile").writeText(
-            "OUT := $(KONAN_LIBRARY_OUTPUT_DIR)\n" +
-                "all:\n\t$(CC) -c -fPIC mymath.c -o $(OUT)/mymath.o\n\t$(AR) rcs $(OUT)/lib$(KONAN_LIBRARY_NAME).a $(OUT)/mymath.o\n"
+            "OUT := $(KONAN_OUTPUT_DIR)\n" +
+                "all:\n\t$(CC) -c -fPIC mymath.c -o $(OUT)/mymath.o\n\t$(AR) rcs $(OUT)/lib$(KONAN_LIB_NAME).a $(OUT)/mymath.o\n"
         )
         write(
             """id("io.github.lemcoder.konanplugin")""",
@@ -265,7 +266,7 @@ class KonanPluginFunctionalTest {
             """
             cmake_minimum_required(VERSION 3.16)
             project(mymath C)
-            add_library(${'$'}{KONAN_LIBRARY_NAME} STATIC mymath.c)
+            add_library(${'$'}{KONAN_LIB_NAME} STATIC mymath.c)
             """.trimIndent()
         )
         write(
@@ -301,7 +302,7 @@ class KonanPluginFunctionalTest {
             """
             cmake_minimum_required(VERSION 3.16)
             project(mymath C)
-            add_library(${'$'}{KONAN_JNI_LIB_NAME} SHARED mymath.c)
+            add_library(${'$'}{KONAN_LIB_NAME} SHARED mymath.c)
             """.trimIndent()
         )
         write(
@@ -420,6 +421,23 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `the JNI links for the host and Android depend on generating the stub they compile`() {
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        val hostAndAndroid = mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.${host.name}, NativeTarget.ANDROID_ARM64)")
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", "config.konanHome.set(file(\"$home\"))\n$hostAndAndroid")
+
+        // Executed, not a dry run: Gradle rejects a link that reads the stub without depending on its
+        // generator only when both run — and here only with more than one link.
+        val result = runner("linkJniMymath").withPluginClasspathAndKgp().build()
+
+        assertEquals(TaskOutcome.SUCCESS, result.task(":generateJniMymath")?.outcome, result.output)
+        assertTrue(File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}/${host.sharedLibraryName("examplestubs")}").isFile, result.output)
+        assertTrue(File(projectDir, "build/konan/bindings/mymath/jni/jniLibs/arm64-v8a/libexamplestubs.so").isFile, result.output)
+    }
+
+    @Test
     fun `a JVM project's jar carries the JNI library unless told not to`() {
         write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath)
 
@@ -494,7 +512,7 @@ class KonanPluginFunctionalTest {
             """,
         )
         // Records the arguments it was run with as the "archive".
-        File(projectDir, "build.sh").writeText("printf '%s ' \"$@\" > \"${'$'}KONAN_LIBRARY_OUTPUT_DIR/lib${'$'}KONAN_LIBRARY_NAME.a\"\n")
+        File(projectDir, "build.sh").writeText("printf '%s ' \"$@\" > \"${'$'}KONAN_OUTPUT_DIR/lib${'$'}KONAN_LIB_NAME.a\"\n")
 
         runner("compileNativeLibraryMymath").build()
 
@@ -590,7 +608,7 @@ class KonanPluginFunctionalTest {
             """
             cmake_minimum_required(VERSION 3.16)
             project(contract NONE)
-            file(WRITE "${'$'}{CMAKE_LIBRARY_OUTPUT_DIRECTORY}/contract.txt" "${'$'}{KONAN_JNI_LIB_NAME}|${'$'}{KONAN_JNI_STUB_DIR}|${'$'}{KONAN_JNI_INCLUDE_DIR}")
+            file(WRITE "${'$'}{CMAKE_LIBRARY_OUTPUT_DIRECTORY}/contract.txt" "${'$'}{KONAN_LIB_NAME}|${'$'}{KONAN_JNI_STUB_DIR}|${'$'}{KONAN_JNI_INCLUDE_DIR}")
             """.trimIndent()
         )
 
@@ -629,7 +647,7 @@ class KonanPluginFunctionalTest {
         )
         // Leaves its library somewhere of its own, as most build systems do.
         File(projectDir, "build.sh").writeText(
-            "mkdir -p out && printf '%s|%s|%s' \"\$KONAN_TARGET\" \"\$KONAN_JNI_LIB_NAME\" \"\$KONAN_JNI_STUB_DIR\" > out/built\n"
+            "mkdir -p out && printf '%s|%s|%s' \"\$KONAN_TARGET\" \"\$KONAN_LIB_NAME\" \"\$KONAN_JNI_STUB_DIR\" > out/built\n"
         )
 
         val result = runner("linkJniMymath").withPluginClasspathAndKgp().build()
@@ -667,7 +685,7 @@ class KonanPluginFunctionalTest {
         )
         // Writes straight into the output directory the contract names, under the name it gives.
         File(projectDir, "build.sh").writeText(
-            "printf '%s' \"${'$'}KONAN_TARGET\" > \"${'$'}KONAN_FFM_OUTPUT_DIR/${host.sharedLibraryName("x").replace("x", "${'$'}KONAN_FFM_LIB_NAME")}\"\n"
+            "printf '%s' \"${'$'}KONAN_TARGET\" > \"${'$'}KONAN_OUTPUT_DIR/${host.sharedLibraryName("x").replace("x", "${'$'}KONAN_LIB_NAME")}\"\n"
         )
 
         val result = runner("externalBuildFfmMymath$hostSuffix").build()
@@ -686,7 +704,7 @@ class KonanPluginFunctionalTest {
             """
             cmake_minimum_required(VERSION 3.16)
             project(mymath C)
-            add_library(${'$'}{KONAN_FFM_LIB_NAME} SHARED mymath.c)
+            add_library(${'$'}{KONAN_LIB_NAME} SHARED mymath.c)
             """.trimIndent()
         )
         write(
@@ -719,7 +737,7 @@ class KonanPluginFunctionalTest {
                     defFile.set(file("mymath.def"))
                     ffm {
                         libraryName.set("ggml")
-                        prebuilt { sharedLibrary(NativeTarget.${host.name}, file("vendor/libggml-host.so")) }
+                        prebuilt { library(NativeTarget.${host.name}, file("vendor/libggml-host.so")) }
                     }
                 }
             }

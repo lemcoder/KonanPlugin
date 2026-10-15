@@ -22,6 +22,7 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
+import java.io.File
 import javax.inject.Inject
 
 /**
@@ -66,10 +67,9 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
 
     @TaskAction
     fun generate() {
+        val request = request.get()
         exec.runIndexExporter(
-            request = request.get().let { request ->
-                if (request is GeneratorRequest.Jextract && jextract.isPresent) request.copy(jextract = jextract.get().require()) else request
-            },
+            request = if (request is GeneratorRequest.Jextract && jextract.isPresent) request.copy(jextract = jextract.get().require()) else request,
             outputDirectory = outputDirectory.get().asFile,
             cinteropArgs = buildList {
                 val def = defFile.get().asFile
@@ -85,5 +85,17 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
             distribution = distribution(),
             workDir = temporaryDir,
         )
+        if (request is GeneratorRequest.Jni) writeJniHeader(outputDirectory.get().asFile.resolve(GeneratorRequest.Jni.INCLUDE_DIR))
+    }
+
+    /**
+     * Android's `jni.h` — VM-neutral and Apache-licensed — beside the stub, for compiling it for a desktop
+     * JVM without a JDK. Android builds use the NDK sysroot's.
+     */
+    private fun writeJniHeader(directory: File) {
+        val header = directory.resolve("jni.h").apply { parentFile.mkdirs() }
+        GenerateFromNativeIndexTask::class.java.getResourceAsStream("/io/github/lemcoder/bindings/jni/jni.h").use { input ->
+            header.outputStream().use { checkNotNull(input) { "jni.h missing from the plugin jar" }.copyTo(it) }
+        }
     }
 }
