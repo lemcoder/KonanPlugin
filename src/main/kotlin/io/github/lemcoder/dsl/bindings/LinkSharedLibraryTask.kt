@@ -1,4 +1,4 @@
-package io.github.lemcoder.bindings
+package io.github.lemcoder.dsl.bindings
 
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.kotlin.distribution

@@ -1,10 +1,10 @@
 package io.github.lemcoder
 
-import io.github.lemcoder.bindings.registerBindings
+import io.github.lemcoder.dsl.bindings.registerBindings
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.kotlin.KotlinGradlePlugin
 import io.github.lemcoder.kotlin.UsesKonanDistribution
-import io.github.lemcoder.libraries.registerLibraries
+import io.github.lemcoder.dsl.libraries.registerLibraries
 import io.github.lemcoder.model.ConfigField
 import io.github.lemcoder.wiring.AgpWiring
 import io.github.lemcoder.wiring.GradlePluginId

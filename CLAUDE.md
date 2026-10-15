@@ -24,11 +24,12 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `dsl.bindings` with `dsl.bindings.jni` and `dsl.bindings.ffm`. Build blocks appear at every level, so
   they share `dsl.builds`. A new block goes in the package of the block that contains it.
   Never name a source package `build`: `.gitignore`'s `build/` matches it, and `git add` silently skips it.
-- **`libraries` and `bindings` hold everything after the DSL**, nested as `dsl.libraries` and
-  `dsl.bindings` are. `libraries`: a library's registration and builds. `bindings`: a binding's
+- **Implementation lives beside its DSL**: `dsl.libraries` also holds a library's registration and builds
+  (Kotlin/Native's clang, prebuilt, the dispatch to an external build); `dsl.bindings` a binding's
   registration, the consumers (`BindingConsumer`, `KotlinNativeConsumer`) and what JNI and FFM share
-  (`BindingLibraryWiring`, the jar bundle, `LinkSharedLibraryTask`); `bindings.jni` and `bindings.ffm`
-  each hold one consumer and its own link. `wiring` keeps AGP, plugin ids and the config report.
+  (`BindingLibraryWiring`, the jar bundle, `LinkSharedLibraryTask`); `dsl.bindings.jni` and `dsl.bindings.ffm`
+  each hold one consumer and its own link. All of it is `internal`. `wiring` keeps AGP, plugin ids and the
+  config report.
 - **One home per concept.** `model/` holds the domain (targets, naming, the artifact layout, the
   external-build contract, `selectOne`), `kotlin/` the touchpoints with Kotlin, `toolchain/` the
   others (Xcode, running executables, Zig). Task names come from `taskName(...)`, OS checks from
@@ -48,7 +49,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   Add a path by adding a `ConfigField` entry and a property, never a per-block `executable`.
 - **Tasks that run Kotlin/Native implement `UsesKonanDistribution`**; the plugin sets their `konanHome`
   in one `withType().configureEach`, and `distribution()` checks it when the task runs.
-- **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/bindings/jni/`, Apache 2.0): the
+- **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/dsl/bindings/jni/`, Apache 2.0): the
   JNI generator writes it to its `include/` output, the host link and `KONAN_JNI_INCLUDE_DIR` use it. Its
   JNI is 1.6 — enough for the generated stubs.
 
@@ -63,7 +64,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   per-target tasks, consumer detection and KGP's cinterops are deferred to `afterEvaluate` (KGP
   accepts cinterops declared there). Both sides follow this split: a library's build registers
   after evaluation (its block's conventions are set in the DSL constructors); a `BindingConsumer`
-  (`bindings/`) has `prepare()` for the eager part, then `isUsed()` and `register()` after evaluation.
+  (`dsl/bindings/`) has `prepare()` for the eager part, then `isUsed()` and `register()` after evaluation.
 - **One set of build systems for every library the plugin makes.** A library's archive, a binding's JNI
   library and the library FFM loads are each built by the plugin unless the script calls a block of
   `ExternalBuildBlocks` (`cmake`, `make`, `external`; libraries add `zig`, `cargo`, `prebuilt`, FFM
@@ -73,7 +74,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   one `ExternalBuildTask` per target from an `ExternalBuildOutput` — the only thing that differs between
   owners: targets, output directory, file name, extra variables. A build system only adds commands, so a
   new one is one `ExternalBuild` subclass and a block, never a new task type. JNI and FFM share
-  `BindingLibrarySpec` in the DSL and `BindingLibraryWiring` in `bindings/`.
+  `BindingLibrarySpec` and `BindingLibraryWiring`, both in `dsl.bindings`.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
   binding-registration time and tolerates an empty directory.

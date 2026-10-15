@@ -302,11 +302,8 @@ Partly settled by what exists:
   | `model` | The domain, without tasks or KGP: `NativeTarget` (+ `TargetFamily`, `Architecture`, `HostOs`), `NativeArtifacts` (the archive layout), the external-build contract, `Executable`, `ConfigField`/`ConfigValue` (`konan.config`), `DefFile`, task naming, `selectOne` |
   | `kotlin` | Every touchpoint with Kotlin, and the only package importing it: `NativeTarget.of(konanTarget)`, `KonanDistribution` (home, pinned version, `run_konan` clang and llvm-ar, NDK), `KotlinGradlePlugin` (KGP), the index exporter client |
   | `toolchain` | The other toolchains: `Xcode` (compiler-rt), running an `Executable`, Zig triples |
-  | `dsl` | Everything a build script touches, nested as the DSL is: `KonanExtension` (`konan { }`), `dsl.config` (`config { }`), `dsl.libraries` (`libraries { }`), `dsl.bindings` (`bindings { }`, with `BindingLibrarySpec`, what `jni` and `ffm` share), `dsl.bindings.jni`, `dsl.bindings.ffm` |
+  | `dsl` | Everything a build script touches, nested as the DSL is: `KonanExtension` (`konan { }`), `dsl.config` (`config { }`), `dsl.libraries` (`libraries { }`, and a library's registration and builds: Kotlin/Native's clang, prebuilt, or an external build), `dsl.bindings` (`bindings { }`, with `BindingLibrarySpec`, what `jni` and `ffm` share), `dsl.bindings.jni`, `dsl.bindings.ffm`. The binding packages also hold the binding's implementation: registration, `BindingConsumer` and the Kotlin/Native one, `BindingLibraryWiring`, the jar bundle, `LinkSharedLibraryTask`, and per JNI or FFM its consumer and own link |
   | `dsl.builds` | The build blocks every level shares — `BuildSettings`: CMake, Make, Cargo, Zig, steps, prebuilt — their option types, and `ExternalBuildBlocks` |
-  | `libraries` | A library's registration and build: Kotlin/Native's clang, prebuilt, or an external build |
-  | `bindings` | Registration of bindings, `BindingConsumer` and the Kotlin/Native one, what JNI and FFM share (`BindingLibraryWiring`, the jar bundle, `LinkSharedLibraryTask`) |
-  | `bindings.jni`, `bindings.ffm` | Each one's consumer and the plugin's own link |
   | `index` | The generate task |
   | `external` | `ExternalBuild` (CMake, Make, Cargo, Zig, generic), `ExternalBuildTask`, and their commands |
   | `wiring` | AGP, plugin ids, the `konanConfig` report |

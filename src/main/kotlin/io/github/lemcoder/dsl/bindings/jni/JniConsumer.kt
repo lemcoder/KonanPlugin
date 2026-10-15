@@ -1,8 +1,8 @@
-package io.github.lemcoder.bindings.jni
+package io.github.lemcoder.dsl.bindings.jni
 
-import io.github.lemcoder.bindings.BindingConsumer
-import io.github.lemcoder.bindings.BindingContext
-import io.github.lemcoder.bindings.BindingLibraryWiring
+import io.github.lemcoder.dsl.bindings.BindingConsumer
+import io.github.lemcoder.dsl.bindings.BindingContext
+import io.github.lemcoder.dsl.bindings.BindingLibraryWiring
 import io.github.lemcoder.index.GenerateFromNativeIndexTask
 import io.github.lemcoder.index.GeneratorRequest
 import io.github.lemcoder.kotlin.KotlinGradlePlugin

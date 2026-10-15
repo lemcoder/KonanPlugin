@@ -1,10 +1,9 @@
-package io.github.lemcoder.libraries
+package io.github.lemcoder.dsl.libraries
 
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.builds.ExternalBuildSettings
 import io.github.lemcoder.dsl.builds.PrebuiltSettings
 import io.github.lemcoder.dsl.builds.blockName
-import io.github.lemcoder.dsl.libraries.NativeLibrarySpec
 import io.github.lemcoder.external.ExternalBuild
 import io.github.lemcoder.external.ExternalBuildOutput
 import io.github.lemcoder.model.ExternalVariable

@@ -1,7 +1,6 @@
-package io.github.lemcoder.libraries
+package io.github.lemcoder.dsl.libraries
 
 import io.github.lemcoder.dsl.KonanExtension
-import io.github.lemcoder.dsl.libraries.NativeLibrarySpec
 import io.github.lemcoder.model.taskName
 import io.github.lemcoder.util.cleanTask
 import org.gradle.api.Project

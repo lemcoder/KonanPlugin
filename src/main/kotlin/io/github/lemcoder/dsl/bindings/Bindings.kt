@@ -1,9 +1,6 @@
-package io.github.lemcoder.bindings
+package io.github.lemcoder.dsl.bindings
 
-import io.github.lemcoder.bindings.BindingContext
-import io.github.lemcoder.bindings.bindingConsumers
 import io.github.lemcoder.dsl.KonanExtension
-import io.github.lemcoder.dsl.bindings.BindingSpec
 import org.gradle.api.Action
 import org.gradle.api.Project
 

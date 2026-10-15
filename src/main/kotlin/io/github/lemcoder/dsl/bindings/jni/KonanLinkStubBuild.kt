@@ -1,6 +1,6 @@
-package io.github.lemcoder.bindings.jni
+package io.github.lemcoder.dsl.bindings.jni
 
-import io.github.lemcoder.bindings.LinkSharedLibraryTask
+import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
 import io.github.lemcoder.index.GenerateFromNativeIndexTask

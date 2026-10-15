@@ -94,7 +94,7 @@ abstract class GenerateFromNativeIndexTask @Inject constructor(
      */
     private fun writeJniHeader(directory: File) {
         val header = directory.resolve("jni.h").apply { parentFile.mkdirs() }
-        GenerateFromNativeIndexTask::class.java.getResourceAsStream("/io/github/lemcoder/bindings/jni/jni.h").use { input ->
+        GenerateFromNativeIndexTask::class.java.getResourceAsStream("/io/github/lemcoder/dsl/bindings/jni/jni.h").use { input ->
             header.outputStream().use { checkNotNull(input) { "jni.h missing from the plugin jar" }.copyTo(it) }
         }
     }

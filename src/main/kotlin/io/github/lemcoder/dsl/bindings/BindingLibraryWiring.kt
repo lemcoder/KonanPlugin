@@ -1,6 +1,5 @@
-package io.github.lemcoder.bindings
+package io.github.lemcoder.dsl.bindings
 
-import io.github.lemcoder.dsl.bindings.BindingLibrarySpec
 import io.github.lemcoder.dsl.builds.CMakeSettings
 import io.github.lemcoder.dsl.builds.ExternalBuildSettings
 import io.github.lemcoder.dsl.builds.PrebuiltSettings

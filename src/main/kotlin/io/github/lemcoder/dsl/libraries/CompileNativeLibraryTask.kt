@@ -1,4 +1,4 @@
-package io.github.lemcoder.libraries
+package io.github.lemcoder.dsl.libraries
 
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.kotlin.distribution
