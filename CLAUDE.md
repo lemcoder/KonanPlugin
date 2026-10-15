@@ -129,6 +129,14 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 
 ## Multiplatform projects
 
+- **JS and Wasm targets are ignored**, deliberately and silently (README says so). If they are ever
+  bound: Kotlin/Wasm imports another module's functions with `@WasmImport(module, name) external fun`,
+  the JNI generator's shape; Kotlin/Native's bundled LLVM already compiles `--target=wasm32` and links
+  with `lld -flavor wasm`, but has no wasm libc (`string.h`, `malloc`: wasi-libc, Zig or Emscripten).
+  What makes it real work: Kotlin/Wasm's memory is not the C module's, so anything but numbers is copied
+  through the module's `malloc`; and cinterop indexes LP64 hosts and has no wasm target since 1.9.20,
+  while wasm32 is ILP32 — `long`, pointers and struct offsets need a wasm32 index. Plain Kotlin/JS has
+  no `@WasmImport` and would go through a JS loader.
 - **`ffm()` replaces JNI everywhere, generated once per API**: `generateFfm<Name>` (JDK) for
   `kotlin("jvm")` and `jvm()` targets, `generateFfmAndroid<Name>` (PanamaPort) for Android modules and
   multiplatform Android targets. The JDK's Java goes into the Gradle source set Kotlin creates per JVM

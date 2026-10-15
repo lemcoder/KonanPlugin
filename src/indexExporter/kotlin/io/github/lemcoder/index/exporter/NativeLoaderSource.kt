@@ -24,8 +24,8 @@ internal object NativeLoaderSource {
         |    try {
         |        System.loadLibrary(name)
         |    } catch (notOnPath: UnsatisfiedLinkError) {
-        |        val os = System.getProperty("os.name").lowercase()
-        |        val arch = when (System.getProperty("os.arch").lowercase()) {
+        |        val os = System.getProperty("os.name").orEmpty().lowercase()
+        |        val arch = when (System.getProperty("os.arch").orEmpty().lowercase()) {
         |            "aarch64", "arm64" -> "arm64"
         |            "amd64", "x86_64" -> "x64"
         |            else -> throw notOnPath

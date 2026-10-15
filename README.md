@@ -87,6 +87,16 @@ A binding is consumed wherever the project's Kotlin targets need it, with nothin
 | `ffm()` on the binding, in a `kotlin("jvm")` project or for a multiplatform `jvm()` target | FFM bindings in place of JNI, the library as a shared library | jextract |
 | `ffm()` on the binding, in an Android module or for a multiplatform Android target | FFM bindings on PanamaPort in place of JNI, the library as `.so` per 64-bit ABI | jextract |
 
+**Calling the cinterop binding from a shared source set** — `nativeMain`, `appleMain`, `iosMain` — needs KGP
+to commonize it: set `kotlin.mpp.enableCInteropCommonization=true` in `gradle.properties`. Without it,
+each target's own source set sees the binding, but the shared one fails with *"Unresolved reference"*.
+
+**JavaScript and WebAssembly targets get no bindings.** A multiplatform project with `js()`, `wasmJs()` or
+`wasmWasi()` targets builds as usual, but the plugin leaves those targets alone: nothing is generated or
+linked for them, and no error is reported. Declare the API you need as an `expect` in common code, let
+the JVM, Android and Kotlin/Native `actual`s call the bindings, and implement the JS and Wasm `actual`s
+yourself — in Kotlin, or over your own build of the library for the web.
+
 | Property          | Type  | Default | Description |
 |-------------------|-------|---------|-------------|
 | `androidApiLevel` | `Int` | the module's lowest `minSdk`, else Kotlin/Native's, 21 | The API level whose sysroot the plugin's Android links use, so platform libraries such as `libaaudio` or `libcamera2ndk` link. Kotlin/Native's NDK stops at 29; a higher level uses the highest it has. |
@@ -577,6 +587,8 @@ On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks au
 - `examples/jvm` — plain JVM app loading the JNI library bundled in its jar.
 - `examples/android` — Android app calling C through the generated bindings.
   `scripts/run-android.sh` publishes the plugin, builds, installs and launches it in one command.
+- `examples/kmp` — Kotlin Multiplatform library for iOS, macOS, Linux and Android: one binding, cinterop on Kotlin/Native and JNI on
+  Android, behind an `expect`/`actual` API, plus an Android app over it.
 
 ## Migrating to 2.0
 The DSL is new and there is no compatibility shim.
