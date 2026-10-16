@@ -4,7 +4,6 @@ import io.github.lemcoder.dsl.builds.CargoSettings
 import io.github.lemcoder.dsl.builds.ExternalBuildBlocks
 import io.github.lemcoder.dsl.builds.PrebuiltSettings
 import io.github.lemcoder.dsl.builds.ZigSettings
-import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import javax.inject.Inject
 import org.gradle.api.Action

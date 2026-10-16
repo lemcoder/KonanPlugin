@@ -1,7 +1,6 @@
 package io.github.lemcoder.dsl.libraries
 
 import io.github.lemcoder.dsl.KonanExtension
-import io.github.lemcoder.model.NativeArtifacts
 import org.gradle.api.Action
 import org.gradle.api.Project
 

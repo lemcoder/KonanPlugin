@@ -1,4 +1,4 @@
-package io.github.lemcoder.model
+package io.github.lemcoder.dsl.config
 
 import org.gradle.api.InvalidUserDataException
 import java.io.File

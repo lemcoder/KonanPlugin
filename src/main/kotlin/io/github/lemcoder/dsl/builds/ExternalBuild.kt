@@ -1,16 +1,6 @@
-package io.github.lemcoder.external
+package io.github.lemcoder.dsl.builds
 
-import io.github.lemcoder.dsl.builds.CMakeSettings
-import io.github.lemcoder.dsl.builds.CargoSettings
-import io.github.lemcoder.dsl.builds.ExternalBuildSettings
-import io.github.lemcoder.dsl.builds.ExternalToolchain
-import io.github.lemcoder.dsl.builds.MakeSettings
-import io.github.lemcoder.dsl.builds.StepsSettings
-import io.github.lemcoder.dsl.builds.ZigSettings
 import io.github.lemcoder.kotlin.KonanToolchain
-import io.github.lemcoder.model.ExternalBuildContext
-import io.github.lemcoder.model.ExternalBuildVariable
-import io.github.lemcoder.model.ExternalVariable
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.taskName
 import io.github.lemcoder.util.cleanTask

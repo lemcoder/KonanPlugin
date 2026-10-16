@@ -1,14 +1,13 @@
 package io.github.lemcoder.dsl.libraries
 
 import io.github.lemcoder.dsl.KonanExtension
+import io.github.lemcoder.dsl.builds.ExternalBuild
+import io.github.lemcoder.dsl.builds.ExternalBuildOutput
 import io.github.lemcoder.dsl.builds.ExternalBuildSettings
+import io.github.lemcoder.dsl.builds.ExternalVariable
 import io.github.lemcoder.dsl.builds.PrebuiltSettings
 import io.github.lemcoder.dsl.builds.blockName
-import io.github.lemcoder.external.ExternalBuild
-import io.github.lemcoder.external.ExternalBuildOutput
-import io.github.lemcoder.model.ExternalVariable
-import io.github.lemcoder.model.NativeArtifacts
-import io.github.lemcoder.model.selectOne
+import io.github.lemcoder.dsl.builds.selectOne
 import org.gradle.api.Project
 import org.gradle.api.tasks.TaskProvider
 

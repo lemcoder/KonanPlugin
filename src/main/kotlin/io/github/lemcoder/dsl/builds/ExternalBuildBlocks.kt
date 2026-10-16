@@ -1,9 +1,5 @@
 package io.github.lemcoder.dsl.builds
 
-import io.github.lemcoder.dsl.builds.BuildSettings
-import io.github.lemcoder.dsl.builds.CMakeSettings
-import io.github.lemcoder.dsl.builds.MakeSettings
-import io.github.lemcoder.dsl.builds.StepsSettings
 import org.gradle.api.Action
 import org.gradle.api.model.ObjectFactory
 

@@ -1,12 +1,12 @@
 package io.github.lemcoder.dsl.bindings.jni
 
-import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
+import io.github.lemcoder.dsl.bindings.DefFile
+import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
+import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.index.GenerateFromNativeIndexTask
 import io.github.lemcoder.index.GeneratorRequest
-import io.github.lemcoder.model.DefFile
-import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.taskName
 import io.github.lemcoder.util.cleanTask

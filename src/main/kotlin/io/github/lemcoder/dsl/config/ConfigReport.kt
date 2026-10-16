@@ -1,11 +1,7 @@
-package io.github.lemcoder.wiring
+package io.github.lemcoder.dsl.config
 
-import io.github.lemcoder.dsl.config.KonanConfig
-import io.github.lemcoder.dsl.config.konanConfig
-import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.dsl.builds.ExternalBuildTask
 import io.github.lemcoder.kotlin.UsesKonanDistribution
-import io.github.lemcoder.model.ConfigField
-import io.github.lemcoder.model.ConfigValue
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
 import org.gradle.api.provider.ListProperty

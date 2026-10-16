@@ -1,9 +1,8 @@
 package io.github.lemcoder.dsl.libraries
 
+import io.github.lemcoder.dsl.config.ConfigValue
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.kotlin.distribution
-import io.github.lemcoder.model.ConfigValue
-import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.util.execCapture
 import javax.inject.Inject

@@ -1,8 +1,9 @@
-package io.github.lemcoder.model
+package io.github.lemcoder.dsl.builds
 
+import io.github.lemcoder.model.NativeTarget
+import java.io.File
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
-import java.io.File
 
 /** A variable of an external build's contract: what the plugin tells the build, by environment. */
 internal sealed interface ExternalBuildVariable {

@@ -1,4 +1,4 @@
-package io.github.lemcoder.model
+package io.github.lemcoder.dsl.bindings
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

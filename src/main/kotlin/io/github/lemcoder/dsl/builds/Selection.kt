@@ -1,4 +1,4 @@
-package io.github.lemcoder.model
+package io.github.lemcoder.dsl.builds
 
 /**
  * The one choice [selected] holds, or null for the default: a DSL owner such as a library or a binding's

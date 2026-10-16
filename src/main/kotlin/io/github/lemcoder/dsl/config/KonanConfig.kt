@@ -2,9 +2,6 @@ package io.github.lemcoder.dsl.config
 
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.kotlin.KonanDistribution
-import io.github.lemcoder.model.ConfigField
-import io.github.lemcoder.model.ConfigSource
-import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.Executable
 import java.io.File
 import javax.inject.Inject

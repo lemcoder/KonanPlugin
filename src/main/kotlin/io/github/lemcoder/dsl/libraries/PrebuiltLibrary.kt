@@ -1,6 +1,5 @@
 package io.github.lemcoder.dsl.libraries
 
-import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.taskName
 import java.io.File
 import org.gradle.api.DefaultTask

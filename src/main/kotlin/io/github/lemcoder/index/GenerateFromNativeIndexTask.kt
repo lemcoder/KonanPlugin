@@ -1,10 +1,12 @@
 package io.github.lemcoder.index
 
+import io.github.lemcoder.dsl.config.ConfigValue
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.kotlin.distribution
 import io.github.lemcoder.kotlin.runIndexExporter
-import io.github.lemcoder.model.ConfigValue
 import io.github.lemcoder.model.NativeTarget
+import java.io.File
+import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -22,8 +24,6 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
-import java.io.File
-import javax.inject.Inject
 
 /**
  * Indexes the headers a `.def` names with cinterop's own indexer and runs the generator [request] asks for over the

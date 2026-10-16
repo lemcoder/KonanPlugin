@@ -3,12 +3,12 @@ package io.github.lemcoder.dsl.bindings.ffm
 import io.github.lemcoder.dsl.bindings.BindingConsumer
 import io.github.lemcoder.dsl.bindings.BindingContext
 import io.github.lemcoder.dsl.bindings.BindingLibraryWiring
+import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.index.FfmApi
 import io.github.lemcoder.index.GenerateFromNativeIndexTask
 import io.github.lemcoder.index.GeneratorRequest
 import io.github.lemcoder.kotlin.KotlinGradlePlugin
 import io.github.lemcoder.model.Architecture
-import io.github.lemcoder.model.ConfigField
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.taskName
 import io.github.lemcoder.wiring.AgpWiring

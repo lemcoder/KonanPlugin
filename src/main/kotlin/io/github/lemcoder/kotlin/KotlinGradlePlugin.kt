@@ -1,7 +1,7 @@
 package io.github.lemcoder.kotlin
 
 import io.github.lemcoder.dsl.bindings.BindingSpec
-import io.github.lemcoder.model.NativeArtifacts
+import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import java.io.File
 import org.gradle.api.Project

@@ -1,10 +1,7 @@
-package io.github.lemcoder.external
+package io.github.lemcoder.dsl.builds
 
-import io.github.lemcoder.dsl.builds.CMakeSettings
+import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.dsl.config.konanConfig
-import io.github.lemcoder.model.ConfigField
-import io.github.lemcoder.model.ExternalBuildContext
-import io.github.lemcoder.model.ToolchainVariable
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider

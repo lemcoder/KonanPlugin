@@ -24,17 +24,20 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `dsl.bindings` with `dsl.bindings.jni` and `dsl.bindings.ffm`. Build blocks appear at every level, so
   they share `dsl.builds`. A new block goes in the package of the block that contains it.
   Never name a source package `build`: `.gitignore`'s `build/` matches it, and `git add` silently skips it.
-- **Implementation lives beside its DSL**: `dsl.libraries` also holds a library's registration and builds
-  (Kotlin/Native's clang, prebuilt, the dispatch to an external build); `dsl.bindings` a binding's
-  registration, the consumers (`BindingConsumer`, `KotlinNativeConsumer`) and what JNI and FFM share
-  (`BindingLibraryWiring`, the jar bundle, `LinkSharedLibraryTask`); `dsl.bindings.jni` and `dsl.bindings.ffm`
-  each hold one consumer and its own link. All of it is `internal`. `wiring` keeps AGP, plugin ids and the
-  config report.
-- **One home per concept.** `model/` holds the domain (targets, naming, the artifact layout, the
-  external-build contract, `selectOne`), `kotlin/` the touchpoints with Kotlin, `toolchain/` the
-  others (Xcode, running executables, Zig). Task names come from `taskName(...)`, OS checks from
-  `HostOs`, the distribution's layout from `KonanDistribution` — add to those, don't re-derive.
-  `BindingVisibility` lives in `src/exporterProtocol` so the DSL and the generator share one enum.
+- **Implementation lives beside its DSL**, all of it `internal`:
+  - `dsl.config` — `ConfigField`/`ConfigValue` and the `konanConfig` report;
+  - `dsl.libraries` — a library's registration and builds, and `NativeArtifacts`, the layout it publishes;
+  - `dsl.bindings` — a binding's registration, `DefFile`, the consumers (`BindingConsumer`,
+    `KotlinNativeConsumer`) and what JNI and FFM share (`BindingLibraryWiring`, the jar bundle,
+    `LinkSharedLibraryTask`); `dsl.bindings.jni` and `dsl.bindings.ffm` each hold one consumer and its own link;
+  - `dsl.builds` — the external builds (`ExternalBuild`, `ExternalBuildTask`, each build system's commands),
+    their contract (`ExternalVariable`), `selectOne`, and the Zig and Rust target triples.
+- **What no single block owns stays outside `dsl`**: `model/` the shared domain (`NativeTarget`, `HostOs`,
+  `Executable`, `taskName`), `kotlin/` the touchpoints with Kotlin (distribution, KGP, Xcode's compiler-rt for
+  its links, the index exporter client), `index/` the generate task, `wiring/` AGP and plugin ids, `util/`
+  process and Gradle helpers. Task names come from `taskName(...)`, OS checks from `HostOs`, the
+  distribution's layout from `KonanDistribution` — add to those, don't re-derive. `BindingVisibility` lives
+  in `src/exporterProtocol` so the DSL and the generator share one enum.
 - AGP types are only touched inside `plugins.withId(...)` blocks. A plain reference in an eagerly
   executed method is `NoClassDefFoundError: KotlinMultiplatformAndroidComponentsExtension` in a
   plugin-only build. The KMP Android plugin does **not** apply `com.android.base`, so both ids need
@@ -70,7 +73,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `ExternalBuildBlocks` (`cmake`, `make`, `external`; libraries add `zig`, `cargo`, `prebuilt`, FFM
   `prebuilt`). Every block's settings live in `dsl.builds` and implement the sealed `BuildSettings`; calling a
   block selects its settings object, and owners dispatch on `PrebuiltSettings` or `ExternalBuildSettings`.
-  `ExternalBuild.of(settings)` (`external/ExternalBuild.kt`) registers
+  `ExternalBuild.of(settings)` (`dsl/builds/ExternalBuild.kt`) registers
   one `ExternalBuildTask` per target from an `ExternalBuildOutput` — the only thing that differs between
   owners: targets, output directory, file name, extra variables. A build system only adds commands, so a
   new one is one `ExternalBuild` subclass and a block, never a new task type. JNI and FFM share

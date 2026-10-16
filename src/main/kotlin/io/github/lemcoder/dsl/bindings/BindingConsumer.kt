@@ -1,10 +1,9 @@
 package io.github.lemcoder.dsl.bindings
 
+import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.ffm.FfmConsumer
 import io.github.lemcoder.dsl.bindings.jni.JniConsumer
-import io.github.lemcoder.dsl.KonanExtension
-import io.github.lemcoder.model.DefFile
-import io.github.lemcoder.model.NativeArtifacts
+import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.wiring.GradlePluginId
 import io.github.lemcoder.wiring.hasPlugin
 import org.gradle.api.Project

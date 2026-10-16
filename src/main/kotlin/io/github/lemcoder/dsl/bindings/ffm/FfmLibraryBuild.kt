@@ -1,10 +1,10 @@
 package io.github.lemcoder.dsl.bindings.ffm
 
-import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
+import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
+import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.dsl.libraries.PlacePrebuiltFilesTask
-import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.taskName
 import org.gradle.api.Project

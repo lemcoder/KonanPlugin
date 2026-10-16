@@ -1,5 +1,6 @@
 package io.github.lemcoder.model
 
+import io.github.lemcoder.dsl.config.ConfigValue
 import java.io.Serializable
 
 /** A program an external build step runs: a file, or a name the build's `PATH` resolves. */

@@ -1,11 +1,7 @@
-package io.github.lemcoder.external
+package io.github.lemcoder.dsl.builds
 
-import io.github.lemcoder.dsl.builds.CargoProfile
-import io.github.lemcoder.dsl.builds.CargoSettings
+import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.dsl.config.konanConfig
-import io.github.lemcoder.model.ConfigField
-import io.github.lemcoder.model.ExternalBuildContext
-import io.github.lemcoder.toolchain.rustTriple
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Provider
 

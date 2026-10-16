@@ -1,9 +1,10 @@
-package io.github.lemcoder.external
+package io.github.lemcoder.dsl.builds
 
 import io.github.lemcoder.model.Executable
-import io.github.lemcoder.toolchain.command
 import io.github.lemcoder.util.ExecCaptureResult
 import io.github.lemcoder.util.execCapture
+import java.io.File
+import javax.inject.Inject
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -23,8 +24,6 @@ import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
-import java.io.File
-import javax.inject.Inject
 
 /**
  * Runs a build system the plugin does not model, for one target: its [commands] in order, with the

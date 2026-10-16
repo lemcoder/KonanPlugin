@@ -1,17 +1,17 @@
 package io.github.lemcoder.dsl.bindings
 
 import io.github.lemcoder.dsl.builds.CMakeSettings
+import io.github.lemcoder.dsl.builds.ExternalBuild
+import io.github.lemcoder.dsl.builds.ExternalBuildOutput
 import io.github.lemcoder.dsl.builds.ExternalBuildSettings
+import io.github.lemcoder.dsl.builds.ExternalBuildTask
+import io.github.lemcoder.dsl.builds.ExternalBuildVariable
 import io.github.lemcoder.dsl.builds.PrebuiltSettings
 import io.github.lemcoder.dsl.builds.blockName
-import io.github.lemcoder.external.ExternalBuild
-import io.github.lemcoder.external.ExternalBuildOutput
-import io.github.lemcoder.external.ExternalBuildTask
+import io.github.lemcoder.dsl.builds.selectOne
 import io.github.lemcoder.kotlin.KotlinGradlePlugin
-import io.github.lemcoder.model.ExternalBuildVariable
 import io.github.lemcoder.model.NativeTarget
 import io.github.lemcoder.model.capitalized
-import io.github.lemcoder.model.selectOne
 import io.github.lemcoder.model.taskName
 import org.gradle.api.Task
 import org.gradle.api.file.Directory

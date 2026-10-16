@@ -3,13 +3,12 @@ package io.github.lemcoder.dsl.bindings.jni
 import io.github.lemcoder.dsl.bindings.BindingConsumer
 import io.github.lemcoder.dsl.bindings.BindingContext
 import io.github.lemcoder.dsl.bindings.BindingLibraryWiring
+import io.github.lemcoder.dsl.builds.ExternalVariable
+import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.index.GenerateFromNativeIndexTask
 import io.github.lemcoder.index.GeneratorRequest
 import io.github.lemcoder.kotlin.KotlinGradlePlugin
-import io.github.lemcoder.model.ExternalVariable
-import io.github.lemcoder.model.NativeArtifacts
 import io.github.lemcoder.model.NativeTarget
-import io.github.lemcoder.model.stubLibraryBaseName
 import io.github.lemcoder.model.taskName
 import io.github.lemcoder.util.cleanTask
 import io.github.lemcoder.wiring.AgpWiring

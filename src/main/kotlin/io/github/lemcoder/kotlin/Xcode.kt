@@ -1,4 +1,4 @@
-package io.github.lemcoder.toolchain
+package io.github.lemcoder.kotlin
 
 import io.github.lemcoder.util.execCapture
 import org.gradle.process.ExecOperations

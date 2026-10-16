@@ -1,4 +1,4 @@
-package io.github.lemcoder.toolchain
+package io.github.lemcoder.dsl.builds
 
 import io.github.lemcoder.model.Executable
 
