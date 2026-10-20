@@ -216,7 +216,8 @@ written against a C header for the crate's `extern "C"` functions (cbindgen writ
 C library, for every consumer. Each target's standard library must be installed (`rustup target add
 aarch64-linux-android`). Crates with C code get Kotlin/Native's compilers as `CC_<triple>`,
 `CXX_<triple>` and `AR_<triple>` — what the `cc` crate reads for the target, leaving build scripts on
-the host's. On Android, link with `panic = "abort"`: Kotlin/Native's NDK sysroot has no unwinder.
+the host's. The plugin's Android links carry the NDK's unwinder, which Rust's std needs; keep
+`panic = "abort"` all the same, since unwinding out of an `extern "C"` function is undefined behaviour.
 
 | Property     | Type                | Default                  | Description |
 |--------------|---------------------|--------------------------|-------------|
@@ -562,7 +563,17 @@ with no stub. The app needs:
 - 64-bit ABIs only: jextract writes the build host's LP64 layouts, so 32-bit ABIs get no library and
   a warning.
 
-`examples/android-ffm` runs end to end on an emulator.
+`examples/android` runs FFM and JNI side by side on an emulator.
+
+#### Android's C++ runtime and unwinder
+Android gives apps neither libc++ nor an unwinder, so every Android library the plugin links — the JNI
+library, the library FFM loads — ends with the NDK's `libc++_static`, `libc++abi` and its unwinder
+(`libgcc_real`), from Kotlin/Native's own NDK. A C library links as before: an archive only contributes
+what is used. C++ code (`new`, `std::string`, exceptions) and Rust's std then load on a device. The links
+also pass `-Wl,--no-undefined`, so a symbol nothing provides fails the build, not the app when it loads
+the library; a library that resolves symbols from another `.so` at load time names it in
+`linkerOptions` (`-lfoo`), or turns the check off with `-Wl,-z,undefs`. Your own build (`cmake { }`,
+`make { }`, `external { }`) links its own runtime.
 
 ## Tasks
 | Task                          | Description |
@@ -585,7 +596,7 @@ On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks au
 ## Examples
 - `examples/native` — Kotlin/Native consumer through KGP's cinterop.
 - `examples/jvm` — plain JVM app loading the JNI library bundled in its jar.
-- `examples/android` — Android app calling C through the generated bindings.
+- `examples/android` — one Android app over three libraries: C and Rust through JNI, C++ through FFM.
   `scripts/run-android.sh` publishes the plugin, builds, installs and launches it in one command.
 - `examples/kmp` — Kotlin Multiplatform library for iOS, macOS, Linux and Android: one binding, cinterop on Kotlin/Native and JNI on
   Android, behind an `expect`/`actual` API, plus an Android app over it.

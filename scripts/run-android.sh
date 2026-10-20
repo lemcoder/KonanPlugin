@@ -2,14 +2,12 @@
 #
 # Build and run the Android example without switching IDE root folders.
 #
-# The Android example (examples/android) is a standalone Gradle build that consumes the
-# plugin from mavenLocal, so running it takes two builds: publish the plugin from the repo
-# root, then assemble/install the app with the example's own wrapper.
+# The Android example (examples/android) is a standalone Gradle build that builds the plugin
+# from this checkout (includeBuild), run with the repository's wrapper. It needs
+# konan.config.cargo and konan.config.jextract, e.g. in ~/.gradle/gradle.properties.
 #
 # Usage: scripts/run-android.sh [options]
 #
-#   -s, --skip-publish   don't republish the plugin to mavenLocal (faster when only the
-#                        example's app/native code changed)
 #   -c, --clean          clean the example build before assembling
 #   -n, --no-launch      install only, don't start the activity
 #   -l, --logcat         tail the app's logcat after launching (Ctrl-C to stop)
@@ -21,10 +19,9 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXAMPLE_DIR="$REPO_ROOT/examples/android"
-APP_ID="com.example.jniapp"
+APP_ID="com.example.nativeapp"
 ACTIVITY="$APP_ID/.MainActivity"
 
-SKIP_PUBLISH=0
 CLEAN=0
 LAUNCH=1
 LOGCAT=0
@@ -36,7 +33,6 @@ usage() { awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -s|--skip-publish) SKIP_PUBLISH=1 ;;
         -c|--clean)        CLEAN=1 ;;
         -n|--no-launch)    LAUNCH=0 ;;
         -l|--logcat)       LOGCAT=1 ;;
@@ -115,27 +111,15 @@ if [[ -z "$DEVICE" ]]; then
 fi
 [[ -n "$DEVICE" ]] && export ANDROID_SERIAL="$DEVICE"
 
-# --- 1) publish the plugin to mavenLocal ------------------------------------
-# The example resolves io.github.lemcoder.konanplugin from mavenLocal, so any change to the
-# plugin itself has to be republished before the app build will see it.
-if [[ $SKIP_PUBLISH -eq 0 ]]; then
-    step "Publishing plugin to mavenLocal (repo root)"
-    "$REPO_ROOT/gradlew" -p "$REPO_ROOT" publishToMavenLocal
-else
-    step "Skipping plugin publish (--skip-publish)"
-fi
-
-# --- 2) build + install the app ---------------------------------------------
-# The example has its own wrapper (Gradle 9.4.1, required by AGP 9) — always use it, not the
-# root wrapper.
+# --- 1) build + install the app ---------------------------------------------
 GRADLE_TASKS=()
 [[ $CLEAN -eq 1 ]] && GRADLE_TASKS+=(clean)
 GRADLE_TASKS+=(installDebug)
 
 step "Building + installing android-example (${GRADLE_TASKS[*]})"
-"$EXAMPLE_DIR/gradlew" -p "$EXAMPLE_DIR" "${GRADLE_TASKS[@]}"
+"$REPO_ROOT/gradlew" -p "$EXAMPLE_DIR" "${GRADLE_TASKS[@]}"
 
-# --- 3) launch --------------------------------------------------------------
+# --- 2) launch --------------------------------------------------------------
 if [[ $LAUNCH -eq 0 ]]; then
     step "Installed on ${DEVICE:-device}. Launch skipped (--no-launch)."
     exit 0

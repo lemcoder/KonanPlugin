@@ -131,6 +131,12 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 - **Link flags live in `KonanDistribution.linkArguments`**: `-fuse-ld=lld` for Linux (the GCC toolchain's
   `ld.bfd` is a Linux binary; a cross link from macOS fails without it), NDK compiler-rt and
   `--unwindlib=none` for Android, Xcode's compiler-rt for macOS. The wrappers add them only when linking.
+- **Android has no libc++ and no unwinder for apps, but Kotlin/Native's NDK does**: `libc++_static.a` and
+  `libc++abi.a` in its toolchain's `sysroot/usr/lib/<triple>/`, the unwinder in `lib/gcc/<triple>/4.9.x/libgcc_real.a`
+  (not in the sysroot, which is why it looked missing). `KonanDistribution.androidRuntime` lists them;
+  `LinkSharedLibraryTask` appends them last — the NDK's linker resolves archives in order — and links
+  with `-Wl,--no-undefined`. Without that flag a missing symbol linked fine and failed only on the device
+  ("cannot locate symbol"); never drop it to make a link pass.
 - **The toolchain needs its own `ranlib`** (`llvm-ar s`): CMake indexes static archives with the host's,
   and Apple's `ranlib` silently drops ELF objects — a cross-built archive came out empty.
 - **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not

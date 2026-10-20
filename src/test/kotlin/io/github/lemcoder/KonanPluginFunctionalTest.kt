@@ -421,6 +421,32 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `an Android link of C++ carries libc++ and the unwinder, and leaves nothing undefined`() {
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        // operator new, std::vector and a throw: libc++, libc++abi and _Unwind_* — none of which Android provides.
+        File(projectDir, "native/mymath.cpp").writeText(
+            """
+            #include <numeric>
+            #include <stdexcept>
+            #include <vector>
+            extern "C" int my_add(int a, int b) {
+                std::vector<int> values{a, b};
+                try { if (values.empty()) throw std::runtime_error("empty"); } catch (const std::exception &) { return 0; }
+                return std::accumulate(values.begin(), values.end(), 0);
+            }
+            """.trimIndent()
+        )
+        val android = mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.ANDROID_ARM64)")
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", "config.konanHome.set(file(\"$home\"))\n$android")
+
+        // The link uses --no-undefined: without the runtime it fails here, not when the app loads the library.
+        val result = runner("linkJniMymathAndroid_arm64").withPluginClasspathAndKgp().build()
+
+        assertTrue(File(projectDir, "build/konan/bindings/mymath/jni/jniLibs/arm64-v8a/libexamplestubs.so").isFile, result.output)
+    }
+
+    @Test
     fun `the JNI links for the host and Android depend on generating the stub they compile`() {
         val home = realKonanHome()
         File(projectDir, "native").mkdirs()

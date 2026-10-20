@@ -1,0 +1,3 @@
+headers = rustmath.h
+headerFilter = rustmath.h
+package = rustmath

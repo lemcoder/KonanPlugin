@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application
-        android:label="JNI Example"
+        android:label="Native Example"
         android:allowBackup="true">
         <activity
             android:name=".MainActivity"

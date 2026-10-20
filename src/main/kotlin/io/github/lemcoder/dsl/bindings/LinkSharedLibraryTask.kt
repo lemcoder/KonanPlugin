@@ -79,6 +79,8 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
             // On Android jni.h comes from the NDK sysroot.
             if (!nativeTarget.isAndroid) jniIncludeDirs.files.forEach { add("-I${it.absolutePath}") }
             addAll(distribution.linkArguments(nativeTarget, exec))
+            // A symbol nothing provides fails here, not as "cannot locate symbol" when the app loads the library.
+            if (nativeTarget.isAndroid) add("-Wl,--no-undefined")
             // After run_konan's own --sysroot, so this one wins.
             if (nativeTarget.isAndroid) androidApiLevel.orNull?.let { add("--sysroot=${distribution.androidSysroot(nativeTarget, it, exec)}") }
             if (stub != null) {
@@ -94,6 +96,8 @@ internal abstract class LinkSharedLibraryTask @Inject constructor(
             // dir here would pull its static libc in ahead of the sysroot's shared one, which fails
             // on x86_64 with "relocation R_X86_64_PC32 ... recompile with -fPIC".
             addAll(additionalLinkerArgs.getOrElse(emptyList()))
+            // Last, after everything that may need them: the NDK's linker resolves archives in order.
+            if (nativeTarget.isAndroid) distribution.androidRuntime(nativeTarget).forEach { add(it.absolutePath) }
         }
 
         val result = exec.execCapture { commandLine(distribution.clang(nativeTarget, arguments)) }

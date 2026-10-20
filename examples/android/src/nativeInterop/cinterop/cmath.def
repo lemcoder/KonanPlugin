@@ -1,0 +1,3 @@
+headers = cmath.h
+headerFilter = cmath.h
+package = cmath
