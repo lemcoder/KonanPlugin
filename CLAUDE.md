@@ -81,6 +81,11 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
   binding-registration time and tolerates an empty directory.
+- **A library has one archive per target, however many its build leaves.** A library's external build writes
+  into a staging directory (`KONAN_OUTPUT_DIR`, CMake's output directories), emptied before each run;
+  `ExternalBuildTask` copies the one archive, or merges several with Kotlin/Native's llvm-ar (`qcL`, then `s`;
+  `darwin` format for Apple) into `lib<name>.a`. Consumers keep embedding a single archive. Staging is what
+  keeps a re-run from merging the previous merge in again (#7).
 - **An external build's configure and build steps are one task.** As two tasks, changing a configure
   argument re-ran configure, left the build `UP-TO-DATE`, and silently kept the previous library — a
   linker flag appeared to do nothing. `ExternalBuildTask` runs every step, and without declared

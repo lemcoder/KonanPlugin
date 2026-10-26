@@ -20,7 +20,8 @@ import org.gradle.api.provider.Provider
  * A C/C++ library built into a static archive per target, `<outputDirectory>/<target>/lib<name>.a`: by
  * Kotlin/Native's clang from [sourceDirectory], by the project's own build ([cmake], [zig], [cargo], [make], [external]), or built
  * elsewhere ([prebuilt]). An external build gets `KONAN_SOURCE_DIR` besides the common contract, and leaves
- * `lib${KONAN_LIB_NAME}.a` in `KONAN_OUTPUT_DIR`, or names where it leaves its archive with `producedLibrary`.
+ * its archives in `KONAN_OUTPUT_DIR` — several are merged into `lib<name>.a` — or names where it leaves its
+ * archive with `producedLibrary`.
  */
 abstract class NativeLibrarySpec @Inject constructor(private val name: String, objects: ObjectFactory) :
     ExternalBuildBlocks(objects), Named {

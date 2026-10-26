@@ -28,6 +28,12 @@ internal class ExternalBuildOutput(
     val outputDirectory: (NativeTarget) -> Provider<Directory>,
     /** Where a build system's own files go: CMake's build trees, Cargo's target directory, Zig's prefixes. */
     val workDirectory: Provider<Directory>,
+    /**
+     * For a static library: where the build leaves its archives for a target — `KONAN_OUTPUT_DIR` and
+     * CMake's output directories — which [ExternalBuildTask] copies or merges into [libraryFileName].
+     * Null for a shared library, built straight into [outputDirectory].
+     */
+    val archiveStaging: ((NativeTarget) -> Provider<Directory>)? = null,
     /** A task description, given the target and the build system's name. */
     val description: (NativeTarget, String) -> String,
     /** Variables only this kind of output has, e.g. [ExternalVariable.JNI_STUB_DIR]. */
@@ -58,14 +64,17 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
         return output.targets.map { target ->
             val konanToolchain = toolchain?.takeIf { it.usesKonan(target) }?.let { KonanToolchain.of(project, target) }
             val targetOutput = output.outputDirectory(target)
+            val staging = output.archiveStaging?.invoke(target)
+            // Where the build itself writes: the staging directory for archives, else the final one.
+            val buildOutput = staging ?: targetOutput
             val contract: Map<ExternalBuildVariable, Provider<String>> = mapOf(
                 ExternalVariable.LIB_NAME to output.libraryName,
-                ExternalVariable.OUTPUT_DIR to targetOutput.map { it.asFile.absolutePath },
+                ExternalVariable.OUTPUT_DIR to buildOutput.map { it.asFile.absolutePath },
                 ExternalVariable.TARGET to project.provider { target.konanName },
                 ExternalVariable.ABI to project.provider { target.libraryDirectoryName },
             ) + output.extraVariables(target)
             val environment = if (konanToolchain != null && toolchainInEnvironment) contract + konanToolchain.files.environment else contract
-            val context = ExternalBuildContext(target, targetOutput, environment, konanToolchain?.files)
+            val context = ExternalBuildContext(target, buildOutput, environment, konanToolchain?.files)
             val taskDescription = output.description(target, toolName)
             val fileName = output.libraryFileName(target)
             project.tasks.register(taskName(taskPrefix + output.side, output.name, target), ExternalBuildTask::class.java) {
@@ -76,6 +85,10 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
                 context.environment.forEach { (variable, value) -> this.environment.put(variable.variableName, value) }
                 libraryFileName.set(fileName)
                 outputDirectory.set(targetOutput)
+                staging?.let {
+                    archiveStagingDirectory.set(it)
+                    archiveTarget.set(target)
+                }
                 output.configure(this)
                 addCommands(project, output, context)
             }

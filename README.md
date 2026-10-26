@@ -305,7 +305,7 @@ environment variables and, for CMake, as cache entries:
 | variable | meaning |
 |---|---|
 | `KONAN_LIB_NAME` | the library's name: a library's archive becomes `lib<name>.a`; for `jni` and `ffm`, what the bindings `System.loadLibrary` |
-| `KONAN_OUTPUT_DIR` | where this target's library must land: `jniLibs/<abi>/` for a binding's Android library, which the plugin packages |
+| `KONAN_OUTPUT_DIR` | where this target's library must land: `jniLibs/<abi>/` for a binding's Android library, which the plugin packages. For a library, where its archives go: every `.a` the build leaves there becomes the one `lib<name>.a` — copied if there is one, merged if there are several (a CMake project with dependencies leaves one per `add_library`) |
 | `KONAN_TARGET` | the Kotlin/Native target, e.g. `android_arm64` |
 | `KONAN_ABI` | its Android ABI, e.g. `arm64-v8a`; the target's name elsewhere |
 | `KONAN_SOURCE_DIR` | a library's `sourceDirectory` — libraries only |

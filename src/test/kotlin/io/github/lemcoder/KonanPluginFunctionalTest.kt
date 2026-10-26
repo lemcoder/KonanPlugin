@@ -170,6 +170,53 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a library build that leaves several archives is merged into one`() {
+        val tools = listOf("cc", "ar").map { tool -> listOf("/usr/bin", "/opt/homebrew/bin").map { File(it, tool) }.firstOrNull { it.canExecute() } }
+        assumeTrue(tools.all { it != null } && File("/bin/sh").canExecute(), "needs cc, ar and /bin/sh")
+        val (cc, ar) = tools.map { it!!.absolutePath }
+        val home = realKonanHome()
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            """
+            config.konanHome.set(file("$home"))
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.${host.name})
+                    external {
+                        step {
+                            executable.set(Executable.File(file("/bin/sh")))
+                            arguments.add("build.sh")
+                            workingDirectory.set(layout.projectDirectory)
+                        }
+                    }
+                }
+            }
+            bindings { create("mymath") { defFile.set(file("mymath.def")); library(libraries.getByName("mymath")) } }
+            """,
+        )
+        // Two archives, as a CMake project with a dependency leaves them: my_add in libmymath.a needs
+        // extra_value from libextra.a.
+        File(projectDir, "a.c").writeText("int extra_value(void);\nint my_add(int a, int b) { return a + b + extra_value(); }\n")
+        File(projectDir, "b.c").writeText("int extra_value(void) { return 0; }\n")
+        File(projectDir, "build.sh").writeText(
+            """
+            set -e
+            mkdir -p obj
+            $cc -c -fPIC a.c -o obj/a.o && $ar rcs "${'$'}KONAN_OUTPUT_DIR/lib${'$'}KONAN_LIB_NAME.a" obj/a.o
+            $cc -c -fPIC b.c -o obj/b.o && $ar rcs "${'$'}KONAN_OUTPUT_DIR/libextra.a" obj/b.o
+            """.trimIndent()
+        )
+
+        // Linking the JNI library needs both: the merged archive must carry extra_value.
+        val result = runner("linkJniMymath").withPluginClasspathAndKgp().build()
+
+        val archive = File(projectDir, "build/konan/libraries/mymath/${host.konanName}/libmymath.a")
+        val members = ProcessBuilder(ar, "t", archive.absolutePath).start().inputStream.bufferedReader().readText()
+        assertTrue("a.o" in members && "b.o" in members, "expected both objects in $archive:\n$members\n${result.output}")
+        assertTrue(File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}/${host.sharedLibraryName("examplestubs")}").isFile, result.output)
+    }
+
+    @Test
     fun `prebuilt archives are placed where every provider puts them`() {
         File(projectDir, "libs").mkdirs()
         File(projectDir, "libs/libmymath-linux.a").writeText("linux")

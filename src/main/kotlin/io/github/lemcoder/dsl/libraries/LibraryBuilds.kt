@@ -35,6 +35,7 @@ private fun Project.externalBuildOutput(library: NativeLibrarySpec): ExternalBui
         libraryFileName = { provider { NativeArtifacts.archiveFileName(name) } },
         outputDirectory = library::archiveDirectory,
         workDirectory = layout.buildDirectory.dir("konan/libraries/$name"),
+        archiveStaging = { target -> layout.buildDirectory.dir("konan/libraries/$name/out/${target.konanName}") },
         description = { target, tool -> "Build the '$name' library for ${target.konanName} with $tool." },
         extraVariables = { mapOf(ExternalVariable.SOURCE_DIR to library.sourceDirectory.map { it.asFile.absolutePath }) },
     )
