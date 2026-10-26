@@ -116,6 +116,7 @@ from the build script, else the Gradle property `konan.config.<field>` (the buil
 | `make`      | `konan.config.make`        | `KONAN_MAKE`         | `make { }` |
 | `cargo`     | `konan.config.cargo`       | `KONAN_CARGO`        | `cargo { }` |
 | `zig`       | `konan.config.zig`         | `KONAN_ZIG`          | `zig { }` |
+| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | optional: Android targets of external builds on `AUTO` (below) |
 
 ```kotlin
 konan {
@@ -268,7 +269,7 @@ Linux, its NDK sysroot on Android):
 
 | `toolchain`   | Meaning |
 |---------------|---------|
-| `AUTO`        | Kotlin/Native's when cross-compiling, the system's for the build host. The default of `make { }` and `cmake { }`. |
+| `AUTO`        | Kotlin/Native's when cross-compiling, the system's for the build host — and for Android, the NDK in `konan.config.androidNdk` when one is set. The default of `make { }`, `cmake { }` and `cargo { }`. |
 | `KONAN`       | Always Kotlin/Native's. |
 | `SYSTEM`      | Never: the build finds its own. The default of `external { }`, whose steps are the build script's own. |
 
@@ -277,6 +278,16 @@ environment; `make { }` also passes them on the command line, and `cmake { }` pa
 as `-DCMAKE_TOOLCHAIN_FILE` unless it uses a preset — a toolchain file in `arguments` still wins, an NDK's
 say. They are written per target by `konanToolchain<Target>` under `build/konan/toolchains/<target>/`:
 `cc` and `c++` wrap the clang `run_konan` would run, with the target's link flags when linking.
+
+**Android: your NDK, or Kotlin/Native's.** Kotlin/Native's Android toolchain is NDK r20 with clang 8 — enough
+for C, old for modern C++ (llama.cpp, whisper.cpp), and its libc++ must match whatever the archives are
+linked against. Set `konan.config.androidNdk` (or `ANDROID_NDK_HOME`) and every Android target on `AUTO`
+builds with that NDK instead: its `<triple><api>-clang` drivers, `llvm-ar` and `llvm-ranlib` as `CC`, `CXX`,
+`AR` and `RANLIB`; `cmake { }` gets its `android.toolchain.cmake` with `ANDROID_ABI` and `ANDROID_PLATFORM`
+(`androidApiLevel`); and `ANDROID_NDK_HOME` is in the environment, for presets that read it. Without one,
+such a build warns that it uses Kotlin/Native's; `toolchain.set(KONAN)` keeps it, without the warning. The
+plugin's own links (the JNI library, the library FFM loads) keep Kotlin/Native's toolchain either way:
+a binding over a library built with a newer NDK links it in your build too (`jni { cmake { } }`).
 
 #### Archives built elsewhere — `prebuilt { }`
 ```kotlin

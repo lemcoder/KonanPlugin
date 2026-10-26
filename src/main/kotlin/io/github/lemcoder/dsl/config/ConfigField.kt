@@ -16,6 +16,7 @@ enum class ConfigField(val dslName: String, val environmentVariable: String, val
     MAKE("make", "KONAN_MAKE", Kind.EXECUTABLE, "/path/to/make"),
     CARGO("cargo", "KONAN_CARGO", Kind.EXECUTABLE, "/path/to/cargo"),
     ZIG("zig", "KONAN_ZIG", Kind.EXECUTABLE, "/path/to/zig"),
+    ANDROID_NDK("androidNdk", "ANDROID_NDK_HOME", Kind.DIRECTORY, "/path/to/android-sdk/ndk/<version>"),
     ;
 
     val gradleProperty: String get() = "konan.config.$dslName"

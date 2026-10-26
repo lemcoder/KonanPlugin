@@ -61,6 +61,9 @@ internal enum class ToolchainVariable(override val variableName: String) : Exter
 
     /** A CMake toolchain file naming all three, with the target's system and processor. */
     CMAKE_TOOLCHAIN_FILE("KONAN_CMAKE_TOOLCHAIN_FILE"),
+
+    /** The Android NDK the compilers come from, when it is `konan.config.androidNdk`: what presets read. */
+    ANDROID_NDK_HOME("ANDROID_NDK_HOME"),
 }
 
 /** What an external build is told for one [target]: where to leave its output, and its contract. */
@@ -81,6 +84,10 @@ internal class ToolchainFiles(
     val ar: Provider<File>,
     val ranlib: Provider<File>,
     val cmakeToolchainFile: Provider<File>,
+    /** Cache entries the toolchain file needs, e.g. the NDK's `ANDROID_ABI`; passed with it. */
+    val cmakeDefinitions: Map<String, Provider<String>> = emptyMap(),
+    /** The Android NDK, when the compilers are its. */
+    val androidNdk: Provider<File>? = null,
 ) {
     /** The [ToolchainVariable]s, under the standard names. */
     val environment: Map<ExternalBuildVariable, Provider<String>> = mapOf(
@@ -89,5 +96,5 @@ internal class ToolchainFiles(
         ToolchainVariable.AR to ar.map { it.absolutePath },
         ToolchainVariable.RANLIB to ranlib.map { it.absolutePath },
         ToolchainVariable.CMAKE_TOOLCHAIN_FILE to cmakeToolchainFile.map { it.absolutePath },
-    )
+    ) + listOfNotNull(androidNdk?.let { ndk -> ToolchainVariable.ANDROID_NDK_HOME to ndk.map { it.absolutePath } })
 }

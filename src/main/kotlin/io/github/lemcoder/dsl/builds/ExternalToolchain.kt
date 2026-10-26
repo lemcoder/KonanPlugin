@@ -4,7 +4,10 @@ import io.github.lemcoder.model.NativeTarget
 
 /** Which compilers an external build uses for a target. */
 enum class ExternalToolchain {
-    /** Kotlin/Native's when cross-compiling, the system's for the build host. */
+    /**
+     * Kotlin/Native's when cross-compiling, the system's for the build host — and for Android, the NDK in
+     * `konan.config.androidNdk` when one is set.
+     */
     AUTO,
 
     /**

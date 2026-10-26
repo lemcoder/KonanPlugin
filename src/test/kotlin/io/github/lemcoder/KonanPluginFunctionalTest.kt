@@ -1,7 +1,7 @@
 package io.github.lemcoder
 
-import io.github.lemcoder.dsl.config.konanConfig
 import io.github.lemcoder.kotlin.KonanDistribution
+import io.github.lemcoder.model.HostOs
 import io.github.lemcoder.model.NativeTarget
 import java.io.File
 import java.util.jar.Attributes
@@ -76,10 +76,12 @@ class KonanPluginFunctionalTest {
         val output = runner("konanConfig", "-Pkonan.config.jextract=/from/property/jextract", "-Pkonan.config.zig=/from/property/zig")
             .withEnvironment(System.getenv() + mapOf("KONAN_ZIG" to "/from/env/zig", "KONAN_CARGO" to "/from/env/cargo"))
             .build().output
+            // The report aligns its columns to the longest field name; what is compared is the content.
+            .replace(Regex("[ \\t]+"), " ")
 
-        assertContains(output, "jextract   /from/dsl/jextract (build script) — not needed here")
-        assertContains(output, "zig        /from/property/zig (Gradle property konan.config.zig) — not needed here")
-        assertContains(output, "cargo      /from/env/cargo (environment variable KONAN_CARGO) — not needed here")
+        assertContains(output, "jextract /from/dsl/jextract (build script) — not needed here")
+        assertContains(output, "zig /from/property/zig (Gradle property konan.config.zig) — not needed here")
+        assertContains(output, "cargo /from/env/cargo (environment variable KONAN_CARGO) — not needed here")
         assertContains(output, "needed by :cmakeBuildMymathLinux_x64")
     }
 
@@ -214,6 +216,95 @@ class KonanPluginFunctionalTest {
         val members = ProcessBuilder(ar, "t", archive.absolutePath).start().inputStream.bufferedReader().readText()
         assertTrue("a.o" in members && "b.o" in members, "expected both objects in $archive:\n$members\n${result.output}")
         assertTrue(File(projectDir, "build/konan/bindings/mymath/jni/lib/${host.konanName}/${host.sharedLibraryName("examplestubs")}").isFile, result.output)
+    }
+
+    /** An NDK with the files the plugin hands over, empty: what matters is that a build is given them. */
+    private fun fakeNdk(): File {
+        val ndk = File(projectDir, "ndk")
+        val tag = when (HostOs.current) { HostOs.MACOS -> "darwin-x86_64"; HostOs.LINUX -> "linux-x86_64"; HostOs.WINDOWS -> "windows-x86_64" }
+        val bin = ndk.resolve("toolchains/llvm/prebuilt/$tag/bin").apply { mkdirs() }
+        listOf("aarch64-linux-android26-clang", "aarch64-linux-android26-clang++", "llvm-ar", "llvm-ranlib")
+            .forEach { bin.resolve(it).apply { writeText("#!/bin/sh\n"); setExecutable(true) } }
+        ndk.resolve("build/cmake").mkdirs()
+        ndk.resolve("build/cmake/android.toolchain.cmake").writeText("# fake\n")
+        return ndk
+    }
+
+    @Test
+    fun `an Android external build gets the NDK konan config names`() {
+        assumeTrue(File("/bin/sh").canExecute(), "needs /bin/sh")
+        val ndk = fakeNdk()
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            config.androidNdk.set(file("${ndk.absolutePath}"))
+            androidApiLevel.set(26)
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.ANDROID_ARM64)
+                    external {
+                        toolchain.set(io.github.lemcoder.dsl.builds.ExternalToolchain.AUTO)
+                        step {
+                            executable.set(Executable.File(file("/bin/sh")))
+                            arguments.add("build.sh")
+                            workingDirectory.set(layout.projectDirectory)
+                        }
+                    }
+                }
+            }
+            """,
+        )
+        File(projectDir, "build.sh").writeText("printf '%s|%s|%s' \"\$CC\" \"\$AR\" \"\$ANDROID_NDK_HOME\" > \"\$KONAN_OUTPUT_DIR/lib\$KONAN_LIB_NAME.a\"\n")
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        val (cc, ar, home) = File(projectDir, "build/konan/libraries/mymath/android_arm64/libmymath.a").readText().split('|')
+        assertTrue(cc.endsWith("/bin/aarch64-linux-android26-clang") && cc.startsWith(ndk.absolutePath), "CC: $cc\n${result.output}")
+        assertTrue(ar.endsWith("/bin/llvm-ar"), "AR: $ar")
+        assertEquals(ndk.absolutePath, home)
+        assertFalse("Kotlin/Native's own Android toolchain" in result.output, result.output)
+    }
+
+    @Test
+    fun `CMake gets the NDK's toolchain file, ABI and platform`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        val ndk = fakeNdk()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.16)
+            project(mymath NONE)
+            file(WRITE "${'$'}{CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/lib${'$'}{KONAN_LIB_NAME}.a" "${'$'}{CMAKE_TOOLCHAIN_FILE}|${'$'}{ANDROID_ABI}|${'$'}{ANDROID_PLATFORM}")
+            """.trimIndent()
+        )
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            config.androidNdk.set(file("${ndk.absolutePath}"))
+            androidApiLevel.set(26)
+            libraries { create("mymath") { targets(NativeTarget.ANDROID_ARM64); cmake { } } }
+            """,
+        )
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        val (toolchain, abi, platform) = File(projectDir, "build/konan/libraries/mymath/android_arm64/libmymath.a").readText().split('|')
+        assertEquals(ndk.resolve("build/cmake/android.toolchain.cmake").absolutePath, toolchain, result.output)
+        assertEquals("arm64-v8a", abi)
+        assertEquals("android-26", platform)
+    }
+
+    @Test
+    fun `an Android external build without an NDK says it uses Kotlin-Native's toolchain`() {
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """libraries { create("mymath") { targets(NativeTarget.ANDROID_ARM64); cmake { } } }""",
+        )
+
+        val result = runner("compileNativeLibraryMymath", "--dry-run").build()
+
+        assertTrue("with Kotlin/Native's own Android toolchain (NDK r20, clang 8)" in result.output, result.output)
     }
 
     @Test

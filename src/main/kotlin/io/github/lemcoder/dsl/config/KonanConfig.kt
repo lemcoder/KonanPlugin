@@ -51,6 +51,13 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
     abstract val zig: RegularFileProperty
 
     /**
+     * An Android NDK, for the Android targets of external builds (`cmake { }`, `make { }`, `cargo { }`,
+     * `external { }`) whose toolchain is `AUTO`: its compilers instead of Kotlin/Native's, whose NDK is r20
+     * with clang 8. Optional; unset, those builds use Kotlin/Native's and say so.
+     */
+    abstract val androidNdk: DirectoryProperty
+
+    /**
      * Where the Kotlin plugin installs Kotlin/Native for this host: `konanHome.set(kotlinNativeDistribution())`.
      * The project's Kotlin version when it applies the Kotlin plugin, else the plugin's default. Computed,
      * not searched for; a Kotlin Multiplatform build of that version with a native target downloads it.
@@ -95,6 +102,7 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
         ConfigField.MAKE -> make
         ConfigField.CARGO -> cargo
         ConfigField.ZIG -> zig
+        ConfigField.ANDROID_NDK -> androidNdk
     }
 
     /** Not whether it is installed: that is known when the task runs, not when the configuration cache stores. */

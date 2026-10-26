@@ -46,7 +46,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 ## Machine paths: `konan { config { } }`
 
 - **The single source of every path the plugin needs from the machine** — `konanHome`, `jextract`,
-  `cmake`, `make`, `cargo`, `zig`. Nothing is searched for: no `PATH` scan, no install-directory or
+  `cmake`, `make`, `cargo`, `zig`, `androidNdk`. Nothing is searched for: no `PATH` scan, no install-directory or
   `~/.konan` lookup, no JDK. `KonanConfig.readConfigField(field, usedBy)` reads the DSL, then the Gradle
   property `konan.config.<field>`, then the environment variable, and records `usedBy` for `konanConfig`.
   Add a path by adding a `ConfigField` entry and a property, never a per-block `executable`.
@@ -142,6 +142,11 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
   `LinkSharedLibraryTask` appends them last — the NDK's linker resolves archives in order — and links
   with `-Wl,--no-undefined`. Without that flag a missing symbol linked fine and failed only on the device
   ("cannot locate symbol"); never drop it to make a link pass.
+- **An Android external build on `AUTO` uses `konan.config.androidNdk` when it is set** (`AndroidNdkToolchain`:
+  the NDK's per-API clang drivers, its CMake toolchain file with `ANDROID_ABI`/`ANDROID_PLATFORM`), else
+  Kotlin/Native's NDK r20 / clang 8 with a warning — never silently (#6). The NDK's clang prefix for 32-bit
+  ARM is `armv7a-linux-androideabi`, its library directory `arm-linux-androideabi`. The plugin's own links stay
+  on Kotlin/Native's toolchain.
 - **The toolchain needs its own `ranlib`** (`llvm-ar s`): CMake indexes static archives with the host's,
   and Apple's `ranlib` silently drops ELF objects — a cross-built archive came out empty.
 - **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not
