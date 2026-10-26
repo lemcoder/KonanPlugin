@@ -5,22 +5,28 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
 > This plugin is based on awesome work by [aSemy](https://gist.github.com/aSemy) 🚀 
 
 ## Features
-- Builds C/C++ libraries into a static archive per Kotlin/Native target — with Kotlin/Native's own
-  clang, or with the project's own `build.zig`.
+- Builds C/C++ libraries into a static archive per target — with Kotlin/Native's clang (the Android NDK's
+  for Android), or with the project's own build: CMake, Make, Cargo for a Rust crate, `zig build`, or any
+  build system as a list of commands; or takes archives built elsewhere. A build that leaves several
+  archives (a CMake project with dependencies) is merged into one.
 - Binds one cinterop `.def` for every kind of Kotlin consumer the project has:
   - **Kotlin/Native** targets through KGP's own cinterop, the library's archive embedded in the klib;
   - **JVM** targets and **Android** through generated JNI bindings and a stub library per target, with
-    strings and primitive buffers marshalled;
+    strings, primitive buffers and structs marshalled;
   - the **JVM 22+** through jextract's FFM bindings, on request — and **Android** too, over
     [PanamaPort](https://github.com/vova7878/PanamaPort)'s backport of the FFM API.
+
+  One project can mix them: several libraries, each bound through JNI or FFM, in plain JVM, Android and
+  Kotlin Multiplatform modules. JavaScript and WebAssembly targets get no bindings.
+- Wires generated sources, `jniLibs`, jar resources and task order into Kotlin and Android builds; can
+  hand the JNI library, or the library FFM loads, to the project's own build instead.
+- Builds every Android library with the Android NDK — the one the Android Gradle plugin uses, or one you
+  name — with its C++ runtime linked in, so C++ and Rust libraries load on a device.
 - Has its own target type, `NativeTarget`, one entry per Kotlin/Native target; a KGP target converts
   with `NativeTarget.of(kotlinNativeTarget.konanTarget)`. The plugin's API does not depend on the
   Kotlin compiler's.
-- Wires generated sources, `jniLibs` and task order into Kotlin and Android builds; can hand the JNI
-  stub to the project's own build — CMake, or any build system as a list of commands — instead.
-- Takes every machine path from one place, [`config { }`](#config--) — nothing is searched for — and
-  finds the compiler-rt builtins each target needs inside the distribution (NDK on Android, Xcode on
-  macOS). Ships `jni.h`, so no JDK is needed to link JNI.
+- Takes every machine path from one place, [`config { }`](#config--) — nothing is searched for. Ships
+  `jni.h`, so no JDK is needed to link JNI.
 
 ## Installation
 1. Apply the plugin in your `build.gradle.kts`:
@@ -37,6 +43,11 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
    ```
    or `konan { config { konanHome.set(kotlinNativeDistribution()) } }`, which names where the Kotlin
    plugin installs your project's Kotlin/Native version — see [Kotlin versions](#kotlin-versions).
+
+3. For Android targets, install an NDK (r23 or newer). In an Android module the plugin uses the one the
+   Android Gradle plugin does — `android { ndkVersion = "…" }`, else AGP's default — so installing it
+   (SDK Manager → SDK Tools → NDK (Side by side)) is enough; elsewhere, or to choose another, set
+   `konan.config.androidNdk` or `ANDROID_NDK_HOME`. See [Android: the NDK](#android-the-ndk-and-its-c-runtime).
 
 ### Kotlin versions
 JNI and FFM bindings are generated from cinterop's own C model, by code that runs inside the
@@ -613,7 +624,7 @@ On Android these are ordered ahead of `preBuild` and the Kotlin compile tasks au
 - `examples/native` — Kotlin/Native consumer through KGP's cinterop.
 - `examples/jvm` — plain JVM app loading the JNI library bundled in its jar.
 - `examples/android` — one Android app over three libraries: C and Rust through JNI, C++ through FFM.
-  `scripts/run-android.sh` publishes the plugin, builds, installs and launches it in one command.
+  `scripts/run-android.sh` builds, installs and launches it in one command.
 - `examples/kmp` — Kotlin Multiplatform library for iOS, macOS, Linux and Android: one binding, cinterop on Kotlin/Native and JNI on
   Android, behind an `expect`/`actual` API, plus an Android app over it.
 
@@ -654,6 +665,10 @@ The DSL is new and there is no compatibility shim.
   `library(target, file)`: `archive(…)` and `sharedLibrary(…)` are gone.
 - JNI bindings are named after the C functions (`my_add`), not `kniBridge0`; tasks are `generateJni…` and
   `linkJni…`.
+- Android needs an Android NDK (r23 or newer), which builds every Android library: in an Android module the
+  one the Android Gradle plugin uses, else `konan.config.androidNdk` or `ANDROID_NDK_HOME`. Kotlin/Native's
+  own Android toolchain is no longer used, and `androidApiLevel` is no longer capped at 29.
+- A library's build may leave several archives in `KONAN_OUTPUT_DIR`; they are merged into `lib<name>.a`.
 
 ## License
 This project is licensed under the Apache 2.0 License. For more details, see the `LICENSE` file.
