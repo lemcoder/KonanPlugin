@@ -296,15 +296,18 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
-    fun `an Android external build without an NDK says it uses Kotlin-Native's toolchain`() {
+    fun `an Android build without an NDK fails saying how to set one`() {
         write(
             """id("io.github.lemcoder.konanplugin")""",
-            """libraries { create("mymath") { targets(NativeTarget.ANDROID_ARM64); cmake { } } }""",
+            """libraries { create("mymath") { targets(NativeTarget.ANDROID_ARM64) } }""",
         )
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
 
-        val result = runner("compileNativeLibraryMymath", "--dry-run").build()
+        val result = runner("compileNativeLibraryMymath").withEnvironment(System.getenv() - "ANDROID_NDK_HOME").buildAndFail()
 
-        assertTrue("with Kotlin/Native's own Android toolchain (NDK r20, clang 8)" in result.output, result.output)
+        assertContains(result.output, "konan.config.androidNdk is not set — :konanClangMymath needs it.")
+        assertContains(result.output, "<Android SDK>/ndk/<version>")
     }
 
     @Test
@@ -353,6 +356,15 @@ class KonanPluginFunctionalTest {
     }
 
     /** The installed Kotlin/Native distribution, for tests that really cross-compile with it. */
+    /** An installed NDK, for tests that really build for Android: ANDROID_NDK_HOME, else the SDK's newest. */
+    private fun realNdk(): String {
+        val sdk = listOfNotNull(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"), "${System.getProperty("user.home")}/Library/Android/sdk", "${System.getProperty("user.home")}/Android/Sdk")
+        val ndk = System.getenv("ANDROID_NDK_HOME")?.let(::File)?.takeIf { it.isDirectory }
+            ?: sdk.map { File(it, "ndk") }.firstOrNull { it.isDirectory }?.listFiles()?.filter { it.resolve("source.properties").isFile }?.maxByOrNull { it.name }
+        assumeTrue(ndk != null, "needs an Android NDK (ANDROID_NDK_HOME, or the SDK's ndk/)")
+        return ndk!!.absolutePath.replace("\\", "/")
+    }
+
     private fun realKonanHome(): String {
         assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
         return KonanDistribution.installed()!!.home.absolutePath.replace("\\", "/")
@@ -622,29 +634,47 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
-    fun `an Android link of C++ carries libc++ and the unwinder, and leaves nothing undefined`() {
+    fun `Android libraries compile and link with the NDK, its C++ runtime inside`() {
         val home = realKonanHome()
+        val ndk = realNdk()
         File(projectDir, "native").mkdirs()
-        // operator new, std::vector and a throw: libc++, libc++abi and _Unwind_* — none of which Android provides.
+        // Floating-point std::to_chars is C++17 libc++ that Kotlin/Native's NDK r20 does not have; operator new
+        // and a throw need libc++abi and the unwinder, which Android gives apps none of.
         File(projectDir, "native/mymath.cpp").writeText(
             """
-            #include <numeric>
+            #include <charconv>
             #include <stdexcept>
-            #include <vector>
+            #include <string>
             extern "C" int my_add(int a, int b) {
-                std::vector<int> values{a, b};
-                try { if (values.empty()) throw std::runtime_error("empty"); } catch (const std::exception &) { return 0; }
-                return std::accumulate(values.begin(), values.end(), 0);
+                char buffer[32];
+                auto end = std::to_chars(buffer, buffer + sizeof buffer, double(a + b)).ptr;
+                std::string text(buffer, end);
+                try { if (text.empty()) throw std::runtime_error("empty"); } catch (const std::exception &) { return 0; }
+                return std::stoi(text);
             }
             """.trimIndent()
         )
-        val android = mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.ANDROID_ARM64)")
-        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", "config.konanHome.set(file(\"$home\"))\n$android")
+        // AThermal_acquireManager is API 30: past the 29 Kotlin/Native's NDK stops at.
+        File(projectDir, "native/thermal.c").writeText(
+            "#include <android/thermal.h>\nint my_thermal(void) { AThermalManager *m = AThermal_acquireManager(); if (m) AThermal_releaseManager(m); return m != 0; }\n"
+        )
+        val android = mymath
+            .replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.ANDROID_ARM64)")
+            .replace("library(mymath)", "library(mymath); jni { linkerOptions.add(\"-landroid\") }")
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            "config.konanHome.set(file(\"$home\"))\nconfig.androidNdk.set(file(\"$ndk\"))\nandroidApiLevel.set(31)\n$android",
+        )
 
-        // The link uses --no-undefined: without the runtime it fails here, not when the app loads the library.
+        // --no-undefined: a missing runtime would fail here, not when the app loads the library.
         val result = runner("linkJniMymathAndroid_arm64").withPluginClasspathAndKgp().build()
 
-        assertTrue(File(projectDir, "build/konan/bindings/mymath/jni/jniLibs/arm64-v8a/libexamplestubs.so").isFile, result.output)
+        val library = File(projectDir, "build/konan/bindings/mymath/jni/jniLibs/arm64-v8a/libexamplestubs.so")
+        assertTrue(library.isFile, result.output)
+        val readelf = File(ndk).walk().first { it.name == "llvm-readelf" && it.parentFile.name == "bin" }.absolutePath
+        fun readelf(vararg args: String) = ProcessBuilder(listOf(readelf) + args + library.absolutePath).start().inputStream.bufferedReader().readText()
+        assertContains(readelf("-p", ".comment"), "Linker: LLD", message = "linked by the NDK's LLD")
+        assertFalse("libc++_shared" in readelf("-d"), "the C++ runtime is static")
     }
 
     @Test
@@ -652,8 +682,9 @@ class KonanPluginFunctionalTest {
         val home = realKonanHome()
         File(projectDir, "native").mkdirs()
         File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        val ndk = realNdk()
         val hostAndAndroid = mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.${host.name}, NativeTarget.ANDROID_ARM64)")
-        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", "config.konanHome.set(file(\"$home\"))\n$hostAndAndroid")
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", "config.konanHome.set(file(\"$home\"))\nconfig.androidNdk.set(file(\"$ndk\"))\n$hostAndAndroid")
 
         // Executed, not a dry run: Gradle rejects a link that reads the stub without depending on its
         // generator only when both run — and here only with more than one link.

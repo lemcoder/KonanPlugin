@@ -1,5 +1,6 @@
 package io.github.lemcoder.dsl.libraries
 
+import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.model.taskName
 import io.github.lemcoder.util.cleanTask
@@ -18,12 +19,12 @@ private val DEFAULT_COMPILER_OPTIONS = listOf("-fno-sanitize=undefined", "-fPIC"
 
 /**
  * The default library build: the sources in [NativeLibrarySpec.sourceDirectory], compiled with
- * Kotlin/Native's clang and archived with its llvm-ar.
+ * Kotlin/Native's clang and archived with its llvm-ar — for Android targets, the NDK's.
  */
 internal fun registerKonanClang(project: Project, konan: KonanExtension, library: NativeLibrarySpec): TaskProvider<*> =
     project.tasks.register(taskName("konanClang", library.name), CompileNativeLibraryTask::class.java) {
         group = "konan"
-        description = "Compile the '${library.name}' C/C++ sources with Kotlin/Native's clang."
+        description = "Compile the '${library.name}' C/C++ sources with Kotlin/Native's clang, and the Android NDK's for Android."
         // `clean` and this task are otherwise unordered, and the scratch dir this one writes to lives
         // under build/tmp — so `gradle clean assembleDebug` can delete it mid-compile.
         mustRunAfter(project.cleanTask())
@@ -33,6 +34,10 @@ internal fun registerKonanClang(project: Project, konan: KonanExtension, library
         sourceFiles.from(library.sourceDirectory.map { it.asFileTree })
         includeDirs.from(library.sourceDirectory, library.includeDirs)
         libName.set(library.name)
+        if (library.targets.getOrElse(emptyList()).any { it.isAndroid }) {
+            androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
+            androidApiLevel.set(konan.androidApiLevel)
+        }
         arguments.addAll(DEFAULT_COMPILER_OPTIONS)
         arguments.addAll(library.compilerOptions)
 

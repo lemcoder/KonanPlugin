@@ -1,5 +1,6 @@
 package io.github.lemcoder.dsl.libraries
 
+import io.github.lemcoder.android.AndroidNdk
 import io.github.lemcoder.dsl.config.ConfigValue
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.kotlin.distribution
@@ -25,9 +26,9 @@ import org.gradle.process.ExecOperations
 import org.gradle.work.DisableCachingByDefault
 
 /**
- * Compile C/C++ source files using the
- * [`run_konan`](https://github.com/JetBrains/kotlin/blob/v1.9.0/kotlin-native/HACKING.md#running-clang-the-same-way-kotlinnative-compiler-does)
- * utility.
+ * Compiles C/C++ sources and archives them, per target: with Kotlin/Native's clang and llvm-ar through
+ * [`run_konan`](https://github.com/JetBrains/kotlin/blob/v1.9.0/kotlin-native/HACKING.md#running-clang-the-same-way-kotlinnative-compiler-does),
+ * and for Android targets with the NDK's — [androidNdk], required then.
  */
 @DisableCachingByDefault(because = "Output depends on the local Kotlin/Native toolchain, which is not a tracked input")
 internal abstract class CompileNativeLibraryTask @Inject constructor(
@@ -51,8 +52,18 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     @get:PathSensitive(RELATIVE)
     abstract val includeDirs: ConfigurableFileCollection
 
-    /** The Kotlin/Native distribution whose clang compiles. */
+    /** The Kotlin/Native distribution whose clang compiles every target but Android's. */
     @get:Internal abstract override val konanHome: Property<ConfigValue>
+
+    /** The Android NDK whose clang compiles Android targets; set when there is one. */
+    @get:Internal abstract val androidNdk: Property<ConfigValue>
+
+    /** Which NDK — path and revision — so another one recompiles. */
+    @get:Input @get:Optional
+    val androidNdkIdentity: Provider<String> get() = androidNdk.map { AndroidNdk.identity(it) }
+
+    /** The API level Android targets compile for. */
+    @get:Input @get:Optional abstract val androidApiLevel: Property<Int>
 
     /** Targets to compile for */
     @get:Input
@@ -74,9 +85,16 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
     @TaskAction
     fun compileAndLink() {
         val workingDir = workingDir.asFile.getOrElse(temporaryDir)
-        val distribution = distribution()
+        // Each only when a target needs it: an Android-only library needs no Kotlin/Native, a host one no NDK.
+        val distribution by lazy { distribution() }
+        val ndk by lazy { AndroidNdk.of(androidNdk.get()) }
+        val apiLevel = androidApiLevel.getOrElse(AndroidNdk.DEFAULT_API_LEVEL)
         targets.get().forEach { target ->
-            distribution.ensureDependencies(target, exec, temporaryDir.resolve("dependencies"))
+            val clang: (List<String>) -> List<String> =
+                if (target.isAndroid) { args -> listOf(ndk.clang(target, apiLevel).absolutePath) + args } else { args -> distribution.clang(target, args) }
+            val llvmAr: (List<String>) -> List<String> =
+                if (target.isAndroid) { args -> listOf(ndk.llvmAr.absolutePath) + args } else distribution::llvmAr
+            if (!target.isAndroid) distribution.ensureDependencies(target, exec, temporaryDir.resolve("dependencies"))
             // prepare output dirs
             val sourcesDir = workingDir.resolve("sources")
             val headersDir = workingDir.resolve("headers")
@@ -118,7 +136,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
 
             // compile files
             val compileResult = exec.execCapture {
-                commandLine(distribution.clang(target, listOf("@args")))
+                commandLine(clang(listOf("@args")))
                 workingDir(compileDir)
             }
 
@@ -155,7 +173,7 @@ internal abstract class CompileNativeLibraryTask @Inject constructor(
 
             // link files
             val linkResult = exec.execCapture {
-                commandLine(distribution.llvmAr(listOf("@args")))
+                commandLine(llvmAr(listOf("@args")))
                 workingDir(linkDir)
             }
 

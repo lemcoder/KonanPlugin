@@ -3,6 +3,7 @@ package io.github.lemcoder.dsl.bindings.ffm
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
 import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
+import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.dsl.libraries.PlacePrebuiltFilesTask
 import io.github.lemcoder.model.NativeTarget
@@ -43,6 +44,7 @@ internal fun registerFfmLink(
             description = "Link the '$libraryName' library for ${target.konanName}, for the FFM bindings."
             dependsOn(artifacts.builtBy)
             androidApiLevel.set(konan.androidApiLevel)
+            if (target.isAndroid) androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
             this.target.set(target)
             libraryBaseName.set(libraryName)
             staticLibrary.set(artifacts.archive(target))

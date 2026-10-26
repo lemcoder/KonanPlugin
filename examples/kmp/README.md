@@ -74,8 +74,9 @@ docker run --rm --platform linux/amd64 -v "$PWD/shared/build/bin/linuxX64":/kn u
 ../../gradlew -p . :androidApp:installDebug
 ```
 
-Needs Xcode for the iOS and macOS targets, and an Android SDK (`local.properties` or `ANDROID_HOME`). Kotlin/Native's
-distribution brings the NDK sysroot the Android library is built against.
+Needs Xcode for the iOS and macOS targets, an Android SDK (`local.properties` or `ANDROID_HOME`), and an
+Android NDK for the Android library: `ANDROID_NDK_HOME=<Android SDK>/ndk/<version>`, or
+`konan.config.androidNdk` in `~/.gradle/gradle.properties`.
 
 From Swift, the common API is in the framework:
 

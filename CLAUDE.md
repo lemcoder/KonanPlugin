@@ -34,7 +34,7 @@ resolved the moment the plugin is applied, in *every* project that applies it.
     their contract (`ExternalVariable`), `selectOne`, and the Zig and Rust target triples.
 - **What no single block owns stays outside `dsl`**: `model/` the shared domain (`NativeTarget`, `HostOs`,
   `Executable`, `taskName`), `kotlin/` the touchpoints with Kotlin (distribution, KGP, Xcode's compiler-rt for
-  its links, the index exporter client), `index/` the generate task, `wiring/` AGP and plugin ids, `util/`
+  its links, the index exporter client), `android/` the Android NDK every Android build uses, `index/` the generate task, `wiring/` AGP and plugin ids, `util/`
   process and Gradle helpers. Task names come from `taskName(...)`, OS checks from `HostOs`, the
   distribution's layout from `KonanDistribution` — add to those, don't re-derive. `BindingVisibility` lives
   in `src/exporterProtocol` so the DSL and the generator share one enum.
@@ -136,17 +136,18 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 - **Link flags live in `KonanDistribution.linkArguments`**: `-fuse-ld=lld` for Linux (the GCC toolchain's
   `ld.bfd` is a Linux binary; a cross link from macOS fails without it), NDK compiler-rt and
   `--unwindlib=none` for Android, Xcode's compiler-rt for macOS. The wrappers add them only when linking.
-- **Android has no libc++ and no unwinder for apps, but Kotlin/Native's NDK does**: `libc++_static.a` and
-  `libc++abi.a` in its toolchain's `sysroot/usr/lib/<triple>/`, the unwinder in `lib/gcc/<triple>/4.9.x/libgcc_real.a`
-  (not in the sysroot, which is why it looked missing). `KonanDistribution.androidRuntime` lists them;
-  `LinkSharedLibraryTask` appends them last — the NDK's linker resolves archives in order — and links
-  with `-Wl,--no-undefined`. Without that flag a missing symbol linked fine and failed only on the device
-  ("cannot locate symbol"); never drop it to make a link pass.
-- **An Android external build on `AUTO` uses `konan.config.androidNdk` when it is set** (`AndroidNdkToolchain`:
-  the NDK's per-API clang drivers, its CMake toolchain file with `ANDROID_ABI`/`ANDROID_PLATFORM`), else
-  Kotlin/Native's NDK r20 / clang 8 with a warning — never silently (#6). The NDK's clang prefix for 32-bit
-  ARM is `armv7a-linux-androideabi`, its library directory `arm-linux-androideabi`. The plugin's own links stay
-  on Kotlin/Native's toolchain.
+- **Android requires an NDK (`konan.config.androidNdk`), and everything Android uses it** — `android/AndroidNdk`:
+  the default library build (`CompileNativeLibraryTask`), the JNI and FFM links (`LinkSharedLibraryTask`), and
+  external builds on `AUTO` (`AndroidNdkToolchain`). Kotlin/Native's Android toolchain is clang 21 driving NDK
+  r20's sysroot, libc++ and LLD 8, with sysroots only up to API 29; mixing it with archives built by a current NDK
+  is what broke koinference. Only an external build with `toolchain = KONAN` still uses it. The tasks read the NDK
+  as a `ConfigValue` checked when they run, and track its path and `Pkg.Revision` as an input.
+- **An Android link compiles the stub with the NDK's C driver, then links with its C++ driver**:
+  `-static-libstdc++` puts libc++, libc++abi and libunwind in the library (Android gives apps none), and
+  `-Wl,--no-undefined` makes a missing symbol fail the link — without it, it linked fine and failed only on
+  the device ("cannot locate symbol"); never drop it to make a link pass. The stub is C: `clang++` would
+  compile a `.c` as C++, where `(*env)->…` does not compile. The NDK's clang prefix for 32-bit ARM is
+  `armv7a-linux-androideabi`, its library directory `arm-linux-androideabi`.
 - **The toolchain needs its own `ranlib`** (`llvm-ar s`): CMake indexes static archives with the host's,
   and Apple's `ranlib` silently drops ELF objects — a cross-built archive came out empty.
 - **`external { }` defaults to `ExternalToolchain.SYSTEM`**, the presets to `AUTO`: generic steps may not

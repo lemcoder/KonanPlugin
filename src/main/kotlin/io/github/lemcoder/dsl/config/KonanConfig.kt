@@ -51,9 +51,10 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
     abstract val zig: RegularFileProperty
 
     /**
-     * An Android NDK, for the Android targets of external builds (`cmake { }`, `make { }`, `cargo { }`,
-     * `external { }`) whose toolchain is `AUTO`: its compilers instead of Kotlin/Native's, whose NDK is r20
-     * with clang 8. Optional; unset, those builds use Kotlin/Native's and say so.
+     * An Android NDK (r23 or newer), required for Android targets: the plugin compiles and links every
+     * Android library with it — the default library build, the JNI library, the library FFM loads — and
+     * external builds on the `AUTO` toolchain get its compilers. Kotlin/Native's own Android toolchain (NDK
+     * r20) is used only by external builds that ask for it with `KONAN`.
      */
     abstract val androidNdk: DirectoryProperty
 
@@ -80,7 +81,12 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
 
     /** [field] as [readConfigField] reads it, without counting [usedBy] as needing it. */
     internal fun resolve(field: ConfigField, usedBy: String): Provider<ConfigValue> {
-        val hint = if (field == ConfigField.KONAN_HOME) konanHomeHint() else null
+        val hint = when (field) {
+            ConfigField.KONAN_HOME -> konanHomeHint()
+            ConfigField.ANDROID_NDK ->
+                "Android Studio installs NDKs under <Android SDK>/ndk/<version> (SDK Manager → SDK Tools → NDK (Side by side))."
+            else -> null
+        }
         fun value(source: ConfigSource) = { raw: String -> ConfigValue(field, raw, source, usedBy, hint) }
         return property(field).map { it.asFile.absolutePath }.map(value(ConfigSource.DSL))
             .orElse(providers.gradleProperty(field.gradleProperty).map(value(ConfigSource.GRADLE_PROPERTY)))

@@ -1,5 +1,6 @@
 package io.github.lemcoder.dsl.builds
 
+import io.github.lemcoder.android.AndroidNdk
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.kotlin.KonanToolchain
@@ -67,19 +68,16 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
         return output.targets.map { target ->
             val name = taskName(taskPrefix + output.side, output.name, target)
             val taskPath = if (project.path == ":") ":$name" else "${project.path}:$name"
-            // An Android target on AUTO gets the configured NDK; without one, Kotlin/Native's — and is told so.
-            val ndk = konan.config.resolve(ConfigField.ANDROID_NDK, taskPath)
-                .takeIf { target.isAndroid && toolchain == ExternalToolchain.AUTO && it.get().raw != null }
-            val konanToolchain = toolchain?.takeIf { ndk == null && it.usesKonan(target) }?.let { KonanToolchain.of(project, target) }
-            if (konanToolchain != null && target.isAndroid && toolchain == ExternalToolchain.AUTO) {
-                project.logger.warn(
-                    "$taskPath builds ${target.konanName} with Kotlin/Native's own Android toolchain (NDK r20, clang 8). " +
-                        "Set konan.config.androidNdk (or ANDROID_NDK_HOME) to build with your NDK, or the block's " +
-                        "toolchain to KONAN to keep this one without the warning."
+            // An Android target on AUTO builds with the NDK in konan.config, which it then requires; only an
+            // explicit KONAN keeps Kotlin/Native's own Android toolchain (NDK r20).
+            val ndk = target.isAndroid && toolchain == ExternalToolchain.AUTO
+            val konanToolchain = toolchain?.takeIf { !ndk && it.usesKonan(target) }?.let { KonanToolchain.of(project, target) }
+            val toolchainFiles = if (ndk) {
+                AndroidNdkToolchain.files(
+                    konan.config.readConfigField(ConfigField.ANDROID_NDK, taskPath), target,
+                    konan.androidApiLevel.orElse(AndroidNdk.DEFAULT_API_LEVEL),
                 )
-            }
-            val toolchainFiles = ndk?.let { AndroidNdkToolchain.files(konan.config.readConfigField(ConfigField.ANDROID_NDK, taskPath), target, konan.androidApiLevel.orElse(DEFAULT_ANDROID_API)) }
-                ?: konanToolchain?.files
+            } else konanToolchain?.files
             val targetOutput = output.outputDirectory(target)
             val staging = output.archiveStaging?.invoke(target)
             // Where the build itself writes: the staging directory for archives, else the final one.
@@ -113,9 +111,6 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
     }
 
     companion object {
-        /** The NDK's lowest API level, when the module gives none (no `minSdk`). */
-        private const val DEFAULT_ANDROID_API = 21
-
         /** The build system [settings] configure. */
         fun of(settings: ExternalBuildSettings): ExternalBuild = when (settings) {
             is StepsSettings -> Generic(settings)

@@ -57,8 +57,9 @@ internal class KonanDistribution(
      * [target] — the one place these are known, for the plugin's own links and the toolchain it hands
      * to external builds:
      * - Linux: `lld`. The GCC toolchain's own `ld.bfd` is a Linux binary, so a cross link fails without it.
-     * - Android: the NDK's compiler-rt, which Kotlin/Native's LLVM lacks, and no unwinder from clang's
-     *   default: the plugin's own links end with [androidRuntime] instead.
+     * - Android: the NDK's compiler-rt, which Kotlin/Native's LLVM lacks, and no unwinder. Only external
+     *   builds that ask for Kotlin/Native's toolchain (`KONAN`) link Android this way; the plugin's own
+     *   Android builds use the Android NDK in `konan.config`.
      * - macOS: Xcode's compiler-rt, which Apple-framework code needs and Kotlin/Native's LLVM lacks.
      */
     fun linkArguments(target: NativeTarget, exec: ExecOperations): List<String> = when (target.family) {
@@ -78,25 +79,6 @@ internal class KonanDistribution(
         val line = result.output.lineSequence().firstOrNull { it.endsWith(" --version") && it.contains(" -target ") }
             ?: error("run_konan did not echo its ${driver.toolName} command for ${target.konanName}:\n${result.output}")
         return line.removeSuffix(" --version").split(' ').filter { it.isNotEmpty() }
-    }
-
-    /**
-     * [target]'s sysroot at Android API [apiLevel], or the highest below it the NDK has: the one `run_konan`
-     * links against, at another level. Kotlin/Native's level, 21, predates platform libraries such as
-     * `libaaudio`; its NDK stops at 29.
-     */
-    fun androidSysroot(target: NativeTarget, apiLevel: Int, exec: ExecOperations): File {
-        val default = clangCommand(target, ClangDriver.C, exec).firstOrNull { it.startsWith("--sysroot=") }
-            ?.let { File(it.removePrefix("--sysroot=")) }
-            ?: error("run_konan passes no --sysroot for ${target.konanName}")
-        // <ndk>/android-<level>/arch-<arch>
-        val ndk = default.parentFile.parentFile
-        val available = ndk.list().orEmpty()
-            .mapNotNull { it.removePrefix("android-").takeIf { _ -> it.startsWith("android-") }?.toIntOrNull() }
-            .filter { ndk.resolve("android-$it").resolve(default.name).isDirectory }
-        val level = available.filter { it <= apiLevel }.maxOrNull()
-            ?: error("Kotlin/Native's NDK has no API level up to $apiLevel for ${target.konanName}; it has ${available.sorted().joinToString()}")
-        return ndk.resolve("android-$level").resolve(default.name)
     }
 
     /**
@@ -127,36 +109,12 @@ internal class KonanDistribution(
     fun ndkResourceDirectory(): File? =
         ndkToolchain()?.resolve("lib64/clang")?.listFiles { f -> f.isDirectory }?.maxByOrNull { it.name }
 
-    /**
-     * The archives the plugin's own Android links end with, so a library that needs them loads on a device,
-     * which provides neither: libc++ (`libc++_static`, `libc++abi`) for C++ code, and libgcc's unwinder
-     * (`libgcc_real`, the NDK's `_Unwind_*`) for C++ exceptions and Rust's std. An archive only contributes
-     * what is referenced, so a C library links as before. Full paths, not `-L`: the sysroot's library
-     * directory also holds a static libc, which would win over the shared one.
-     */
-    fun androidRuntime(target: NativeTarget): List<File> {
-        val toolchain = ndkToolchain() ?: return emptyList()
-        val triple = NDK_TRIPLES[target] ?: return emptyList()
-        return listOf(
-            toolchain.resolve("sysroot/usr/lib/$triple/libc++_static.a"),
-            toolchain.resolve("sysroot/usr/lib/$triple/libc++abi.a"),
-            toolchain.resolve("lib/gcc/$triple/4.9.x/libgcc_real.a"),
-        ).filter { it.isFile }
-    }
-
     /** Kotlin/Native's NDK toolchain among its dependencies: the one with clang's resource directory. */
     private fun ndkToolchain(): File? = home.parentFile.resolve("dependencies")
         .listFiles { f -> f.isDirectory && f.name.contains("android_ndk") && f.resolve("lib64/clang").isDirectory }
         ?.firstOrNull()
 
     companion object {
-        /** The NDK's directory names for each Android target's libraries. */
-        private val NDK_TRIPLES = mapOf(
-            NativeTarget.ANDROID_ARM64 to "aarch64-linux-android",
-            NativeTarget.ANDROID_X64 to "x86_64-linux-android",
-            NativeTarget.ANDROID_ARM32 to "arm-linux-androideabi",
-            NativeTarget.ANDROID_X86 to "i686-linux-android",
-        )
 
         /**
          * Where the Kotlin plugin installs Kotlin/Native [version] for this host:

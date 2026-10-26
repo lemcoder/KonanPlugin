@@ -4,6 +4,7 @@ import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
 import io.github.lemcoder.dsl.bindings.DefFile
 import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
+import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.dsl.libraries.NativeArtifacts
 import io.github.lemcoder.index.GenerateFromNativeIndexTask
 import io.github.lemcoder.index.GeneratorRequest
@@ -37,6 +38,7 @@ internal fun registerKonanLink(
             artifacts?.let { dependsOn(it.builtBy) }
             mustRunAfter(project.cleanTask())
             androidApiLevel.set(konan.androidApiLevel)
+            if (target.isAndroid) androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
             this.target.set(target)
             libraryBaseName.set(jni.stubLibraryName)
             stubCFile.set(generate.flatMap { it.outputDirectory.file(jni.stubLibraryName.map { name -> "${GeneratorRequest.Jni.C_DIR}/$name.c" }) })

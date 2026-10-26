@@ -99,7 +99,7 @@ yourself — in Kotlin, or over your own build of the library for the web.
 
 | Property          | Type  | Default | Description |
 |-------------------|-------|---------|-------------|
-| `androidApiLevel` | `Int` | the module's lowest `minSdk`, else Kotlin/Native's, 21 | The API level whose sysroot the plugin's Android links use, so platform libraries such as `libaaudio` or `libcamera2ndk` link. Kotlin/Native's NDK stops at 29; a higher level uses the highest it has. |
+| `androidApiLevel` | `Int` | the module's lowest `minSdk`, else 21 | The API level Android libraries are compiled and linked for, with the NDK's matching clang driver, so platform libraries such as `libaaudio` or `libcamera2ndk` link. A level outside the NDK's range uses its nearest. |
 | `config { }`      |       |         | The paths the plugin needs from the machine; below. |
 
 ### `config { }`
@@ -116,7 +116,7 @@ from the build script, else the Gradle property `konan.config.<field>` (the buil
 | `make`      | `konan.config.make`        | `KONAN_MAKE`         | `make { }` |
 | `cargo`     | `konan.config.cargo`       | `KONAN_CARGO`        | `cargo { }` |
 | `zig`       | `konan.config.zig`         | `KONAN_ZIG`          | `zig { }` |
-| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | optional: Android targets of external builds on `AUTO` (below) |
+| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | every Android target: the plugin's own compiles and links, and external builds on `AUTO` (below) |
 
 ```kotlin
 konan {
@@ -269,7 +269,7 @@ Linux, its NDK sysroot on Android):
 
 | `toolchain`   | Meaning |
 |---------------|---------|
-| `AUTO`        | Kotlin/Native's when cross-compiling, the system's for the build host — and for Android, the NDK in `konan.config.androidNdk` when one is set. The default of `make { }`, `cmake { }` and `cargo { }`. |
+| `AUTO`        | Kotlin/Native's when cross-compiling, the system's for the build host — and for Android, the NDK in `konan.config.androidNdk`, which it then requires. The default of `make { }`, `cmake { }` and `cargo { }`. |
 | `KONAN`       | Always Kotlin/Native's. |
 | `SYSTEM`      | Never: the build finds its own. The default of `external { }`, whose steps are the build script's own. |
 
@@ -279,15 +279,12 @@ as `-DCMAKE_TOOLCHAIN_FILE` unless it uses a preset — a toolchain file in `arg
 say. They are written per target by `konanToolchain<Target>` under `build/konan/toolchains/<target>/`:
 `cc` and `c++` wrap the clang `run_konan` would run, with the target's link flags when linking.
 
-**Android: your NDK, or Kotlin/Native's.** Kotlin/Native's Android toolchain is NDK r20 with clang 8 — enough
-for C, old for modern C++ (llama.cpp, whisper.cpp), and its libc++ must match whatever the archives are
-linked against. Set `konan.config.androidNdk` (or `ANDROID_NDK_HOME`) and every Android target on `AUTO`
-builds with that NDK instead: its `<triple><api>-clang` drivers, `llvm-ar` and `llvm-ranlib` as `CC`, `CXX`,
-`AR` and `RANLIB`; `cmake { }` gets its `android.toolchain.cmake` with `ANDROID_ABI` and `ANDROID_PLATFORM`
-(`androidApiLevel`); and `ANDROID_NDK_HOME` is in the environment, for presets that read it. Without one,
-such a build warns that it uses Kotlin/Native's; `toolchain.set(KONAN)` keeps it, without the warning. The
-plugin's own links (the JNI library, the library FFM loads) keep Kotlin/Native's toolchain either way:
-a binding over a library built with a newer NDK links it in your build too (`jni { cmake { } }`).
+**Android builds with your NDK.** An external build's Android targets on `AUTO` get the NDK in
+`konan.config.androidNdk` (or `ANDROID_NDK_HOME`): its `<triple><api>-clang` drivers, `llvm-ar` and
+`llvm-ranlib` as `CC`, `CXX`, `AR` and `RANLIB`; for `cmake { }` its `android.toolchain.cmake` with
+`ANDROID_ABI` and `ANDROID_PLATFORM` (`androidApiLevel`); and `ANDROID_NDK_HOME` in the environment, for
+presets that read it. Kotlin/Native's own Android toolchain — NDK r20's sysroot, libc++ and linker — is used
+only by a build that asks for it with `toolchain.set(KONAN)`.
 
 #### Archives built elsewhere — `prebuilt { }`
 ```kotlin
@@ -576,15 +573,20 @@ with no stub. The app needs:
 
 `examples/android` runs FFM and JNI side by side on an emulator.
 
-#### Android's C++ runtime and unwinder
-Android gives apps neither libc++ nor an unwinder, so every Android library the plugin links — the JNI
-library, the library FFM loads — ends with the NDK's `libc++_static`, `libc++abi` and its unwinder
-(`libgcc_real`), from Kotlin/Native's own NDK. A C library links as before: an archive only contributes
-what is used. C++ code (`new`, `std::string`, exceptions) and Rust's std then load on a device. The links
-also pass `-Wl,--no-undefined`, so a symbol nothing provides fails the build, not the app when it loads
-the library; a library that resolves symbols from another `.so` at load time names it in
-`linkerOptions` (`-lfoo`), or turns the check off with `-Wl,-z,undefs`. Your own build (`cmake { }`,
-`make { }`, `external { }`) links its own runtime.
+#### Android: the NDK, and its C++ runtime
+Every Android library the plugin builds — the default library build, the JNI library, the library FFM
+loads — is compiled and linked with the Android NDK in `konan.config.androidNdk` (r23 or newer), which
+Android targets require: `konan.config.androidNdk=<Android SDK>/ndk/<version>` in
+`~/.gradle/gradle.properties`, or `ANDROID_NDK_HOME`. One NDK for everything, so an archive your own build
+made with it links against the same libc++, and `androidApiLevel` reaches every API level the NDK has.
+
+Android gives apps neither libc++ nor an unwinder, so the links use `-static-libstdc++`: the NDK's libc++,
+libc++abi and libunwind go inside each library, and nothing needs `libc++_shared.so`. A C library links as
+before. C++ code (`new`, `std::string`, exceptions) and Rust's std then load on a device. The links also
+pass `-Wl,--no-undefined`, so a symbol nothing provides fails the build, not the app when it loads the
+library; a library that resolves symbols from another `.so` at load time names it in `linkerOptions`
+(`-lfoo`), or turns the check off with `-Wl,-z,undefs`. Archives Kotlin/Native's toolchain built still link:
+the NDK's libc++ is the newer one.
 
 ## Tasks
 | Task                          | Description |
