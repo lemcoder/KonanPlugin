@@ -46,6 +46,9 @@ internal class BindingLibraryWiring(
         spec.hostLibRoot.set(root.map { it.dir("lib") })
     }
 
+    /** Each target's build, once [registerBuild] has run. */
+    private var buildsByTarget: Map<NativeTarget, TaskProvider<*>> = emptyMap()
+
     /** `targets`, else those of `cmake { target(…) { } }` blocks; empty when the build script named none. */
     fun declaredTargets(): List<NativeTarget> = spec.targets.getOrElse(emptyList()).ifEmpty {
         (spec.selectedBuilds.singleOrNull() as? CMakeSettings)?.targetSettings?.keys?.toList().orEmpty()
@@ -58,15 +61,15 @@ internal class BindingLibraryWiring(
     fun registerBuild(
         targets: List<NativeTarget>,
         libraryName: Provider<String>,
-        own: () -> List<TaskProvider<*>>,
-        prebuilt: () -> List<TaskProvider<*>> = { error("$owner has no prebuilt { } block") },
+        own: () -> Map<NativeTarget, TaskProvider<*>>,
+        prebuilt: () -> Map<NativeTarget, TaskProvider<*>> = { error("$owner has no prebuilt { } block") },
         extraVariables: (NativeTarget) -> Map<ExternalBuildVariable, Provider<String>> = { emptyMap() },
         configure: ExternalBuildTask.() -> Unit = {},
     ) {
         val builds = when (val settings = selectOne(owner, spec.selectedBuilds) { it.blockName }) {
             null -> own()
             is PrebuiltSettings -> prebuilt()
-            is ExternalBuildSettings -> ExternalBuild.of(settings).register(
+            is ExternalBuildSettings -> targets.zip(ExternalBuild.of(settings).register(
                 project,
                 ExternalBuildOutput(
                     owner = owner,
@@ -81,9 +84,10 @@ internal class BindingLibraryWiring(
                     extraVariables = extraVariables,
                     configure = configure,
                 ),
-            )
+            )).toMap()
         }
-        linkAll.configure { dependsOn(builds) }
+        buildsByTarget = builds
+        linkAll.configure { dependsOn(builds.values.distinct()) }
         val host = NativeTarget.host
         spec.libraryDirectory.convention(if (host in targets) spec.libraryDirectoryFor(host) else spec.jniLibsRoot)
     }
@@ -101,7 +105,8 @@ internal class BindingLibraryWiring(
                 spec.libraryDirectoryFor(target).zip(libraryName) { directory, name -> directory.file(target.sharedLibraryName(name)) }
             },
             destination = root.get().dir("resources").asFile,
-            builtBy = linkAll,
+            // Only these targets' builds, not linkAll: a JVM jar must not build every Android library.
+            builtBy = jvmTargets.mapNotNull { buildsByTarget[it] }.distinct(),
         )
         val resources = bundle.map { it.destinationDir }
         if (plainJvm) KotlinGradlePlugin.addJvmResources(project, resources)

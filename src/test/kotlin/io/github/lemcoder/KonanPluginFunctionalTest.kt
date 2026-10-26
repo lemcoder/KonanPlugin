@@ -255,6 +255,29 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `the jar builds only the JVM targets' JNI libraries, not Android's`() {
+        val hostAndAndroid = mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.${host.name}, NativeTarget.ANDROID_ARM64)")
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", hostAndAndroid)
+
+        // The plugin's own link, per target.
+        val own = runner("jar", "--dry-run").withPluginClasspathAndKgp().build().output
+        assertTrue(":linkJniMymath$hostSuffix SKIPPED" in own && ":bundleJniMymath SKIPPED" in own, own)
+        assertFalse(":linkJniMymathAndroid_arm64 SKIPPED" in own, own)
+
+        // The project's own build, per target block.
+        File(projectDir, "build.gradle.kts").appendText(
+            """
+            konan.bindings.named("mymath") {
+                jni { cmake { path.set(file("CMakeLists.txt")); target(NativeTarget.${host.name}) { }; target(NativeTarget.ANDROID_ARM64) { } } }
+            }
+            """.trimIndent()
+        )
+        val cmake = runner("jar", "--dry-run").withPluginClasspathAndKgp().build().output
+        assertTrue(":cmakeBuildJniMymath$hostSuffix SKIPPED" in cmake, cmake)
+        assertFalse(":cmakeBuildJniMymathAndroid_arm64 SKIPPED" in cmake, cmake)
+    }
+
+    @Test
     fun `a CMake preset configures into the build directory the target block sets`() {
         val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
         assumeTrue(cmake != null, "needs cmake")

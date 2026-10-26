@@ -25,11 +25,11 @@ internal fun registerKonanLink(
     generate: TaskProvider<GenerateFromNativeIndexTask>,
     artifacts: NativeArtifacts?,
     targets: List<NativeTarget>,
-): List<TaskProvider<*>> {
+): Map<NativeTarget, TaskProvider<*>> {
     val bindingName = binding.name
     val jni = binding.jni
     val output = generate.flatMap { it.outputDirectory }
-    return targets.map { target ->
+    return targets.associateWith { target ->
         project.tasks.register(taskName("linkJni", bindingName, target), LinkSharedLibraryTask::class.java) {
             group = "konan"
             description = "Link the '$bindingName' JNI library for ${target.konanName}."
