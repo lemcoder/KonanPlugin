@@ -25,7 +25,8 @@ rustmath.rust_count_vowels("Kotlin Native") // Rust, JNI
 cpp.cpp_median(arena.allocateFrom(JAVA_INT, 5, 1, 4, 2), 4)  // C++, FFM
 ```
 
-Everything Android is built with your NDK (`konan.config.androidNdk` or `ANDROID_NDK_HOME`): the C and
+Everything Android is built with the NDK the Android Gradle plugin uses (`android.ndkVersion`, else its
+default; `ANDROID_NDK_HOME` or `konan.config.androidNdk` choose another): the C and
 C++ compiles, cargo's C compilers, and the links. The Rust and C++ libraries need runtimes Android does not
 give apps — Rust's std its unwinder, C++ libc++ and the unwinder — which the links put inside each library
 (`-static-libstdc++`), failing the build if anything is left undefined.
@@ -37,9 +38,8 @@ FFM sets what the whole app needs: `compileSdk` 37 and `minSdk` 26 (PanamaPort),
 
 ```bash
 rustup target add aarch64-linux-android
-ANDROID_NDK_HOME=<Android SDK>/ndk/<version> \
-  ../../gradlew -p . installDebug -Pkonan.config.cargo=$HOME/.cargo/bin/cargo -Pkonan.config.jextract=$(which jextract)
-# or, from the repository root, build, install and launch (it uses the SDK's newest NDK unless ANDROID_NDK_HOME is set):
+../../gradlew -p . installDebug -Pkonan.config.cargo=$HOME/.cargo/bin/cargo -Pkonan.config.jextract=$(which jextract)
+# or, from the repository root, build, install and launch:
 KONAN_CARGO=$HOME/.cargo/bin/cargo KONAN_JEXTRACT=$(which jextract) scripts/run-android.sh
 ```
 

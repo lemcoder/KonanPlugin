@@ -17,7 +17,7 @@ Every example builds the plugin from source via `includeBuild`, with the reposit
 Each example sets `konan { config { konanHome.set(kotlinNativeDistribution()) } }`: the Kotlin/Native
 version the plugin needs, where the Kotlin plugin installs it. `android` also needs
 `konan.config.cargo` and `konan.config.jextract`, e.g. in `~/.gradle/gradle.properties`. `android` and
-`kmp` build for Android, which needs an Android NDK: `ANDROID_NDK_HOME`, or `konan.config.androidNdk`.
+`kmp` build for Android with the NDK the Android Gradle plugin uses, which must be installed.
 No example needs a JDK's `jni.h`: the plugin ships one for desktop links, and Android's comes from the
 NDK sysroot.
 

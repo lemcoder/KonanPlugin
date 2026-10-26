@@ -9,6 +9,8 @@ import org.gradle.api.Project
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileSystemLocationProperty
 import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.model.ObjectFactory
+import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.provider.ProviderFactory
 
@@ -31,7 +33,7 @@ import org.gradle.api.provider.ProviderFactory
  * Values are absolute paths. All are optional until a task that needs one runs; it then fails saying
  * which value it needs and how to set it. `gradlew konanConfig` prints them all.
  */
-abstract class KonanConfig @Inject constructor(private val providers: ProviderFactory) {
+abstract class KonanConfig @Inject constructor(private val providers: ProviderFactory, objects: ObjectFactory) {
     /** The Kotlin/Native distribution: `kotlin-native-prebuilt-<host>-<version>`. See [kotlinNativeDistribution]. */
     abstract val konanHome: DirectoryProperty
 
@@ -54,9 +56,14 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
      * An Android NDK (r23 or newer), required for Android targets: the plugin compiles and links every
      * Android library with it — the default library build, the JNI library, the library FFM loads — and
      * external builds on the `AUTO` toolchain get its compilers. Kotlin/Native's own Android toolchain (NDK
-     * r20) is used only by external builds that ask for it with `KONAN`.
+     * r20) is used only by external builds that ask for it with `KONAN`. In an Android module it defaults to
+     * the NDK the Android Gradle plugin uses (`android.ndkVersion`), after the build script, the Gradle
+     * property and `ANDROID_NDK_HOME`.
      */
     abstract val androidNdk: DirectoryProperty
+
+    /** The module's Android Gradle plugin NDK, when it has one: `androidNdk`'s last fallback. Set by `AgpWiring`. */
+    internal val androidGradlePluginNdk: Property<String> = objects.property(String::class.java)
 
     /**
      * Where the Kotlin plugin installs Kotlin/Native for this host: `konanHome.set(kotlinNativeDistribution())`.
@@ -84,13 +91,17 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
         val hint = when (field) {
             ConfigField.KONAN_HOME -> konanHomeHint()
             ConfigField.ANDROID_NDK ->
-                "Android Studio installs NDKs under <Android SDK>/ndk/<version> (SDK Manager → SDK Tools → NDK (Side by side))."
+                "Android Studio installs NDKs under <Android SDK>/ndk/<version> (SDK Manager → SDK Tools → NDK (Side by side)); " +
+                    "in an Android module the plugin also takes the one android.ndkVersion names, once it is installed."
             else -> null
         }
         fun value(source: ConfigSource) = { raw: String -> ConfigValue(field, raw, source, usedBy, hint) }
         return property(field).map { it.asFile.absolutePath }.map(value(ConfigSource.DSL))
             .orElse(providers.gradleProperty(field.gradleProperty).map(value(ConfigSource.GRADLE_PROPERTY)))
             .orElse(providers.environmentVariable(field.environmentVariable).map(value(ConfigSource.ENVIRONMENT)))
+            .let { configured ->
+                if (field == ConfigField.ANDROID_NDK) configured.orElse(androidGradlePluginNdk.map(value(ConfigSource.ANDROID_GRADLE_PLUGIN))) else configured
+            }
             .orElse(ConfigValue(field, null, null, usedBy, hint))
     }
 

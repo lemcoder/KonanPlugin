@@ -4,8 +4,8 @@
 #
 # The Android example (examples/android) is a standalone Gradle build that builds the plugin
 # from this checkout (includeBuild), run with the repository's wrapper. It needs
-# konan.config.cargo and konan.config.jextract, e.g. in ~/.gradle/gradle.properties, and an Android
-# NDK: ANDROID_NDK_HOME, else the SDK's newest.
+# konan.config.cargo and konan.config.jextract, e.g. in ~/.gradle/gradle.properties. The Android NDK is
+# the one the Android Gradle plugin uses, unless ANDROID_NDK_HOME or konan.config.androidNdk names another.
 #
 # Usage: scripts/run-android.sh [options]
 #
@@ -71,14 +71,6 @@ SDK="$(sdk_dir)"
 ADB="$SDK/platform-tools/adb"
 [[ -x "$ADB" ]] || ADB="$(command -v adb || true)"
 [[ -n "$ADB" && -x "$ADB" ]] || die "adb not found under $SDK/platform-tools."
-
-# --- Android NDK ------------------------------------------------------------
-# The plugin requires one for Android (konan.config.androidNdk, else ANDROID_NDK_HOME) and never looks for
-# it; this script does, for convenience: the SDK's newest, unless one is already named.
-if [[ -z "${ANDROID_NDK_HOME:-}" && -d "$SDK/ndk" ]]; then
-    ndk="$(ls -1 "$SDK/ndk" | sort -V | tail -1)"
-    [[ -n "$ndk" ]] && export ANDROID_NDK_HOME="$SDK/ndk/$ndk" && echo "Using ANDROID_NDK_HOME=$ANDROID_NDK_HOME"
-fi
 
 # --- device selection -------------------------------------------------------
 connected_devices() {

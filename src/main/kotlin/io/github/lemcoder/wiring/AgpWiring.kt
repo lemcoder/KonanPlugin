@@ -1,10 +1,12 @@
 package io.github.lemcoder.wiring
 
+import com.android.build.api.variant.AndroidComponents
 import com.android.build.api.variant.AndroidComponentsExtension
 import com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtension
 import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.file.Directory
+import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
 
@@ -72,6 +74,19 @@ internal object AgpWiring {
      * The lowest `minSdk` among the module's variants, once AGP has computed them; absent outside Android.
      * The API level Android links target, so they see every platform library the app may call.
      */
+    /**
+     * The NDK the module's Android Gradle plugin uses — `android.ndkVersion`, else AGP's default — into
+     * [ndk]. Unset when there is none: no AGP, or its NDK is not installed, which AGP reports by throwing.
+     */
+    fun ndkDirectory(project: Project, ndk: Property<String>) {
+        fun from(components: AndroidComponents?) {
+            val directory = components?.sdkComponents?.ndkDirectory ?: return
+            ndk.set(project.provider { runCatching { directory.orNull?.asFile?.absolutePath }.getOrNull() })
+        }
+        project.withPlugin(GradlePluginId.ANDROID_BASE) { from(project.extensions.findByType(AndroidComponentsExtension::class.java)) }
+        project.withPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) { from(project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)) }
+    }
+
     fun minSdk(project: Project): Provider<Int> {
         val levels = mutableSetOf<Int>()
         project.withPlugin(GradlePluginId.ANDROID_BASE) {

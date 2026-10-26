@@ -29,6 +29,9 @@ enum class ConfigSource(val description: String) {
     DSL("build script"),
     GRADLE_PROPERTY("Gradle property"),
     ENVIRONMENT("environment variable"),
+
+    /** `androidNdk` only: the NDK the module's Android Gradle plugin uses (`android.ndkVersion`, else its default). */
+    ANDROID_GRADLE_PLUGIN("the Android Gradle plugin's NDK"),
 }
 
 /**
@@ -68,6 +71,7 @@ data class ConfigValue(
         ConfigSource.DSL -> "$raw (${source.description})"
         ConfigSource.GRADLE_PROPERTY -> "$raw (${source.description} ${field.gradleProperty})"
         ConfigSource.ENVIRONMENT -> "$raw (${source.description} ${field.environmentVariable})"
+        ConfigSource.ANDROID_GRADLE_PLUGIN -> "$raw (${source.description}, android.ndkVersion)"
     }
 
     private fun fail(problem: String): Nothing {

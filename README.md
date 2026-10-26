@@ -116,7 +116,7 @@ from the build script, else the Gradle property `konan.config.<field>` (the buil
 | `make`      | `konan.config.make`        | `KONAN_MAKE`         | `make { }` |
 | `cargo`     | `konan.config.cargo`       | `KONAN_CARGO`        | `cargo { }` |
 | `zig`       | `konan.config.zig`         | `KONAN_ZIG`          | `zig { }` |
-| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | every Android target: the plugin's own compiles and links, and external builds on `AUTO` (below) |
+| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | every Android target: the plugin's own compiles and links, and external builds on `AUTO` (below). In an Android module, last of all the NDK the Android Gradle plugin uses |
 
 ```kotlin
 konan {
@@ -576,9 +576,12 @@ with no stub. The app needs:
 #### Android: the NDK, and its C++ runtime
 Every Android library the plugin builds — the default library build, the JNI library, the library FFM
 loads — is compiled and linked with the Android NDK in `konan.config.androidNdk` (r23 or newer), which
-Android targets require: `konan.config.androidNdk=<Android SDK>/ndk/<version>` in
-`~/.gradle/gradle.properties`, or `ANDROID_NDK_HOME`. One NDK for everything, so an archive your own build
-made with it links against the same libc++, and `androidApiLevel` reaches every API level the NDK has.
+Android targets require. In an Android module it is the NDK the Android Gradle plugin uses — the one
+`android { ndkVersion = "…" }` names, else AGP's default, once it is installed — so nothing needs setting;
+`konan.config.androidNdk=<Android SDK>/ndk/<version>` or `ANDROID_NDK_HOME` choose another, and are what a
+module without AGP sets. `konanConfig` shows which one a build uses. One NDK for everything, so an archive
+your own build made with it links against the same libc++, and `androidApiLevel` reaches every API level
+the NDK has.
 
 Android gives apps neither libc++ nor an unwinder, so the links use `-static-libstdc++`: the NDK's libc++,
 libc++abi and libunwind go inside each library, and nothing needs `libc++_shared.so`. A C library links as

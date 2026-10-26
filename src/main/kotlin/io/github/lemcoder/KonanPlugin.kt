@@ -27,6 +27,7 @@ abstract class KonanPlugin : Plugin<Project> {
             project.withPlugin(kotlin) { konan.config.kotlinPluginVersion = KotlinGradlePlugin.version(project) }
         }
         konan.androidApiLevel.convention(AgpWiring.minSdk(project))
+        AgpWiring.ndkDirectory(project, konan.config.androidGradlePluginNdk)
         project.registerLibraries(konan)
         project.registerBindings(konan)
     }
