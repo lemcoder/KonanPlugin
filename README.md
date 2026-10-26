@@ -612,8 +612,8 @@ the NDK's libc++ is the newer one.
 ## Tasks
 | Task                          | Description |
 |-------------------------------|-------------|
-| `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` per target, with whichever provider it uses. |
-| `konanClang<Name>`, `cmakeBuild<Name><Target>`, `zigBuild<Name><Target>`, `cargoBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
+| `compileNativeLibrary<Name>`  | Builds a library to `lib<name>.a` for every target. A consumer of one target — its cinterop, JNI link or FFM link — depends only on that target's build. |
+| `konanClang<Name><Target>`, `cmakeBuild<Name><Target>`, `zigBuild<Name><Target>`, `cargoBuild<Name><Target>`, `makeBuild<Name><Target>`, `externalBuild<Name><Target>`, `prebuilt<Name>` | The provider doing it: Kotlin/Native's clang, `zig build`, make, the library's own steps, or placing prebuilt archives. |
 | `konanToolchain<Target>`      | Writes Kotlin/Native's compilers for a target, for external builds that use them. |
 | `generateJni<Name>`           | Generates a binding's JNI `.c` stub and Kotlin bindings. |
 | `linkJni<Name>`               | Makes the binding's JNI library exist for every target, however it is built. |
@@ -641,7 +641,7 @@ The DSL is new and there is no compatibility shim.
 - `konanConfig { targets; libName; sourceDir; … }` becomes a library:
   `konan { libraries { create("<libName>") { targets(…); sourceDirectory.set(…) } } }`. Its archives move
   from `build/native/<target>/` to `build/konan/libraries/<name>/<target>/`, and `runKonanClang` becomes
-  `compileNativeLibrary<Name>` (which runs `konanClang<Name>`).
+  `compileNativeLibrary<Name>` (which runs `konanClang<Name><Target>` per target).
 - `jvmInterops { create(…) { … } }` — on a compilation or on the project — becomes
   `konan { bindings { create(…) { … } } }`, with the JNI-only settings in `jni { }`: `jniHome` is gone
   (the plugin ships `jni.h`), `library` → a library with `prebuilt { library(target, file) }`, named with

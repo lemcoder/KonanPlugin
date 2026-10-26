@@ -5,6 +5,7 @@ import io.github.lemcoder.dsl.builds.ExternalBuildBlocks
 import io.github.lemcoder.dsl.builds.PrebuiltSettings
 import io.github.lemcoder.dsl.builds.ZigSettings
 import io.github.lemcoder.model.NativeTarget
+import org.gradle.api.tasks.TaskProvider
 import javax.inject.Inject
 import org.gradle.api.Action
 import org.gradle.api.Named
@@ -46,6 +47,9 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
 
     /** All four Android ABIs. */
     fun androidTargets() = targets.set(NativeTarget.android)
+
+    /** Each target's build, once the build script has run: what a consumer of one target depends on. */
+    internal val buildsByTarget = mutableMapOf<NativeTarget, TaskProvider<*>>()
 
     /** The archive built for [target]. */
     fun archive(target: NativeTarget): Provider<RegularFile> = outputDirectory.file(NativeArtifacts.archivePath(name, target))

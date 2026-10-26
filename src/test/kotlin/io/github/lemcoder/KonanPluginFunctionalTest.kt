@@ -306,7 +306,7 @@ class KonanPluginFunctionalTest {
 
         val result = runner("compileNativeLibraryMymath").withEnvironment(System.getenv() - "ANDROID_NDK_HOME").buildAndFail()
 
-        assertContains(result.output, "konan.config.androidNdk is not set — :konanClangMymath needs it.")
+        assertContains(result.output, "konan.config.androidNdk is not set — :konanClangMymathAndroid_arm64 needs it.")
         assertContains(result.output, "<Android SDK>/ndk/<version>")
     }
 
@@ -690,7 +690,8 @@ class KonanPluginFunctionalTest {
 
         val result = runner("linkJniMymath", "--dry-run").withPluginClasspathAndKgp().build()
 
-        listOf(":compileNativeLibraryMymath", ":generateJniMymath", ":linkJniMymath$hostSuffix").forEach {
+        // The host's own compile, not compileNativeLibraryMymath: a link builds only its target's archive.
+        listOf(":konanClangMymath$hostSuffix", ":generateJniMymath", ":linkJniMymath$hostSuffix").forEach {
             assertTrue("$it SKIPPED" in result.output, "expected $it in the graph:\n${result.output}")
         }
     }
@@ -1096,6 +1097,32 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `building one target builds the library for that target only`() {
+        assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
+        val other = if (host == NativeTarget.LINUX_X64) NativeTarget.MINGW_X64 else NativeTarget.LINUX_X64
+        val twoTargets = mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.${host.name}, NativeTarget.${other.name})")
+
+        // The JNI link for the host.
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", twoTargets)
+        val jni = runner("linkJniMymath$hostSuffix", "--dry-run").withPluginClasspathAndKgp().build().output
+        assertTrue(":konanClangMymath$hostSuffix SKIPPED" in jni, jni)
+        assertFalse("konanClangMymath${other.taskSuffix}" in jni, "the JNI link for one target built another:\n$jni")
+        assertFalse(":compileNativeLibraryMymath SKIPPED" in jni, jni)
+
+        // KGP's cinterop for the host, in a multiplatform project with both targets.
+        val dsl = { target: NativeTarget -> target.konanName.split('_').mapIndexed { i, p -> if (i == 0) p else p.replaceFirstChar { it.uppercase() } }.joinToString("") }
+        write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", twoTargets)
+        File(projectDir, "build.gradle.kts").appendText(
+            "\nkonan.config.konanHome.set(file(\"${KonanDistribution.installed()!!.home.absolutePath.replace("\\", "/")}\"))\n" +
+                "kotlin { ${dsl(host)}(); ${dsl(other)}() }\nrepositories { mavenCentral() }\n"
+        )
+        val cinterop = "cinteropMymath" + dsl(host).replaceFirstChar { it.uppercase() }
+        val kgp = runner(cinterop, "--dry-run").withPluginClasspathAndKgp().build().output
+        assertTrue(":konanClangMymath$hostSuffix SKIPPED" in kgp && ":$cinterop SKIPPED" in kgp, kgp)
+        assertFalse("konanClangMymath${other.taskSuffix}" in kgp, "cinterop for one target built another:\n$kgp")
+    }
+
+    @Test
     fun `a multiplatform project binds through KGP's cinterop, after compiling the library`() {
         assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
         // KMP's DSL names targets in camelCase: macos_arm64 -> macosArm64.
@@ -1123,10 +1150,10 @@ class KonanPluginFunctionalTest {
 
         val result = runner("compileKotlin$targetSuffix", "--stacktrace").withPluginClasspathAndKgp().build()
 
-        assertEquals(TaskOutcome.SUCCESS, result.task(":compileNativeLibraryMymath")?.outcome)
+        assertEquals(TaskOutcome.SUCCESS, result.task(":konanClangMymath$hostSuffix")?.outcome)
         assertEquals(TaskOutcome.SUCCESS, result.task(":cinteropMymath$targetSuffix")?.outcome)
         assertEquals(TaskOutcome.SUCCESS, result.task(":compileKotlin$targetSuffix")?.outcome)
         val order = result.tasks.map { it.path }
-        assertTrue(order.indexOf(":compileNativeLibraryMymath") < order.indexOf(":cinteropMymath$targetSuffix"), "$order")
+        assertTrue(order.indexOf(":konanClangMymath$hostSuffix") < order.indexOf(":cinteropMymath$targetSuffix"), "$order")
     }
 }

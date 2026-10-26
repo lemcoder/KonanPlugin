@@ -137,7 +137,7 @@ internal object KotlinGradlePlugin {
                         "-staticLibrary", NativeArtifacts.archiveFileName(artifacts.name),
                         "-libraryPath", artifacts.directory(nativeTarget).get().asFile.absolutePath,
                     )
-                    project.tasks.named(interopProcessingTaskName).configure { dependsOn(artifacts.builtBy) }
+                    project.tasks.named(interopProcessingTaskName).configure { dependsOn(artifacts.builtBy(nativeTarget)) }
                 }
             }
         }

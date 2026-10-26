@@ -35,7 +35,7 @@ internal fun registerKonanLink(
             group = "konan"
             description = "Link the '$bindingName' JNI library for ${target.konanName}."
             dependsOn(generate)
-            artifacts?.let { dependsOn(it.builtBy) }
+            artifacts?.let { dependsOn(it.builtBy(target)) }
             mustRunAfter(project.cleanTask())
             androidApiLevel.set(konan.androidApiLevel)
             if (target.isAndroid) androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))

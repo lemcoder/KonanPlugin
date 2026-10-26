@@ -81,6 +81,11 @@ resolved the moment the plugin is applied, in *every* project that applies it.
 - **AGP variant callbacks must be registered eagerly.** From `afterEvaluate` AGP refuses with
   *"It is too late to add actions as the callbacks already executed"*, so the jniLibs wiring runs at
   binding-registration time and tolerates an empty directory.
+- **A consumer of one target depends on that target's build only** (`NativeArtifacts.builtBy(target)`, from
+  `NativeLibrarySpec.buildsByTarget`): cinterop, the JNI link and the FFM link. Depending on the aggregate
+  `compileNativeLibrary<Name>` made `macosArm64Test` build every target's llama.cpp at once (#9). The default
+  build is therefore one `konanClang<Name><Target>` per target. `builtBy(target)` is a provider read when the
+  task graph is built, so the library and binding may be declared in either order.
 - **A library has one archive per target, however many its build leaves.** A library's external build writes
   into a staging directory (`KONAN_OUTPUT_DIR`, CMake's output directories), emptied before each run;
   `ExternalBuildTask` copies the one archive, or merges several with Kotlin/Native's llvm-ar (`qcL`, then `s`;

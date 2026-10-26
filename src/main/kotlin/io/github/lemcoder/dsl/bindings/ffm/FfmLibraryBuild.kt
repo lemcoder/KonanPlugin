@@ -42,7 +42,7 @@ internal fun registerFfmLink(
         project.tasks.register(taskName("linkFfm", binding.name, target), LinkSharedLibraryTask::class.java) {
             group = "konan"
             description = "Link the '$libraryName' library for ${target.konanName}, for the FFM bindings."
-            dependsOn(artifacts.builtBy)
+            dependsOn(artifacts.builtBy(target))
             androidApiLevel.set(konan.androidApiLevel)
             if (target.isAndroid) androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
             this.target.set(target)

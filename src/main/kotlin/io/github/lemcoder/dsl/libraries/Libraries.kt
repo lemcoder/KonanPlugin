@@ -25,7 +25,8 @@ private fun Project.registerLibrary(konan: KonanExtension, library: NativeLibrar
         description = "Build the '${library.name}' library: a static archive per target."
     }
     afterEvaluate {
-        val work = registerLibraryBuild(konan, library)
-        lifecycle.configure { dependsOn(work) }
+        val builds = registerLibraryBuild(konan, library)
+        library.buildsByTarget.putAll(builds)
+        lifecycle.configure { dependsOn(builds.values.distinct()) }
     }
 }

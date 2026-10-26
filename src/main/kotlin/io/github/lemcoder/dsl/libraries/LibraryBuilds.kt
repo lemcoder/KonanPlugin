@@ -8,20 +8,22 @@ import io.github.lemcoder.dsl.builds.ExternalVariable
 import io.github.lemcoder.dsl.builds.PrebuiltSettings
 import io.github.lemcoder.dsl.builds.blockName
 import io.github.lemcoder.dsl.builds.selectOne
+import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Project
 import org.gradle.api.tasks.TaskProvider
 
 /**
- * Registers the work that builds [library]'s archives, however its script said: compiled with
+ * Registers the work that builds [library]'s archives, per target, however its script said: compiled with
  * Kotlin/Native's clang by default, placed from `prebuilt { }`, or built by the project's own build. Each
  * leaves one archive per target at [NativeArtifacts.archivePath] under the library's output directory —
  * the only thing consumers know. Called once the build script has run.
  */
-internal fun Project.registerLibraryBuild(konan: KonanExtension, library: NativeLibrarySpec): List<TaskProvider<*>> =
+internal fun Project.registerLibraryBuild(konan: KonanExtension, library: NativeLibrarySpec): Map<NativeTarget, TaskProvider<*>> =
     when (val settings = selectOne("konan.libraries.${library.name}", library.selectedBuilds) { it.blockName }) {
-        null -> listOf(registerKonanClang(this, konan, library))
-        is PrebuiltSettings -> listOf(registerPrebuilt(this, library))
-        is ExternalBuildSettings -> ExternalBuild.of(settings).register(this, externalBuildOutput(library))
+        null -> registerKonanClang(this, konan, library)
+        // One task places every target's archive.
+        is PrebuiltSettings -> registerPrebuilt(this, library).let { place -> library.targets.getOrElse(emptyList()).associateWith { place } }
+        is ExternalBuildSettings -> externalBuildOutput(library).let { output -> output.targets.zip(ExternalBuild.of(settings).register(this, output)).toMap() }
     }
 
 private fun Project.externalBuildOutput(library: NativeLibrarySpec): ExternalBuildOutput {
