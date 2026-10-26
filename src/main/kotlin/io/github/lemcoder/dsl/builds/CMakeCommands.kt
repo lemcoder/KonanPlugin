@@ -75,5 +75,6 @@ internal fun ExternalBuildTask.addCMakeCommands(
         arguments.addAll(buildDirectory.map { listOf("--build", it.asFile.absolutePath) })
         arguments.addAll(cmake.buildTargets.map { targets -> targets.flatMap { listOf("--target", it) } })
         arguments.add("--parallel")
+        arguments.add(cmake.jobs.map { it.toString() })
     }
 }

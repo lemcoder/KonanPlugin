@@ -86,6 +86,11 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `ExternalBuildTask` copies the one archive, or merges several with Kotlin/Native's llvm-ar (`qcL`, then `s`;
   `darwin` format for Apple) into `lib<name>.a`. Consumers keep embedding a single archive. Staging is what
   keeps a re-run from merging the previous merge in again (#7).
+- **External builds run one at a time** (`ExternalBuildLimit`, a shared build service with `maxParallelUsages`
+  1, `konan.externalBuilds.maxParallel` to raise it), and CMake's build gets `--parallel <jobs>`. Each build
+  already uses every core; five llama.cpp builds at once, with CMake's count-less `--parallel` turning into
+  an unbounded `make -j`, exhausted 32 GB and froze the machine (#10). Same-project tasks only run in
+  parallel with the configuration cache on, which is how the test shows the limit holds.
 - **An external build's configure and build steps are one task.** As two tasks, changing a configure
   argument re-ran configure, left the build `UP-TO-DATE`, and silently kept the previous library — a
   linker flag appeared to do nothing. `ExternalBuildTask` runs every step, and without declared

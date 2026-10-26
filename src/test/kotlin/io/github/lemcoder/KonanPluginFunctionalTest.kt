@@ -311,6 +311,68 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `CMake builds with a job count`() {
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """libraries { create("mymath") { targets(NativeTarget.${host.name}); cmake { jobs.set(3) } } }""",
+        )
+        File(projectDir, "build.gradle.kts").appendText(
+            """
+            afterEvaluate {
+                tasks.getByName("cmakeBuildMymath$hostSuffix").inputs.properties
+                    .filterKeys { it.endsWith("arguments") }.values.forEach { println("ARGS=" + it) }
+            }
+            """.trimIndent()
+        )
+
+        val output = runner("help").build().output
+
+        // Without a count, Unix Makefiles runs every compile at once.
+        assertTrue(output.lines().any { it.startsWith("ARGS=[--build") && it.contains("--parallel, 3") }, output)
+    }
+
+    @Test
+    fun `external builds run one at a time unless told otherwise`() {
+        assumeTrue(File("/bin/sh").canExecute() && listOf("/usr/bin/python3", "/opt/homebrew/bin/python3").any { File(it).canExecute() }, "needs /bin/sh and python3")
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.LINUX_X64, NativeTarget.MINGW_X64)
+                    external {
+                        step {
+                            executable.set(Executable.File(file("/bin/sh")))
+                            arguments.add("build.sh")
+                            workingDirectory.set(layout.projectDirectory)
+                        }
+                    }
+                }
+            }
+            """,
+        )
+        // Each build records when it ran, for a second.
+        File(projectDir, "build.sh").writeText(
+            "now() { python3 -c 'import time; print(time.time())'; }\n" +
+                "start=${'$'}(now); sleep 1; printf '%s %s' \"${'$'}start\" \"${'$'}(now)\" > \"${'$'}KONAN_OUTPUT_DIR/lib${'$'}KONAN_LIB_NAME.a\"\n"
+        )
+        fun intervals(vararg arguments: String): List<ClosedFloatingPointRange<Double>> {
+            runner("compileNativeLibraryMymath", "--configuration-cache", "--parallel", "--max-workers=4", *arguments).build()
+            return listOf("linux_x64", "mingw_x64").map { target ->
+                val (start, end) = File(projectDir, "build/konan/libraries/mymath/$target/libmymath.a").readText().split(' ').map(String::toDouble)
+                start..end
+            }
+        }
+        fun overlap(a: ClosedFloatingPointRange<Double>, b: ClosedFloatingPointRange<Double>) = a.start < b.endInclusive && b.start < a.endInclusive
+
+        val (one, other) = intervals()
+        assertFalse(overlap(one, other), "one at a time by default: $one, $other")
+        // Raised, they do run together — so the default above is the limit, not chance.
+        val (first, second) = intervals("-Pkonan.externalBuilds.maxParallel=2")
+        assertTrue(overlap(first, second), "two at once when allowed: $first, $second")
+    }
+
+    @Test
     fun `prebuilt archives are placed where every provider puts them`() {
         File(projectDir, "libs").mkdirs()
         File(projectDir, "libs/libmymath-linux.a").writeText("linux")

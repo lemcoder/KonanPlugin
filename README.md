@@ -273,6 +273,12 @@ target reuses the first one's objects.
 
 `jni { make { } }` and `ffm { make { } }` take the same block, for the libraries those load.
 
+#### One external build at a time
+Every external build — `cmake { }`, `make { }`, `cargo { }`, `zig { }`, `external { }` — already uses every
+core, so the plugin runs them one at a time across the whole build, however many Gradle could run in
+parallel: two `make -j<cores>` side by side only compete for memory. Set the Gradle property
+`konan.externalBuilds.maxParallel` to allow more.
+
 #### Kotlin/Native's compilers for any build — `toolchain`
 Cross-compiling with your own build needs a compiler and sysroot per target. The plugin hands over
 Kotlin/Native's — the ones its own builds use, so the archives match Kotlin/Native's ABI (glibc 2.19 on
@@ -438,6 +444,7 @@ target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arriv
 | `buildDirectory` | `Directory`      | the preset's `binaryDir` (`<source>/build/<preset>`), else under `build/` | Where CMake builds. Set, it is passed as `-B`, overriding a preset's `binaryDir` (CMake 3.21+). |
 | `buildTargets`   | `List<String>`   | the default target | `--target`s to build. |
 | `arguments`      | `List<String>`   | —                  | Extra configure arguments. |
+| `jobs`           | `Int`            | processors         | `cmake --build --parallel <jobs>`; without a count, Unix Makefiles runs every compile at once. |
 | `libraryDirectory` | `Directory`    | —                  | Where the build leaves the library, if it ignores `CMAKE_LIBRARY_OUTPUT_DIRECTORY`: the plugin copies it into place. |
 | `target(t) { }`  |                  | —                  | A per-target build with its own `preset`, `buildDirectory`, `arguments`. |
 

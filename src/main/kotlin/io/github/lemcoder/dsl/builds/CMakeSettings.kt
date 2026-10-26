@@ -32,6 +32,7 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
 
     init {
         toolchain.convention(ExternalToolchain.AUTO)
+        jobs.convention(Runtime.getRuntime().availableProcessors())
     }
 
     /**
@@ -72,6 +73,12 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
 
     /** Extra arguments for the configure step, e.g. your own `-D` switches. */
     abstract val arguments: ListProperty<String>
+
+    /**
+     * `cmake --build --parallel <jobs>`. Defaults to the number of processors: without a count, CMake leaves
+     * it to the generator, and Unix Makefiles then runs every compile at once.
+     */
+    abstract val jobs: Property<Int>
 
 }
 

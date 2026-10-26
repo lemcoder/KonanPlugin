@@ -63,6 +63,7 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
 
     fun register(project: Project, output: ExternalBuildOutput): List<TaskProvider<ExternalBuildTask>> {
         val clean = project.cleanTask()
+        val limit = ExternalBuildLimit.register(project)
         val toolchain = toolchain
         val konan = project.extensions.getByType(KonanExtension::class.java)
         return output.targets.map { target ->
@@ -96,6 +97,7 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
                 group = "konan"
                 description = taskDescription
                 mustRunAfter(clean)
+                usesService(limit)
                 konanToolchain?.let { dependsOn(it.task) }
                 context.environment.forEach { (variable, value) -> this.environment.put(variable.variableName, value) }
                 libraryFileName.set(fileName)
