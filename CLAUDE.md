@@ -273,7 +273,9 @@ the plugin to a project with neither KGP nor AGP. Keep at least one fixture like
 plugin-under-test classpath itself (`withPluginClasspathAndKgp()` in `TestKitSupport.kt`); never add KGP to
 the shared metadata, or the no-KGP fixtures stop proving anything.
 
-Portal versions are immutable — bump and publish, never reuse an alpha. Consumers with `mavenLocal()`
+Portal versions are immutable — bump and publish, never reuse an alpha. `checkVersionUnpublished` runs before
+`publishToMavenLocal` and `publishPlugins` and fails when the version is already on the Portal: a local
+copy of a published version shadowed the Portal's for koinference and broke it overnight (#8). Consumers with `mavenLocal()`
 ahead of the portal will silently use a local build instead, so a version that "works locally" proves
 nothing about what CI resolves. Verify a publish by configuring a throwaway project with only
 `gradlePluginPortal()`.

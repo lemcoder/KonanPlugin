@@ -1,3 +1,6 @@
+import java.net.HttpURLConnection
+import java.net.URI
+
 plugins {
     `kotlin-dsl`
     id("com.gradle.plugin-publish") version "2.2.1"
@@ -5,7 +8,8 @@ plugins {
     id("native-index")
 }
 
-version = "1.2.0-alpha05"
+// Every published version is immutable on the Portal: bump before publishing, and never reuse one.
+version = "2.0.0-alpha01"
 group = "io.github.lemcoder"
 
 repositories {
@@ -72,3 +76,33 @@ tasks.test {
     inputs.property("testGradleVersion", gradleVersion)
     jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp.classpath=${kgp.asPath}", "-Dtest.gradle.version=${gradleVersion.get()}") })
 }
+
+// A version already on the Plugin Portal must never be published again, not even to mavenLocal: a local
+// copy shadows the Portal's for every project that lists mavenLocal() first, so those projects break
+// locally and build in CI. Skipped offline, or when the Portal cannot be reached.
+val checkVersionUnpublished = tasks.register("checkVersionUnpublished") {
+    group = "publishing"
+    description = "Fails when this version is already on the Gradle Plugin Portal."
+    val pluginVersion = version.toString()
+    val offline = gradle.startParameter.isOffline
+    val marker = "https://plugins.gradle.org/m2/io/github/lemcoder/konanplugin/io.github.lemcoder.konanplugin.gradle.plugin/" +
+        "$pluginVersion/io.github.lemcoder.konanplugin.gradle.plugin-$pluginVersion.pom"
+    inputs.property("version", pluginVersion)
+    doLast {
+        if (offline) return@doLast logger.warn("Offline: not checking whether $pluginVersion is on the Plugin Portal.")
+        val status = runCatching {
+            HttpURLConnection.setFollowRedirects(true)
+            (URI(marker).toURL().openConnection() as HttpURLConnection).run {
+                requestMethod = "HEAD"
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                responseCode.also { disconnect() }
+            }
+        }.getOrElse { return@doLast logger.warn("Could not reach the Plugin Portal ($it); not checking $pluginVersion.") }
+        check(status != 200) {
+            "Version $pluginVersion is already on the Gradle Plugin Portal. Bump `version` in build.gradle.kts: " +
+                "publishing it again, even to mavenLocal, shadows the Portal's copy for every project that lists mavenLocal() first."
+        }
+    }
+}
+tasks.matching { it.name == "publishToMavenLocal" || it.name == "publishPlugins" }.configureEach { dependsOn(checkVersionUnpublished) }
