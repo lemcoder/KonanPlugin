@@ -40,9 +40,14 @@ internal class BindingContext(val project: Project, val konan: KonanExtension, v
     /** The archives of the library the binding names, once the build script has been evaluated. */
     fun artifacts(): NativeArtifacts? = binding.library.orNull?.let { NativeArtifacts.of(project, it) }
 
-    /** The package the bindings go in: the binding's, else the `.def`'s own. */
+    /**
+     * The package the bindings go in: the binding's, else the `.def`'s `package`, else — as cinterop does —
+     * one named after the `.def` file.
+     */
     val packageName: Provider<String> = binding.packageName.orElse(
-        project.provider { binding.defFile.orNull?.asFile?.takeIf { it.isFile }?.let { DefFile.parse(it).packageName } }
+        project.provider {
+            binding.defFile.orNull?.asFile?.let { def -> def.takeIf { it.isFile }?.let { DefFile.parse(it).packageName } ?: DefFile.defaultPackage(def) }
+        }
     )
 
     fun hasPlugin(id: GradlePluginId): Boolean = project.hasPlugin(id)

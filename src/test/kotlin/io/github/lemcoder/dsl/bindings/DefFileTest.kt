@@ -5,6 +5,13 @@ import kotlin.test.assertEquals
 
 class DefFileTest {
     @Test
+    fun `a def without a package is named after its file, as a package name`() {
+        assertEquals("koinference", DefFile.defaultPackage(java.io.File("src/koinference.def")))
+        assertEquals("koinference_llama", DefFile.defaultPackage(java.io.File("koinference-llama.def")))
+        assertEquals("_3d", DefFile.defaultPackage(java.io.File("3d.def")))
+    }
+
+    @Test
     fun `linker options of a platform library are read before the separator`() {
         val def = DefFile.parse(
             """

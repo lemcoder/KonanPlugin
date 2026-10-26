@@ -356,7 +356,7 @@ A C API described by a cinterop `.def`.
 |-------------------|------------------|-----------------------------------------|-------------|
 | `defFile`         | `File`           | `src/nativeInterop/cinterop/<name>.def` | cinterop's own default location. |
 | `library`         | `NativeLibrarySpec` | —                                    | One of `libraries` — `library(mymath)`: its archive is linked for every consumer and built first, so the `.def` needs no `staticLibraries`. |
-| `packageName`     | `String`         | the `.def`'s `package`                  | Package of the generated bindings. |
+| `packageName`     | `String`         | the `.def`'s `package`, else the `.def`'s file name, as cinterop does | Package of the generated bindings. |
 | `includeDirs`     | `FileCollection` | —                                       | Include roots beyond the `.def`'s directory. |
 | `compilerOptions` | `List<String>`   | —                                       | Extra clang options for reading the headers. |
 | `jni { }`         |                  |                                         | How the JNI bindings are generated and linked; below. |

@@ -678,6 +678,18 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a def without a package binds into a package named after the def`() {
+        val home = realKonanHome()
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""", "config.konanHome.set(file(\"$home\"))\n$mymath")
+        // As plain cinterop accepts it: no package line.
+        File(projectDir, "mymath.def").writeText("headers = mymath.h\n")
+
+        val result = runner("generateJniMymath").withPluginClasspathAndKgp().build()
+
+        assertTrue(File(projectDir, "build/generated/konan/mymath/jni/kotlin/mymath/mymath.kt").isFile, result.output)
+    }
+
+    @Test
     fun `the JNI links for the host and Android depend on generating the stub they compile`() {
         val home = realKonanHome()
         File(projectDir, "native").mkdirs()

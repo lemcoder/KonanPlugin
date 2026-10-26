@@ -30,6 +30,13 @@ internal data class DefFile(
 
         fun parse(file: File): DefFile = parse(file.readText())
 
+        /**
+         * cinterop's package for a `.def` with no `package`: the file's name, as a package name —
+         * `koinference-llama.def` → `koinference_llama`.
+         */
+        fun defaultPackage(file: File): String =
+            file.nameWithoutExtension.replace(Regex("[^A-Za-z0-9_]"), "_").let { if (it.firstOrNull()?.isDigit() != false) "_$it" else it }
+
         fun parse(text: String): DefFile {
             val properties = SEPARATOR.split(text, limit = 2)[0].lineSequence()
                 .map { it.trim() }
