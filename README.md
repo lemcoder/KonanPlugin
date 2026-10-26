@@ -416,7 +416,7 @@ target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arriv
 |------------------|------------------|--------------------|-------------|
 | `path`           | `File`           | —                  | The `CMakeLists.txt`. Required unless `preset` is set. |
 | `preset`         | `String`         | —                  | A configure preset from `CMakePresets.json`. |
-| `buildDirectory` | `Directory`      | `<source>/build/<preset>`, else under `build/` | Where CMake builds. |
+| `buildDirectory` | `Directory`      | the preset's `binaryDir` (`<source>/build/<preset>`), else under `build/` | Where CMake builds. Set, it is passed as `-B`, overriding a preset's `binaryDir` (CMake 3.21+). |
 | `buildTargets`   | `List<String>`   | the default target | `--target`s to build. |
 | `arguments`      | `List<String>`   | —                  | Extra configure arguments. |
 | `libraryDirectory` | `Directory`    | —                  | Where the build leaves the library, if it ignores `CMAKE_LIBRARY_OUTPUT_DIRECTORY`: the plugin copies it into place. |

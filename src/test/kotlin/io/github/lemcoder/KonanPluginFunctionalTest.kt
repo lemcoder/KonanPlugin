@@ -255,6 +255,46 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a CMake preset configures into the build directory the target block sets`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.21)
+            project(mymath NONE)
+            file(WRITE "${'$'}{CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/lib${'$'}{KONAN_LIB_NAME}.a" "archive")
+            """.trimIndent()
+        )
+        File(projectDir, "native/CMakePresets.json").writeText(
+            """{ "version": 3, "configurePresets": [ { "name": "host", "binaryDir": "${'$'}{sourceDir}/build/host" } ] }"""
+        )
+        write(
+            """id("io.github.lemcoder.konanplugin")""",
+            """
+            libraries {
+                create("mymath") {
+                    targets(NativeTarget.${host.name})
+                    cmake {
+                        target(NativeTarget.${host.name}) {
+                            preset.set("host")
+                            buildDirectory.set(layout.buildDirectory.dir("cmake/mine"))
+                        }
+                    }
+                }
+            }
+            """,
+        )
+
+        val result = runner("compileNativeLibraryMymath").build()
+
+        // Configure and build agree on the directory that was set; the preset's own is never created.
+        assertTrue(File(projectDir, "build/cmake/mine/CMakeCache.txt").isFile, result.output)
+        assertFalse(File(projectDir, "native/build/host").exists(), result.output)
+        assertTrue(File(projectDir, "build/konan/libraries/mymath/${host.konanName}/libmymath.a").isFile, result.output)
+    }
+
+    @Test
     fun `CMake builds a library's archive for the host and, cross-compiled, for linux_x64`() {
         val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
         assumeTrue(cmake != null, "needs cmake")

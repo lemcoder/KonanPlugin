@@ -32,9 +32,11 @@ internal fun ExternalBuildTask.addCMakeCommands(
     val cmakeExecutable = project.konanConfig.executable(ConfigField.CMAKE, path)
     check(cmake.path.isPresent || preset.isPresent) { "$owner needs a path or a preset." }
     val sourceDirectory = cmake.path.map { it.asFile.parentFile }
-    // With a preset the binary directory is the preset's to choose, and `-B` cannot override it; the
-    // conventional layout is <source>/build/<preset>, which stays overridable.
-    val buildDirectory: Provider<Directory> = (perTarget?.buildDirectory ?: cmake.buildDirectory).orElse(
+    // The target's, else the block's: a target block that sets no directory still has the property.
+    val explicitBuildDirectory: Provider<Directory> = perTarget?.buildDirectory?.orElse(cmake.buildDirectory) ?: cmake.buildDirectory
+    // Without one, a preset's binary directory is the preset's to choose — conventionally
+    // <source>/build/<preset> — and without a preset the plugin's own.
+    val buildDirectory: Provider<Directory> = explicitBuildDirectory.orElse(
         project.layout.dir(
             preset.map { presetName -> sourceDirectory.get().resolve("build/$presetName") }
                 .orElse(defaultBuildRoot.map { it.dir(context.target.konanName).asFile })
@@ -48,6 +50,8 @@ internal fun ExternalBuildTask.addCMakeCommands(
                 sourceDirectory.zip(buildDirectory) { source, build -> listOf("-S", source.absolutePath, "-B", build.asFile.absolutePath) }
             )
         )
+        // `-B` overrides a preset's binaryDir, so configure and build agree on the directory that was set.
+        if (preset.isPresent) arguments.addAll(explicitBuildDirectory.map { listOf("-B", it.asFile.absolutePath) }.orElse(emptyList()))
         // Kotlin/Native's compilers by toolchain file — the arguments after it can still name another, and
         // a preset names its own.
         if (!preset.isPresent) {

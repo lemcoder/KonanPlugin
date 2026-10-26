@@ -55,8 +55,9 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
     abstract val preset: Property<String>
 
     /**
-     * Where CMake builds. Defaults to `<CMakeLists dir>/build/<preset>` with a preset — the layout
-     * `binaryDir` conventionally uses — and to a directory under the Gradle build dir without one.
+     * Where CMake builds. Set, it is passed as `-B`, overriding a preset's `binaryDir`, so configure and
+     * build use the same directory. Unset, a preset's `binaryDir` decides — conventionally
+     * `<CMakeLists dir>/build/<preset>` — and without a preset a directory under the Gradle build dir.
      */
     abstract val buildDirectory: DirectoryProperty
 
@@ -79,7 +80,7 @@ abstract class CMakeTargetSettings {
     /** Configure preset for this target. */
     abstract val preset: Property<String>
 
-    /** Build directory for this target; defaults the same way as the enclosing block's. */
+    /** Build directory for this target, else the enclosing block's; passed as `-B`, even with a preset. */
     abstract val buildDirectory: DirectoryProperty
 
     /** Extra configure arguments for this target only. */
