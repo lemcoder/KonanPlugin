@@ -32,7 +32,7 @@ The **Konan Plugin** compiles C/C++ libraries with Kotlin/Native's toolchain and
 1. Apply the plugin in your `build.gradle.kts`:
    ```kotlin
    plugins {
-       id("io.github.lemcoder.konanplugin") version "2.0.0-alpha01"
+       id("io.github.lemcoder.konanplugin") version "2.0.0-alpha02"
    }
    ```
 
