@@ -445,6 +445,7 @@ target_link_libraries(mylib-jni PRIVATE mylib)   # frameworks, libc++ etc. arriv
 | `buildTargets`   | `List<String>`   | the default target | `--target`s to build. |
 | `arguments`      | `List<String>`   | —                  | Extra configure arguments. |
 | `jobs`           | `Int`            | processors         | `cmake --build --parallel <jobs>`; without a count, Unix Makefiles runs every compile at once. |
+| `sources`        | `FileCollection` | —                  | What the build reads, for up-to-date checks: `sources.from(fileTree("native") { exclude("build/**") })`. Omitted, the task always runs and CMake's own incrementality decides. Declare everything the CMakeLists reads, including directories outside it, or an edit there is missed. |
 | `libraryDirectory` | `Directory`    | —                  | Where the build leaves the library, if it ignores `CMAKE_LIBRARY_OUTPUT_DIRECTORY`: the plugin copies it into place. |
 | `target(t) { }`  |                  | —                  | A per-target build with its own `preset`, `buildDirectory`, `arguments`. |
 

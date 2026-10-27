@@ -530,6 +530,37 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a CMake build with sources is up to date until one changes, and without them always runs`() {
+        val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
+        assumeTrue(cmake != null, "needs cmake")
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/input.txt").writeText("one")
+        File(projectDir, "native/CMakeLists.txt").writeText(
+            """
+            cmake_minimum_required(VERSION 3.16)
+            project(mymath NONE)
+            file(READ "${'$'}{CMAKE_CURRENT_SOURCE_DIR}/input.txt" INPUT)
+            file(WRITE "${'$'}{CMAKE_ARCHIVE_OUTPUT_DIRECTORY}/lib${'$'}{KONAN_LIB_NAME}.a" "${'$'}{INPUT}")
+            """.trimIndent()
+        )
+        val library = """libraries { create("mymath") { targets(NativeTarget.${host.name}); cmake { SOURCES } } }"""
+        val task = ":cmakeBuildMymath$hostSuffix"
+        val archive = File(projectDir, "build/konan/libraries/mymath/${host.konanName}/libmymath.a")
+
+        write("""id("io.github.lemcoder.konanplugin")""", library.replace("SOURCES", """sources.from("native")"""))
+        assertEquals(TaskOutcome.SUCCESS, runner("compileNativeLibraryMymath").build().task(task)?.outcome)
+        assertEquals(TaskOutcome.UP_TO_DATE, runner("compileNativeLibraryMymath").build().task(task)?.outcome)
+        File(projectDir, "native/input.txt").writeText("two")
+        assertEquals(TaskOutcome.SUCCESS, runner("compileNativeLibraryMymath").build().task(task)?.outcome)
+        assertEquals("two", archive.readText())
+
+        // Without sources the plugin cannot know what the build reads.
+        write("""id("io.github.lemcoder.konanplugin")""", library.replace("SOURCES", ""))
+        runner("compileNativeLibraryMymath").build()
+        assertEquals(TaskOutcome.SUCCESS, runner("compileNativeLibraryMymath").build().task(task)?.outcome)
+    }
+
+    @Test
     fun `CMake builds a library's archive for the host and, cross-compiled, for linux_x64`() {
         val cmake = listOf("/opt/homebrew/bin/cmake", "/usr/local/bin/cmake", "/usr/bin/cmake").map(::File).firstOrNull { it.canExecute() }
         assumeTrue(cmake != null, "needs cmake")

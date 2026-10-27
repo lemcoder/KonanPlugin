@@ -2,6 +2,7 @@ package io.github.lemcoder.dsl.builds
 
 import io.github.lemcoder.model.NativeTarget
 import org.gradle.api.Action
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
@@ -80,6 +81,12 @@ abstract class CMakeSettings @Inject constructor(private val objects: ObjectFact
      */
     abstract val jobs: Property<Int>
 
+    /**
+     * What the build reads. With none, it runs every time — a configure and a no-op build — and CMake's own
+     * incrementality decides. No default: a CMakeLists reading outside its own directory
+     * (`add_subdirectory(../llama.cpp)`) would then stay up to date after an edit there.
+     */
+    abstract val sources: ConfigurableFileCollection
 }
 
 /** One target's build: everything not set here comes from the enclosing [CMakeSettings]. */

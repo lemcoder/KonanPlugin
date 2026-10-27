@@ -13,8 +13,8 @@ import org.gradle.api.provider.Provider
  * output directory, so the CMakeLists needs no knowledge of the layout. Used for a library's archive, the
  * JNI stub and the library FFM loads.
  *
- * Both commands are one task, which always runs: CMake tracks its own sources, and a changed configure
- * argument then always reaches the build.
+ * Both commands are one task, so a changed configure argument always reaches the build. Without declared
+ * `sources` it always runs, and CMake tracks its own.
  *
  * @param owner the DSL path, for messages, e.g. `konan.bindings.mymath.jni.cmake`.
  * @param defaultBuildRoot where builds go without a preset or a build directory: `<root>/<target>`.
@@ -77,4 +77,5 @@ internal fun ExternalBuildTask.addCMakeCommands(
         arguments.add("--parallel")
         arguments.add(cmake.jobs.map { it.toString() })
     }
+    sources.from(cmake.sources)
 }
