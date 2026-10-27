@@ -61,7 +61,7 @@ internal object KotlinGradlePlugin {
      * Makes every Android target's compilations wait for [task] when [enabled]: their Kotlin reads the
      * Java the task generates, which reaches them through AGP's variant API with no producer attached.
      */
-    fun dependOnForKmpAndroid(project: Project, task: TaskProvider<*>, enabled: () -> Boolean) {
+    fun dependOnForKmpAndroid(project: Project, task: Any, enabled: () -> Boolean) {
         val lazyTask = project.provider { if (enabled()) listOf(task) else emptyList() }
         project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
             .matching { it.platformType == KotlinPlatformType.androidJvm }

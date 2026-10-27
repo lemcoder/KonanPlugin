@@ -86,6 +86,9 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   `compileNativeLibrary<Name>` made `macosArm64Test` build every target's llama.cpp at once (#9). The default
   build is therefore one `konanClang<Name><Target>` per target. `builtBy(target)` is a provider read when the
   task graph is built, so the library and binding may be declared in either order.
+  Packaging follows suit: a jar bundles the JVM targets' builds (#5), an APK or AAR the Android targets'
+  (`BindingLibraryWiring.androidBuilds`, #12), and AGP's compile edges hang off generation alone — never
+  `link<Side><Name>`, which builds the host's library too.
 - **A library has one archive per target, however many its build leaves.** A library's external build writes
   into a staging directory (`KONAN_OUTPUT_DIR`, CMake's output directories), emptied before each run;
   `ExternalBuildTask` copies the one archive, or merges several with Kotlin/Native's llvm-ar (`qcL`, then `s`;

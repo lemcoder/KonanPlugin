@@ -40,8 +40,8 @@ internal class JniConsumer(private val context: BindingContext) : BindingConsume
 
         // Eager: the variant API must be wired at configuration time.
         project.withPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) { KotlinGradlePlugin.addKmpJvmSources(project, sources, generate) { !binding.ffm.isEnabled } }
-        AgpWiring.addSources(project, SourceKind.KOTLIN, sources, generate, library.linkAll) { !replacedByFfm }
-        AgpWiring.addJniLibs(project, jni.jniLibsRoot, library.linkAll) { !replacedByFfm }
+        AgpWiring.addSources(project, SourceKind.KOTLIN, sources, generate) { !replacedByFfm }
+        AgpWiring.addJniLibs(project, jni.jniLibsRoot, library.androidBuilds) { !replacedByFfm }
         // AGP looks for a `baselineProfiles` directory beside every source root, including the generated
         // one, by plain path — no task dependency. Matched by name: inert without AGP.
         project.tasks.matching { it.name.contains("ArtProfile") }.configureEach { dependsOn(generate) }

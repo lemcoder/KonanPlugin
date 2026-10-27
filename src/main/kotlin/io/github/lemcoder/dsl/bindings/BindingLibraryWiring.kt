@@ -49,6 +49,13 @@ internal class BindingLibraryWiring(
     /** Each target's build, once [registerBuild] has run. */
     private var buildsByTarget: Map<NativeTarget, TaskProvider<*>> = emptyMap()
 
+    /**
+     * The Android targets' builds, read when the task graph is built: what an APK or AAR packages. Not
+     * [linkAll], which also builds the host's library, that no Android artifact holds (#12).
+     */
+    val androidBuilds: Provider<List<TaskProvider<*>>> =
+        project.provider { buildsByTarget.filterKeys { it.isAndroid }.values.distinct() }
+
     /** `targets`, else those of `cmake { target(…) { } }` blocks; empty when the build script named none. */
     fun declaredTargets(): List<NativeTarget> = spec.targets.getOrElse(emptyList()).ifEmpty {
         (spec.selectedBuilds.singleOrNull() as? CMakeSettings)?.targetSettings?.keys?.toList().orEmpty()

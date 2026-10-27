@@ -4,7 +4,6 @@ import com.android.build.api.variant.AndroidComponents
 import com.android.build.api.variant.AndroidComponentsExtension
 import com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtension
 import org.gradle.api.Project
-import org.gradle.api.Task
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
@@ -25,18 +24,20 @@ internal object AgpWiring {
      * An Android module outside Kotlin Multiplatform has no Kotlin compilation to attach to, so generated
      * sources go in through the variant API. A multiplatform module gets Kotlin ones through its Android
      * target instead.
+     *
+     * [generate] is anything `dependsOn` takes. Compiling needs only the sources; the libraries are
+     * packaging's, through [addJniLibs].
      */
     fun addSources(
         project: Project,
         kind: SourceKind,
         sources: Provider<Directory>,
-        generate: TaskProvider<*>,
-        link: TaskProvider<Task>,
+        generate: Any,
         enabled: () -> Boolean,
     ) {
         val relative = sources.get().asFile.relativeTo(project.projectDir).path
         val ordering = {
-            project.tasks.matching { it.name == "preBuild" }.configureEach { if (enabled()) dependsOn(generate, link) }
+            project.tasks.matching { it.name == "preBuild" }.configureEach { if (enabled()) dependsOn(generate) }
             project.tasks
                 .matching { (it.name.startsWith("compile") && (it.name.contains("Kotlin") || it.name.contains("Java"))) || it.name == "compileJava" }
                 .configureEach { if (enabled()) dependsOn(generate) }
@@ -101,9 +102,10 @@ internal object AgpWiring {
     /**
      * Packages the per-ABI libraries under [jniLibsRoot] into the APK or AAR. Nothing consumes the
      * directory as a task output, so packaging needs the ordering spelled out. Added once per directory:
-     * a second registration of the same one fails the merge with "Duplicate resources".
+     * a second registration of the same one fails the merge with "Duplicate resources". [builds] are the
+     * Android targets' builds only, as anything `dependsOn` takes.
      */
-    fun addJniLibs(project: Project, jniLibsRoot: Provider<Directory>, link: TaskProvider<Task>, enabled: () -> Boolean) {
+    fun addJniLibs(project: Project, jniLibsRoot: Provider<Directory>, builds: Any, enabled: () -> Boolean) {
         val relative = jniLibsRoot.get().asFile.relativeTo(project.projectDir).path
         project.withPlugin(GradlePluginId.ANDROID_KMP_LIBRARY) {
             project.extensions.findByType(KotlinMultiplatformAndroidComponentsExtension::class.java)?.onVariants { variant ->
@@ -116,6 +118,6 @@ internal object AgpWiring {
             }
         }
         project.tasks.matching { it.name.contains("JniLibFolders") || it.name.contains("MergeJniLib") }
-            .configureEach { if (enabled()) dependsOn(link) }
+            .configureEach { if (enabled()) dependsOn(builds) }
     }
 }

@@ -36,6 +36,9 @@ internal class FfmConsumer(private val context: BindingContext) : BindingConsume
 
     private lateinit var library: BindingLibraryWiring
 
+    /** PanamaPort's generation, once [register] has run for an Android consumer. */
+    private var generateAndroid: TaskProvider<GenerateFromNativeIndexTask>? = null
+
     private val isMultiplatform get() = context.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM)
 
     /** `kotlin("jvm")`, or a multiplatform `jvm()` target: the JDK's FFM. */
@@ -58,13 +61,13 @@ internal class FfmConsumer(private val context: BindingContext) : BindingConsume
         val ffm = binding.ffm
         ffm.libraryName.convention(binding.library.map { it.name }.orElse(bindingName))
         library = BindingLibraryWiring(context, ffm, "ffm")
-        val linkAll = library.linkAll
-        // Eager, as the variant API needs; whether FFM is on is only known in the callbacks. linkFfm<Name>
-        // depends on generation, so it orders both the compile and the packaging.
+        // Eager, as the variant API needs; whether FFM is on is only known in the callbacks. Compiling needs
+        // PanamaPort's sources, registered after evaluation; packaging the Android libraries (#12).
         val enabled = { ffm.isEnabled }
-        AgpWiring.addSources(project, SourceKind.JAVA, generatedRoot(FfmApi.PANAMA_PORT).map { it.dir("java") }, linkAll, linkAll, enabled)
-        AgpWiring.addJniLibs(project, ffm.jniLibsRoot, linkAll, enabled)
-        project.withPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) { KotlinGradlePlugin.dependOnForKmpAndroid(project, linkAll, enabled) }
+        val generate = project.provider { listOfNotNull(generateAndroid) }
+        AgpWiring.addSources(project, SourceKind.JAVA, generatedRoot(FfmApi.PANAMA_PORT).map { it.dir("java") }, generate, enabled)
+        AgpWiring.addJniLibs(project, ffm.jniLibsRoot, library.androidBuilds, enabled)
+        project.withPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM) { KotlinGradlePlugin.dependOnForKmpAndroid(project, generate, enabled) }
     }
 
     override fun isUsed(): Boolean = binding.ffm.isEnabled
@@ -83,7 +86,7 @@ internal class FfmConsumer(private val context: BindingContext) : BindingConsume
         }
         // The JDK's bindings also when nothing is detected, for a build to wire itself.
         val generateJvm = if (jvm || !android) registerGeneration(FfmApi.JAVA, libraryName) else null
-        if (android) registerGeneration(FfmApi.PANAMA_PORT, libraryName)
+        if (android) generateAndroid = registerGeneration(FfmApi.PANAMA_PORT, libraryName)
 
         val loadable = buildList {
             if (jvm || !android) add(NativeTarget.host)
