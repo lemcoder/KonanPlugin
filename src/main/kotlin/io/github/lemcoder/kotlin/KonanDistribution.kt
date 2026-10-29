@@ -76,6 +76,11 @@ internal class KonanDistribution(
     fun clangCommand(target: NativeTarget, driver: ClangDriver, exec: ExecOperations): List<String> {
         val result = exec.execCapture { commandLine(clang(target, listOf("--version"), driver)) }
         check(result is ExecCaptureResult.Success) { "run_konan could not run ${driver.toolName} for ${target.konanName}:\n${result.output}" }
+        return echoedCommand(result, target, driver)
+    }
+
+    /** The command `run_konan` echoed, which it does before running it — so also when clang is missing. */
+    private fun echoedCommand(result: ExecCaptureResult, target: NativeTarget, driver: ClangDriver): List<String> {
         val line = result.output.lineSequence().firstOrNull { it.endsWith(" --version") && it.contains(" -target ") }
             ?: error("run_konan did not echo its ${driver.toolName} command for ${target.konanName}:\n${result.output}")
         return line.removeSuffix(" --version").split(' ').filter { it.isNotEmpty() }
@@ -89,7 +94,10 @@ internal class KonanDistribution(
      */
     fun ensureDependencies(target: NativeTarget, exec: ExecOperations, scratch: File) {
         val dependencies = home.parentFile.resolve("dependencies").absolutePath
-        val missing = clangCommand(target, ClangDriver.C, exec)
+        // Read from the echo, not a successful run: on a machine Kotlin/Native has never built on, LLVM's own
+        // directory is among the missing, and clang fails to start.
+        val echo = exec.execCapture { commandLine(clang(target, listOf("--version"), ClangDriver.C)) }
+        val missing = echoedCommand(echo, target, ClangDriver.C)
             .mapNotNull { argument -> argument.indexOf(dependencies).takeIf { it >= 0 }?.let { File(argument.substring(it)) } }
             .filterNot { it.exists() }
         if (missing.isEmpty()) return

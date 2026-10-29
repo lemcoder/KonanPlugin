@@ -748,9 +748,10 @@ class KonanPluginFunctionalTest {
             }
             """.trimIndent()
         )
-        // AThermal_acquireManager is API 30: past the 29 Kotlin/Native's NDK stops at.
-        File(projectDir, "native/thermal.c").writeText(
-            "#include <android/thermal.h>\nint my_thermal(void) { AThermalManager *m = AThermal_acquireManager(); if (m) AThermal_releaseManager(m); return m != 0; }\n"
+        // AThermal_acquireManager is API 30: past the 29 Kotlin/Native's NDK stops at. C++, since NDK 27's
+        // thermal.h names its enums and structs without their tags, which C rejects.
+        File(projectDir, "native/thermal.cpp").writeText(
+            "#include <android/thermal.h>\nextern \"C\" int my_thermal(void) { AThermalManager *m = AThermal_acquireManager(); if (m) AThermal_releaseManager(m); return m != 0; }\n"
         )
         val android = mymath
             .replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.ANDROID_ARM64)")
