@@ -47,7 +47,7 @@ internal class NativeArtifacts(
         fun of(project: Project, library: NativeLibrarySpec) = NativeArtifacts(
             name = library.name,
             outputDirectory = library.outputDirectory,
-            targets = library.targets,
+            targets = library.distinctTargets,
             builtByAll = project.tasks.named(taskName(library.name)),
             buildsByTarget = library.buildsByTarget,
             project = project,

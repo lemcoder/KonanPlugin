@@ -22,7 +22,7 @@ internal fun Project.registerLibraryBuild(konan: KonanExtension, library: Native
     when (val settings = selectOne("konan.libraries.${library.name}", library.selectedBuilds) { it.blockName }) {
         null -> registerKonanClang(this, konan, library)
         // One task places every target's archive.
-        is PrebuiltSettings -> registerPrebuilt(this, library).let { place -> library.targets.getOrElse(emptyList()).associateWith { place } }
+        is PrebuiltSettings -> registerPrebuilt(this, library).let { place -> library.distinctTargets.getOrElse(emptyList()).associateWith { place } }
         is ExternalBuildSettings -> externalBuildOutput(library).let { output -> output.targets.zip(ExternalBuild.of(settings).register(this, output)).toMap() }
     }
 
@@ -32,7 +32,7 @@ private fun Project.externalBuildOutput(library: NativeLibrarySpec): ExternalBui
         owner = "konan.libraries.$name",
         name = name,
         side = "",
-        targets = library.targets.getOrElse(emptyList()),
+        targets = library.distinctTargets.getOrElse(emptyList()),
         libraryName = provider { name },
         libraryFileName = { provider { NativeArtifacts.archiveFileName(name) } },
         outputDirectory = library::archiveDirectory,

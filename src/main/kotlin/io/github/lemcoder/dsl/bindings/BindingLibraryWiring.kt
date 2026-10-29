@@ -57,7 +57,7 @@ internal class BindingLibraryWiring(
         project.provider { buildsByTarget.filterKeys { it.isAndroid }.values.distinct() }
 
     /** `targets`, else those of `cmake { target(…) { } }` blocks; empty when the build script named none. */
-    fun declaredTargets(): List<NativeTarget> = spec.targets.getOrElse(emptyList()).ifEmpty {
+    fun declaredTargets(): List<NativeTarget> = spec.distinctTargets.getOrElse(emptyList()).ifEmpty {
         (spec.selectedBuilds.singleOrNull() as? CMakeSettings)?.targetSettings?.keys?.toList().orEmpty()
     }
 

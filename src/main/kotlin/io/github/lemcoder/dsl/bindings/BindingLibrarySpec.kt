@@ -45,6 +45,12 @@ abstract class BindingLibrarySpec(objects: ObjectFactory) : ExternalBuildBlocks(
      */
     abstract val libraryDirectory: DirectoryProperty
 
+    /**
+     * [targets] without repeats, which is what tasks are registered from: `targets(NativeTarget.host,
+     * NativeTarget.LINUX_ARM64)` names one target twice on a Linux arm64 host.
+     */
+    internal val distinctTargets: Provider<List<NativeTarget>> get() = targets.map { it.distinct() }
+
     fun targets(vararg targets: NativeTarget) = this.targets.set(targets.toList())
 
     /** Appends [options] to the link command of [target] only. */

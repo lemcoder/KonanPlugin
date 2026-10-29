@@ -1,11 +1,13 @@
 package io.github.lemcoder.model
 
 import io.github.lemcoder.kotlin.of
+import io.github.lemcoder.kotlinKnowsHost
 import org.jetbrains.kotlin.konan.target.Family
 import org.jetbrains.kotlin.konan.target.HostManager
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import org.junit.jupiter.api.Assumptions.assumeTrue
 
 /**
  * The plugin's targets against Kotlin/Native's, for the version the plugin is built against. A Kotlin
@@ -36,6 +38,7 @@ class NativeTargetTest {
 
     @Test
     fun `the host is Kotlin-Native's host`() {
+        assumeTrue(kotlinKnowsHost, "Kotlin/Native does not support this host")
         assertEquals(HostManager.host.name, NativeTarget.host.konanName)
     }
 }

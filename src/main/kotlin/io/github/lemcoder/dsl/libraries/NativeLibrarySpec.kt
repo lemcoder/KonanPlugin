@@ -43,6 +43,12 @@ abstract class NativeLibrarySpec @Inject constructor(private val name: String, o
     /** Root of the per-target archives. Defaults to `build/konan/libraries/<name>`. */
     abstract val outputDirectory: DirectoryProperty
 
+    /**
+     * [targets] without repeats, which is what tasks are registered from: `targets(NativeTarget.host,
+     * NativeTarget.LINUX_ARM64)` names one target twice on a Linux arm64 host.
+     */
+    internal val distinctTargets: Provider<List<NativeTarget>> get() = targets.map { it.distinct() }
+
     fun targets(vararg targets: NativeTarget) = this.targets.set(targets.toList())
 
     /** All four Android ABIs. */

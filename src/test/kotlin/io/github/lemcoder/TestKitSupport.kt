@@ -26,4 +26,13 @@ internal fun testRunner(): GradleRunner = GradleRunner.create().apply {
     System.getProperty("test.gradle.version")?.takeIf { it.isNotEmpty() }?.let(::withGradleVersion)
 }
 
+/**
+ * Whether Kotlin knows the build host. Kotlin/Native has no Linux arm64 host: CI runs there on an
+ * unofficial distribution, which the plugin can use, but KGP and `kotlin-native-utils` from Maven throw
+ * "Unknown host target" there and build no Kotlin/Native target.
+ */
+internal val kotlinKnowsHost: Boolean by lazy {
+    runCatching { org.jetbrains.kotlin.konan.target.HostManager.host }.isSuccess
+}
+
 private object TestKitSupport

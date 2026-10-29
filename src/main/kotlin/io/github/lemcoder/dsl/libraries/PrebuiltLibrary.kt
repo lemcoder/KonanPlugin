@@ -22,7 +22,7 @@ import org.gradle.work.DisableCachingByDefault
 internal fun registerPrebuilt(project: Project, library: NativeLibrarySpec): TaskProvider<*> {
     val libraryName = library.name
     val archives = library.prebuilt.libraries.getOrElse(emptyMap())
-    val targets = library.targets.getOrElse(emptyList())
+    val targets = library.distinctTargets.getOrElse(emptyList())
     val missing = targets.filter { it !in archives }
     check(missing.isEmpty()) {
         "konan.libraries.$libraryName.prebuilt has no archive for ${missing.joinToString { it.konanName }}."

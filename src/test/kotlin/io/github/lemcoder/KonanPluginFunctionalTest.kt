@@ -911,6 +911,18 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a target named twice is built once`() {
+        write(
+            """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            mymath.replace("targets(NativeTarget.${host.name})", "targets(NativeTarget.${host.name}, NativeTarget.ANDROID_ARM64, NativeTarget.${host.name})"),
+        )
+
+        val result = runner("linkJniMymath", "--dry-run").withPluginClasspathAndKgp().build()
+
+        assertTrue(":konanClangMymath$hostSuffix SKIPPED" in result.output && ":linkJniMymath$hostSuffix SKIPPED" in result.output, result.output)
+    }
+
+    @Test
     fun `JNI targets default to the library's that a JVM can load`() {
         write(
             """kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")""",
@@ -1156,6 +1168,7 @@ class KonanPluginFunctionalTest {
     @Test
     fun `a multiplatform project binds through KGP's cinterop, after compiling the library`() {
         assumeTrue(KonanDistribution.installed() != null, "Kotlin/Native ${KonanDistribution.defaultVersion} is not installed")
+        assumeTrue(kotlinKnowsHost, "KGP builds no Kotlin/Native target on this host")
         // KMP's DSL names targets in camelCase: macos_arm64 -> macosArm64.
         val dslName = host.konanName.split('_').mapIndexed { i, part -> if (i == 0) part else part.replaceFirstChar { it.uppercase() } }.joinToString("")
         val targetSuffix = dslName.replaceFirstChar { it.uppercase() }

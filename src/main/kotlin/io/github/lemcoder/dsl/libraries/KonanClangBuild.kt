@@ -23,7 +23,7 @@ private val DEFAULT_COMPILER_OPTIONS = listOf("-fno-sanitize=undefined", "-fPIC"
  * Kotlin/Native's clang and archived with its llvm-ar — for Android targets, the NDK's.
  */
 internal fun registerKonanClang(project: Project, konan: KonanExtension, library: NativeLibrarySpec): Map<NativeTarget, TaskProvider<*>> =
-    library.targets.getOrElse(emptyList()).associateWith { target ->
+    library.distinctTargets.getOrElse(emptyList()).associateWith { target ->
         project.tasks.register(taskName("konanClang", library.name, target), CompileNativeLibraryTask::class.java) {
             group = "konan"
             description = "Compile the '${library.name}' C/C++ sources for ${target.konanName}, with " +
