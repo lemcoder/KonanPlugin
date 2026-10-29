@@ -62,7 +62,7 @@ jobs:
           dist=kotlin-native-prebuilt-linux-x86_64-$KONAN_VERSION
           if [ ! -d ~/.konan/$dist ]; then
             mkdir -p ~/.konan
-            curl -sSfL "https://download.jetbrains.com/kotlin/native/builds/releases/$KONAN_VERSION/linux-x86_64/$dist.tar.gz" | tar -xz -C ~/.konan
+            curl -sSfL "https://github.com/JetBrains/kotlin/releases/download/v$KONAN_VERSION/$dist.tar.gz" | tar -xz -C ~/.konan
           fi
 
       # voize-gmbh's unofficial Linux arm64 build, pinned by checksum. JetBrains hosts no LLVM or libffi for
