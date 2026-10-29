@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/**]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    # Linux arm64 has no official Kotlin/Native distribution: it runs on an unofficial build and may fail
+    # without failing the workflow, until it is known to pass.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-24.04
+            experimental: false
+            konan-version: "2.4.20"
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            experimental: true
+            konan-version: "2.4.21"
+    env:
+      KONAN_VERSION: ${{ matrix.konan-version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake make
+          command -v cargo || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          ~/.cargo/bin/cargo --version
+
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-${{ matrix.name }}-${{ matrix.konan-version }}
+
+      # The tests find the distribution at ~/.konan/kotlin-native-prebuilt-<host>-<version>, where the Kotlin
+      # Gradle plugin installs it; without it they skip.
+      - name: Install Kotlin/Native (JetBrains)
+        if: matrix.name == 'linux-x64'
+        run: |
+          dist=kotlin-native-prebuilt-linux-x86_64-$KONAN_VERSION
+          if [ ! -d ~/.konan/$dist ]; then
+            mkdir -p ~/.konan
+            curl -sSfL "https://download.jetbrains.com/kotlin/native/builds/releases/$KONAN_VERSION/linux-x86_64/$dist.tar.gz" | tar -xz -C ~/.konan
+          fi
+
+      # voize-gmbh's unofficial Linux arm64 build, pinned by checksum. JetBrains hosts no LLVM or libffi for
+      # this host, so they go into the dependencies directory by hand, marked as extracted.
+      - name: Install Kotlin/Native (voize-gmbh, unofficial)
+        if: matrix.name == 'linux-arm64'
+        run: |
+          release=https://github.com/voize-gmbh/kotlin/releases/download/v2.4.21-linux-arm64
+          dist=kotlin-native-prebuilt-linux-aarch64-$KONAN_VERSION
+          deps=~/.konan/dependencies
+          mkdir -p "$deps" downloads
+          if [ ! -d ~/.konan/$dist ]; then
+            cd downloads
+            cat > SHA256SUMS <<'EOF'
+          e7dfc692c1e0b1d0ad9ada67031a67b0544974ba77220445c21efc7949281ea3  kotlin-native-prebuilt-linux-aarch64-2.4.21.tar.gz
+          ad212a7541b98ed2a4ebb3b510f4cdebf2919b8b0cc9dd5a321558a5f4282b13  libffi-3.4.6-1-linux-aarch64.tar.gz
+          35e9a2566bf7cb44de427669d010117e98148ca5ea1a4ffef291218581d376a9  llvm-21-aarch64-linux-essentials-1.tar.gz
+          EOF
+            sed -i 's/^ *//' SHA256SUMS
+            for f in $(awk '{print $2}' SHA256SUMS); do curl -sSfLO "$release/$f"; done
+            sha256sum -c SHA256SUMS
+            tar -xzf llvm-21-aarch64-linux-essentials-1.tar.gz -C "$deps"
+            tar -xzf libffi-3.4.6-1-linux-aarch64.tar.gz -C "$deps"
+            for n in llvm-21-aarch64-linux-essentials-1 libffi-3.4.6-1-linux-aarch64; do
+              grep -qx "$n" "$deps/.extracted" 2>/dev/null || echo "$n" >> "$deps/.extracted"
+            done
+            tar -xzf $dist.tar.gz -C ~/.konan
+            cd .. && rm -rf downloads
+          fi
+
+      - name: Check Kotlin/Native
+        run: |
+          home=$(ls -d ~/.konan/kotlin-native-prebuilt-linux-*-$KONAN_VERSION)
+          "$home/bin/kotlinc-native" -version
+
+      # The default Kotlin/Native version is what the tests and kotlin-native-utils use; the arm64 build
+      # exists for 2.4.21 only.
+      - name: Test
+        run: ./gradlew test -PkotlinNativeVersion=$KONAN_VERSION --continue
+
+      - name: Test summary
+        if: always()
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import glob, xml.etree.ElementTree as ET
+          rows, totals = [], [0, 0, 0]
+          for f in sorted(glob.glob("build/test-results/test/*.xml")):
+              suite = ET.parse(f).getroot()
+              for case in suite.iter("testcase"):
+                  outcome = next((c.tag for c in case if c.tag in ("failure", "error", "skipped")), "passed")
+                  totals[0 if outcome == "passed" else 2 if outcome == "skipped" else 1] += 1
+                  if outcome != "passed":
+                      detail = next(c for c in case if c.tag == outcome).get("message", "") or ""
+                      rows.append(f"| {outcome} | {case.get('name')} | {detail.splitlines()[0][:150] if detail else ''} |")
+          print(f"### ${{ matrix.name }}: {totals[0]} passed, {totals[1]} failed, {totals[2]} skipped\n")
+          if rows:
+              print("| Outcome | Test | Message |\n|---|---|---|")
+              print("\n".join(rows))
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports-${{ matrix.name }}
+          path: build/reports/tests/test
