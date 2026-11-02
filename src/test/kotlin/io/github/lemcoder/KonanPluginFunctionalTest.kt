@@ -937,6 +937,16 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a multiplatform jvm() target's sources jar is built after its JNI bindings are generated`() {
+        write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath)
+        File(projectDir, "build.gradle.kts").appendText("kotlin { jvm() }\nrepositories { mavenCentral() }\n")
+
+        val result = runner("jvmSourcesJar", "--dry-run").withPluginClasspathAndKgp().build()
+
+        assertTrue(":generateJniMymath SKIPPED" in result.output, result.output)
+    }
+
+    @Test
     fun `ffm() serves a multiplatform project's jvm() targets in place of JNI`() {
         write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath.replace("library(mymath)", "library(mymath)\n        ffm()"))
         File(projectDir, "build.gradle.kts").appendText("kotlin { jvm() }\nrepositories { mavenCentral() }\n")

@@ -36,16 +36,15 @@ internal object KotlinGradlePlugin {
     /** …and of the main compilation of every JVM and Android target of a multiplatform project. */
     fun addKmpJvmSources(project: Project, sources: Provider<Directory>, generate: TaskProvider<*>, enabled: () -> Boolean) {
         // Decided when the sources are read, not now: targets are usually declared before konan { }. A
-        // provider of our own carries no producer, so the compile's dependency is spelled out too.
-        val lazySources = project.provider { if (enabled()) listOf(sources.get()) else emptyList() }
+        // provider of our own carries no producer, so the directory is built by the generation explicitly:
+        // every reader of the source set — the compile, a sources jar, lint — then depends on it.
         val lazyGenerate = project.provider { if (enabled()) listOf(generate) else emptyList() }
+        val lazySources = project.files(project.provider { if (enabled()) listOf(sources.get()) else emptyList() })
+            .builtBy(lazyGenerate)
         project.extensions.getByType(KotlinMultiplatformExtension::class.java).targets
             .matching { it.platformType in JVM_PLATFORMS }
             .configureEach {
-                compilations.matching { it.name == "main" }.configureEach {
-                    defaultSourceSet.kotlin.srcDir(lazySources)
-                    compileTaskProvider.configure { dependsOn(lazyGenerate) }
-                }
+                compilations.matching { it.name == "main" }.configureEach { defaultSourceSet.kotlin.srcDir(lazySources) }
             }
     }
 
