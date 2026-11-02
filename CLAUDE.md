@@ -51,7 +51,10 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   property `konan.config.<field>`, then the environment variable, and records `usedBy` for `konanConfig`.
   Add a path by adding a `ConfigField` entry and a property, never a per-block `executable`.
 - **Tasks that run Kotlin/Native implement `UsesKonanDistribution`**; the plugin sets their `konanHome`
-  in one `withType().configureEach`, and `distribution()` checks it when the task runs.
+  in one `withType().configureEach`, and `distribution()` checks it when the task runs. The same block makes
+  them depend on KGP's `downloadKotlinNativeDistribution` (KGP 2.3+) when `konanHome` is the directory
+  `kotlinNativeDistribution()` names (#16). That dependency is a `project.provider { }`: given
+  `konanHome.map { }`, Gradle asks the mapped property for its producer, finds none, and never runs the mapping.
 - **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/dsl/bindings/jni/`, Apache 2.0): the
   JNI generator writes it to its `include/` output, the host link and `KONAN_JNI_INCLUDE_DIR` use it. Its
   JNI is 1.6 — enough for the generated stubs.

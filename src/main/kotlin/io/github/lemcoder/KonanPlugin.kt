@@ -12,6 +12,7 @@ import io.github.lemcoder.wiring.GradlePluginId
 import io.github.lemcoder.wiring.withPlugin
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import java.io.File
 
 abstract class KonanPlugin : Plugin<Project> {
     override fun apply(project: Project) {
@@ -20,6 +21,15 @@ abstract class KonanPlugin : Plugin<Project> {
         // that never runs one needs none.
         project.tasks.withType(UsesKonanDistribution::class.java).configureEach {
             konanHome.convention(konan.config.readConfigField(ConfigField.KONAN_HOME, path))
+            // The Kotlin plugin installs the distribution kotlinNativeDistribution() names in a task of its
+            // own in recent versions (2.3.0 has it, 2.2.10 not); earlier ones download while configuring (#16).
+            // project.provider, not konanHome.map: Gradle asks a mapped property for its producer, finds none,
+            // and never evaluates the mapping.
+            val home = konanHome
+            dependsOn(project.provider {
+                val installs = home.get().raw?.let(::File)?.absoluteFile == konan.config.kotlinNativeDistribution().absoluteFile
+                if (installs && DOWNLOAD_KOTLIN_NATIVE in project.tasks.names) listOf(project.tasks.named(DOWNLOAD_KOTLIN_NATIVE)) else emptyList()
+            })
         }
         project.registerConfigReport(konan.config)
         // kotlinNativeDistribution() names the project's own Kotlin/Native version once the Kotlin plugin is known.
@@ -30,5 +40,9 @@ abstract class KonanPlugin : Plugin<Project> {
         AgpWiring.ndkDirectory(project, konan.config.androidGradlePluginNdk)
         project.registerLibraries(konan)
         project.registerBindings(konan)
+    }
+
+    private companion object {
+        const val DOWNLOAD_KOTLIN_NATIVE = "downloadKotlinNativeDistribution"
     }
 }

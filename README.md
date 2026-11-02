@@ -62,6 +62,8 @@ plugin downloads for a native target:
 konan { config { konanHome.set(kotlinNativeDistribution()) } }   // ~/.konan/kotlin-native-prebuilt-<host>-<your Kotlin version>
 ```
 
+When the Kotlin plugin downloads it in a task of its own (`downloadKotlinNativeDistribution`, Kotlin 2.3 and
+newer), every plugin task that needs `konanHome` runs after it, so a fresh machine needs no extra step.
 A project with no native target never makes the Kotlin plugin download it: build any Kotlin Multiplatform
 project with a native target on that version once, or unpack `kotlin-native-prebuilt-<host>-<version>`
 from [Maven Central](https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-native-prebuilt/).

@@ -947,6 +947,29 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `a konanHome the Kotlin plugin installs is downloaded before the tasks that need it`() {
+        assumeTrue(kotlinKnowsHost, "Kotlin/Native does not support this host")
+        val download = ":downloadKotlinNativeDistribution SKIPPED"
+        fun dryRun(konanHome: String): String {
+            write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", "$konanHome\n$mymath")
+            File(projectDir, "build.gradle.kts").appendText(
+                "kotlin { jvm(); linuxX64() }\nrepositories { mavenCentral() }\n" +
+                    "gradle.taskGraph.whenReady { println(\"registers download: \${\"downloadKotlinNativeDistribution\" in tasks.names}\") }\n"
+            )
+            return runner("generateJniMymath", "--dry-run").withPluginClasspathAndKgp().build().output
+        }
+
+        val installed = dryRun("config.konanHome.set(config.kotlinNativeDistribution())")
+        // Before 2.3 the Kotlin plugin downloads while configuring, and registers no task to depend on.
+        assumeTrue("registers download: true" in installed, "this Kotlin plugin has no downloadKotlinNativeDistribution")
+        assertTrue(installed.indexOf(download) in 0 until installed.indexOf(":generateJniMymath SKIPPED"), installed)
+
+        // A distribution of the build's own is not the Kotlin plugin's to install.
+        val own = dryRun("")
+        assertTrue(":generateJniMymath SKIPPED" in own && download !in own, own)
+    }
+
+    @Test
     fun `ffm() serves a multiplatform project's jvm() targets in place of JNI`() {
         write("""kotlin("multiplatform")${"\n"}id("io.github.lemcoder.konanplugin")""", mymath.replace("library(mymath)", "library(mymath)\n        ffm()"))
         File(projectDir, "build.gradle.kts").appendText("kotlin { jvm() }\nrepositories { mavenCentral() }\n")
