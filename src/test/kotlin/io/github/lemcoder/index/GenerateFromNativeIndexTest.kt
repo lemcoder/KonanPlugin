@@ -58,7 +58,15 @@ class GenerateFromNativeIndexTest {
         assertContains(kotlin, "internal fun sample_name(): String? = `sample_name\$kni`()?.decodeToString()")
         assertContains(kotlin, "@JvmName(\"sample_name\\\$kni\")\nprivate external fun `sample_name\$kni`(): ByteArray?")
         assertContains(kotlin, "internal fun sample_echo(text: String?): String? = `sample_echo\$kni`(text?.let(::kniUtf8))?.decodeToString()")
-        assertContains(kotlin, "internal external fun sample_buffer(handle: Long, c: Int, s: Int): ByteArray")
+        // Pointers to records are typed handles, unwrapped for the external (Kotlin would mangle its name).
+        assertContains(kotlin, "@JvmInline\ninternal value class OpaquePointer(val address: Long)")
+        assertContains(kotlin, "internal fun sample_buffer(handle: OpaquePointer, c: Int, s: Int): ByteArray = `sample_buffer\$kni`(handle.address, c, s)")
+        assertContains(kotlin, "@JvmName(\"sample_buffer\\\$kni\")\nprivate external fun `sample_buffer\$kni`(handle: Long, c: Int, s: Int): ByteArray")
+        // Named by the struct's tag whichever way it is spelled: node_t is struct node.
+        assertContains(kotlin, "internal fun sample_scale(node: NodePointer, factor: Double): Double = `sample_scale\$kni`(node.address, factor)")
+        assertContains(kotlin, "internal fun sample_packet_size(p: PacketPointer): Long")
+        // NULL comes back as null.
+        assertContains(kotlin, "internal fun sample_create(): OpaquePointer? = `sample_create\$kni`().let { if (it == 0L) null else OpaquePointer(it) }")
         assertContains(kotlin, "internal external fun sample_bits(f: ByteArray): ByteArray")
         assertContains(kotlin, "internal external fun sample_sort(base: java.nio.Buffer?, n: Long, cmp: Long): Unit")
         // A typedef'd void* is a handle, not memory.
