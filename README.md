@@ -504,7 +504,7 @@ plugin writes both sides of each JNI bridge from the C declarations:
 | C type                                       | Kotlin type                      | Crosses as                                         |
 |----------------------------------------------|----------------------------------|----------------------------------------------------|
 | integers, `char`, `bool`, floating point, enums | `Int`, `Long`, `Byte`, `Boolean`, `Double`, … | the JNI primitive of the same size |
-| `const char*` (argument or result)           | `String?`                        | `GetStringUTFChars` / `NewStringUTF`               |
+| `const char*` (argument or result)           | `String?`                        | NUL-terminated UTF-8 bytes, through a generated wrapper: JNI's string functions speak modified UTF-8, which splits characters outside the BMP |
 | `int*`, `uint8_t*`, `float*`, … buffer       | `IntArray?`, `ByteArray?`, `FloatArray?`, … | pinned for the call; written back unless `const` |
 | struct by value (argument or result)         | `ByteArray`                      | the struct's bytes                                 |
 | pointer to pointer (`handle_t**` out-parameter) | `LongArray?`                 | addresses, copied into a C pointer array and back unless `const` |

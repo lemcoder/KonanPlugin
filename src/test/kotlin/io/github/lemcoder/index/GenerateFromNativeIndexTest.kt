@@ -12,6 +12,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -53,7 +54,10 @@ class GenerateFromNativeIndexTest {
         val kotlin = jni().resolve("kotlin/sample/sample.kt").readText()
         assertContains(kotlin, "private val nativeLibrary: Unit = loadNativeLibrary(\"samplestubs\")")
         assertContains(kotlin, "@JvmName(\"sample_sum\")\ninternal external fun sample_sum(values: IntArray?, count: Long): Int")
-        assertContains(kotlin, "internal external fun sample_name(): String?")
+        // Strings cross as real UTF-8 bytes (#14): a wrapper around a private external.
+        assertContains(kotlin, "internal fun sample_name(): String? = `sample_name\$kni`()?.decodeToString()")
+        assertContains(kotlin, "@JvmName(\"sample_name\\\$kni\")\nprivate external fun `sample_name\$kni`(): ByteArray?")
+        assertContains(kotlin, "internal fun sample_echo(text: String?): String? = `sample_echo\$kni`(text?.let(::kniUtf8))?.decodeToString()")
         assertContains(kotlin, "internal external fun sample_buffer(handle: Long, c: Int, s: Int): ByteArray")
         assertContains(kotlin, "internal external fun sample_bits(f: ByteArray): ByteArray")
         assertContains(kotlin, "internal external fun sample_sort(base: java.nio.Buffer?, n: Long, cmp: Long): Unit")
@@ -91,7 +95,12 @@ class GenerateFromNativeIndexTest {
         assertContains(c, "Java_sample_sample_sample_1sum(JNIEnv* env, jclass cls, jintArray p0, jlong p1)")
         // const int*: pinned for the call, not copied back.
         assertContains(c, "if (p0) (*env)->ReleaseIntArrayElements(env, p0, a0, JNI_ABORT);")
-        assertContains(c, "jstring result = r ? (*env)->NewStringUTF(env, r) : 0;")
+        // No JNI string function: they speak modified UTF-8 (#14).
+        assertFalse("StringUTF" in c, c)
+        assertContains(c, "Java_sample_sample_sample_1echo_00024kni(JNIEnv* env, jclass cls, jbyteArray p0)")
+        assertContains(c, "jbyte* s0 = p0 ? (*env)->GetByteArrayElements(env, p0, 0) : 0;")
+        assertContains(c, "if (p0) (*env)->ReleaseByteArrayElements(env, p0, s0, JNI_ABORT);")
+        assertContains(c, "if (result) (*env)->SetByteArrayRegion(env, result, 0, n, (const jbyte*)r);")
         assertContains(c, "if (!p0 || (*env)->GetArrayLength(env, p0) < (jsize)sizeof(struct flags)) {")
         assertContains(c, "void* d0 = p0 ? (*env)->GetDirectBufferAddress(env, p0) : 0;")
         assertContains(c, "sample_sort((void *)d0, p1, (compare_fn)(intptr_t)p2);")

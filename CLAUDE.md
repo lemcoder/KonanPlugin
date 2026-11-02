@@ -137,6 +137,11 @@ cinterop's `NativeIndex`: the Kotlin `external fun` named after the C function, 
 function that marshals strings, primitive buffers and structs by value. cinterop's own JVM flavor is
 not used — it emits address-only bridges, every pointer a raw `Long`.
 
+**Strings never use JNI's string functions** (`GetStringUTFChars`, `NewStringUTF`): they speak modified
+UTF-8, so 👍 reached C as two surrogates on HotSpot, and `NewStringUTF` given a 4-byte sequence is undefined —
+CheckJNI aborts (#14). A `const char*` crosses as a `ByteArray` of UTF-8 behind a Kotlin wrapper, around a
+private `external` named `<name>$kni`: `$` cannot occur in a C identifier, so it clashes with no binding.
+
 Bindings are `internal` by default and each carries **`@JvmName`**. JNI resolves the C symbol from the
 unmangled method name, so a mangled internal name compiles, links, and dies on the first call.
 

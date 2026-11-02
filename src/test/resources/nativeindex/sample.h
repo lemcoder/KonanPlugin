@@ -48,6 +48,7 @@ extern const int sample_global;
 
 int sample_sum(const int *values, size_t count);
 const char *sample_name(void);
+const char *sample_echo(const char *text);
 void sample_sort(void *base, size_t n, compare_fn cmp);
 double sample_scale(node_t *node, double factor);
 struct buffer sample_buffer(struct opaque *handle, enum color c, size_class s);

@@ -728,6 +728,47 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `strings cross JNI as real UTF-8, characters outside the BMP included`() {
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/text.c").writeText(
+            """
+            #include <stdio.h>
+            static char hex[256];
+            const char* text_hex(const char* s) {
+                char* o = hex;
+                for (; *s; s++) o += sprintf(o, "%02x", (unsigned char)*s);
+                *o = 0;
+                return hex;
+            }
+            const char* text_echo(const char* s) { return s; }
+            """.trimIndent()
+        )
+        File(projectDir, "src/main/kotlin").mkdirs()
+        // U+1F44D and U+20000 are surrogate pairs in Kotlin; modified UTF-8 splits each into two 3-byte sequences.
+        File(projectDir, "src/main/kotlin/Main.kt").writeText(
+            """
+            import example.text_echo
+            import example.text_hex
+            fun main() {
+                val s = "a👍中𠀀"
+                println("hex=" + text_hex(s))
+                println("echo=" + (text_echo(s) == s))
+            }
+            """.trimIndent()
+        )
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")${"\n"}application""", "config.konanHome.set(file(\"$home\"))\n$mymath")
+        File(projectDir, "mymath.h").writeText("const char* text_hex(const char* s);\nconst char* text_echo(const char* s);\n")
+        File(projectDir, "build.gradle.kts").appendText("repositories { mavenCentral() }\napplication { mainClass.set(\"MainKt\") }\n")
+
+        val output = runner("run", "-q").withPluginClasspathAndKgp().build().output
+
+        // a, then F0 9F 91 8D, E4 B8 AD and F0 A0 80 80: what C reads is UTF-8, not modified UTF-8.
+        assertContains(output, "hex=61f09f918de4b8adf0a08080")
+        assertContains(output, "echo=true")
+    }
+
+    @Test
     fun `Android libraries compile and link with the NDK, its C++ runtime inside`() {
         val home = realKonanHome()
         val ndk = realNdk()

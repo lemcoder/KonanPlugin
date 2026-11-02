@@ -12,7 +12,10 @@ import java.io.File
  *
  * How values cross:
  *  - integers, `char`, `bool`, floating point and enums: the Kotlin primitive of the same size;
- *  - `const char*`: `String?` in both directions, through `GetStringUTFChars` / `NewStringUTF`;
+ *  - `const char*`: `String?` in both directions, crossing as a `ByteArray` of real UTF-8 (#14): JNI's
+ *    string functions speak modified UTF-8, which splits every character outside the BMP into two
+ *    surrogates and is undefined for `NewStringUTF` given a 4-byte sequence. A function that takes or
+ *    returns one gets a Kotlin wrapper doing the conversion around a private `<name>$kni` external;
  *  - other pointers to integers or floating point (`int*`, `uint8_t*`, `float*`, …): the matching
  *    primitive array, pinned for the call and written back afterwards unless the pointee is `const`;
  *  - pointers to pointers (`handle_t**`, the usual out-parameter): a `LongArray?` of addresses, copied
@@ -60,7 +63,16 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
     private class Unsupported(reason: String) : Exception(reason)
 
     /** One C function, decided: how each parameter and the result cross. */
-    private class Binding(val function: FunctionDecl, val params: List<Pair<String, Crossing>>, val result: Crossing)
+    private class Binding(val function: FunctionDecl, val params: List<Pair<String, Crossing>>, val result: Crossing) {
+        /** Strings cross as bytes, so the `external` takes and returns those behind a Kotlin wrapper. */
+        val crossesStrings get() = result == Crossing.CString || params.any { it.second == Crossing.CString }
+
+        /**
+         * The JVM name of the `external`: the C function's, or with a wrapper `<name>$kni` — `$` cannot occur
+         * in a C identifier, so it names no other binding.
+         */
+        val nativeName get() = if (crossesStrings) "${function.name}\$kni" else function.name
+    }
 
     /** How one value crosses the JNI boundary. */
     /** The JVM primitives a C value can cross as, with how Kotlin and JNI spell them. */
@@ -85,15 +97,15 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         }
     }
 
-    private sealed class Crossing(val kotlinType: String, val jniType: String) {
+    private sealed class Crossing(val kotlinType: String, val jniType: String, val externalType: String = kotlinType) {
         /** Passed as is; the C compiler converts between the JNI and C types of the same size. */
         class Primitive(val primitive: JvmPrimitive) : Crossing(primitive.kotlinName, primitive.jniName)
 
         /** A pointer as an address; [cType] is how C spells the pointer, for the cast. */
         class Address(val cType: String) : Crossing(JvmPrimitive.LONG.kotlinName, JvmPrimitive.LONG.jniName)
 
-        /** `const char*` as a `String?`. */
-        object CString : Crossing("String?", "jstring")
+        /** `const char*` as a `String?`, through its NUL-terminated UTF-8 bytes. */
+        object CString : Crossing("String?", "jbyteArray", "${JvmPrimitive.BYTE.kotlinName}Array?")
 
         /**
          * A pointer to [element] values as a pinned primitive array; [cType] spells the pointer. A [readOnly]
@@ -217,14 +229,34 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         append(NativeLoaderSource.kotlin())
         if (constants.isNotEmpty()) appendLine()
         constants.forEach { (name, value) -> appendLine("${visibility.name.lowercase()} const val ${kotlinIdentifier(name)}$value") }
+        if (bound.any { b -> b.params.any { it.second == Crossing.CString } }) {
+            appendLine()
+            appendLine("/** A string as the NUL-terminated UTF-8 C reads; JNI's own string functions speak modified UTF-8. */")
+            appendLine("private fun kniUtf8(s: String): ByteArray = (s + '\\u0000').encodeToByteArray()")
+        }
         bound.forEach { b ->
             val params = b.params.joinToString { (name, crossing) -> "${kotlinIdentifier(name)}: ${crossing.kotlinType}" }
+            val visibilityName = visibility.name.lowercase()
             appendLine()
             appendLine("/** C: `${cSignature(b.function)}` */")
             // JNI resolves the C symbol from the JVM method name; without @JvmName an internal function
             // could be mangled.
             appendLine("""@JvmName("${b.function.name}")""")
-            appendLine("${visibility.name.lowercase()} external fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType}")
+            if (!b.crossesStrings) {
+                appendLine("$visibilityName external fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType}")
+                return@forEach
+            }
+            val native = "`${b.nativeName}`"
+            val arguments = b.params.joinToString { (name, crossing) ->
+                if (crossing == Crossing.CString) "${kotlinIdentifier(name)}?.let(::kniUtf8)" else kotlinIdentifier(name)
+            }
+            val decode = if (b.result == Crossing.CString) "?.decodeToString()" else ""
+            appendLine("$visibilityName fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType} = $native($arguments)$decode")
+            appendLine()
+            val externalParams = b.params.joinToString { (name, crossing) -> "${kotlinIdentifier(name)}: ${crossing.externalType}" }
+            // Escaped in the string literal, where `$kni` would be a template.
+            appendLine("""@JvmName("${b.nativeName.replace("$", "\\$")}")""")
+            appendLine("private external fun $native($externalParams): ${b.result.externalType}")
         }
         if (skipped.isNotEmpty()) {
             appendLine()
@@ -262,7 +294,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         val params = b.params.mapIndexed { i, (_, c) -> "${c.jniType} p$i" }
         val returnType = b.result.jniType
         val failure = if (b.result is Crossing.Void) "return;" else "return 0;"
-        appendLine("JNIEXPORT $returnType JNICALL ${jniClassPrefix}_${jniMangle(name)}(${(listOf("JNIEnv* env", "jclass cls") + params).joinToString(", ")}) {")
+        appendLine("JNIEXPORT $returnType JNICALL ${jniClassPrefix}_${jniMangle(b.nativeName)}(${(listOf("JNIEnv* env", "jclass cls") + params).joinToString(", ")}) {")
 
         // Checks first, so a failing one leaves nothing acquired.
         b.params.forEachIndexed { i, (_, c) ->
@@ -286,8 +318,8 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
                 is Crossing.Address -> "(${c.cType})(intptr_t)p$i"
                 is Crossing.DirectBuffer -> "(${c.cType})d$i"
                 Crossing.CString -> {
-                    appendLine("    const char* s$i = p$i ? (*env)->GetStringUTFChars(env, p$i, 0) : 0;")
-                    "s$i"
+                    appendLine("    jbyte* s$i = p$i ? (*env)->GetByteArrayElements(env, p$i, 0) : 0;")
+                    "(const char*)s$i"
                 }
                 is Crossing.PrimitiveArray -> {
                     appendLine("    ${c.element.jniName}* a$i = p$i ? (*env)->Get${c.element.kotlinName}ArrayElements(env, p$i, 0) : 0;")
@@ -314,7 +346,12 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
             is Crossing.Address -> appendLine("    jlong result = (jlong)(intptr_t)$call;")
             Crossing.CString -> {
                 appendLine("    const char* r = $call;")
-                appendLine("    jstring result = r ? (*env)->NewStringUTF(env, r) : 0;")
+                appendLine("    jbyteArray result = 0;")
+                appendLine("    if (r) {")
+                appendLine("        jsize n = (jsize)strlen(r);")
+                appendLine("        result = (*env)->NewByteArray(env, n);")
+                appendLine("        if (result) (*env)->SetByteArrayRegion(env, result, 0, n, (const jbyte*)r);")
+                appendLine("    }")
             }
             is Crossing.StructBytes -> {
                 appendLine("    ${r.cType} r = $call;")
@@ -327,7 +364,7 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         // copied back.
         b.params.indices.reversed().forEach { i ->
             when (val c = b.params[i].second) {
-                Crossing.CString -> appendLine("    if (p$i) (*env)->ReleaseStringUTFChars(env, p$i, s$i);")
+                Crossing.CString -> appendLine("    if (p$i) (*env)->ReleaseByteArrayElements(env, p$i, s$i, JNI_ABORT);")
                 is Crossing.PrimitiveArray -> {
                     val mode = if (c.readOnly) "JNI_ABORT" else "0"
                     appendLine("    if (p$i) (*env)->Release${c.element.kotlinName}ArrayElements(env, p$i, a$i, $mode);")
