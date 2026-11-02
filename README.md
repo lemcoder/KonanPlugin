@@ -511,7 +511,23 @@ plugin writes both sides of each JNI bridge from the C declarations:
 | struct by value (argument or result)         | `ByteArray`                      | the struct's bytes                                 |
 | pointer to pointer (`handle_t**` out-parameter) | `LongArray?`                 | addresses, copied into a C pointer array and back unless `const` |
 | `void*`, `const void*` argument               | `java.nio.Buffer?`               | a direct buffer's start address (`GetDirectBufferAddress`); a heap buffer throws |
-| opaque handle, typedef'd `void*`, struct or function pointer, any pointer result | `Long` | the address                         |
+| pointer to a named struct or union (`tsf*`, `struct node*`, opaque or not) | `TsfPointer`, `NodePointer`, …; `…?` as a result | the address, through a generated wrapper |
+| typedef'd `void*`, function pointer, other pointer results | `Long` | the address                         |
+
+A pointer to a struct or union gets a typed handle named after the record's tag (or, for an anonymous
+one, its typedef), so `tsf*` and `const tsf*` are both a `TsfPointer`:
+
+```kotlin
+@JvmInline internal value class TsfPointer(val address: Long)
+
+internal fun tsf_load_filename(filename: String?): TsfPointer?   // NULL is null
+internal fun tsf_note_on(f: TsfPointer, preset_index: Int, key: Int, vel: Float): Int
+```
+
+Results are nullable, so a failed call cannot be passed on unchecked; parameters take a non-null handle,
+so a stray `Long` does not compile. `address` is the raw pointer for other native APIs, and
+`TsfPointer(0L)` passes NULL deliberately. A handle says nothing about who owns the memory: freeing it
+(`tsf_close`) and not using it afterwards stays the caller's job. Pointers to pointers stay `LongArray?`.
 
 Enum constants and integer, floating-point and string macros become `const val`s. Functions that
 cannot be bound — variadic ones, `long double` — are listed with the reason at the end of the generated

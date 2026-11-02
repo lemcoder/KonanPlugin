@@ -55,6 +55,7 @@ struct buffer sample_buffer(struct opaque *handle, enum color c, size_class s);
 int sample_log(const char *format, ...);
 size_t sample_packet_size(const struct packet *p);
 bits_t sample_bits(struct flags f);
+struct opaque *sample_create(void);
 int sample_open(struct opaque **out);
 int sample_peek(const struct opaque *const *handles, size_t n);
 typedef void *sample_handle;

@@ -145,6 +145,11 @@ UTF-8, so 👍 reached C as two surrogates on HotSpot, and `NewStringUTF` given 
 CheckJNI aborts (#14). A `const char*` crosses as a `ByteArray` of UTF-8 behind a Kotlin wrapper, around a
 private `external` named `<name>$kni`: `$` cannot occur in a C identifier, so it clashes with no binding.
 
+**A pointer to a named record is a typed handle** (`@JvmInline value class <Tag>Pointer(val address: Long)`), and
+again only the Kotlin wrapper sees it: a function with a value-class parameter gets a mangled JVM name, so the
+`external` keeps the `Long` under `<name>$kni`. The class is named by the record's tag (`node_t*` and `struct node*`
+are one `NodePointer`); results are nullable, parameters are not.
+
 Bindings are `internal` by default and each carries **`@JvmName`**. JNI resolves the C symbol from the
 unmangled method name, so a mangled internal name compiles, links, and dies on the first call.
 
