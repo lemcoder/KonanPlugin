@@ -3,18 +3,18 @@ pluginManagement {
         google()
         gradlePluginPortal()
         mavenCentral()
-        mavenLocal() // the konan plugin, published via `../../gradlew publishToMavenLocal`
     }
     plugins {
         id("com.android.application") version "9.2.1"
-        id("io.github.lemcoder.konanplugin") version "1.2.0-alpha"
     }
+    // The konan plugin, built from this checkout.
+    includeBuild("../..")
 }
 
 dependencyResolutionManagement {
     repositories {
         google()
-        mavenCentral()
+        mavenCentral() // PanamaPort
     }
 }
 

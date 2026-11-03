@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/**]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (linux-x64)
+    runs-on: ubuntu-24.04
+    env:
+      KONAN_VERSION: "2.4.20"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake make
+          command -v cargo || curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          ~/.cargo/bin/cargo --version
+
+      - name: Cache Kotlin/Native
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: konan-linux-x64-${{ env.KONAN_VERSION }}
+
+      # The tests find the distribution at ~/.konan/kotlin-native-prebuilt-<host>-<version>, where the Kotlin
+      # Gradle plugin installs it; without it they skip.
+      - name: Install Kotlin/Native
+        run: |
+          dist=kotlin-native-prebuilt-linux-x86_64-$KONAN_VERSION
+          if [ ! -d ~/.konan/$dist ]; then
+            mkdir -p ~/.konan
+            curl -sSfL "https://github.com/JetBrains/kotlin/releases/download/v$KONAN_VERSION/$dist.tar.gz" | tar -xz -C ~/.konan
+          fi
+
+      - name: Check Kotlin/Native
+        run: |
+          home=~/.konan/kotlin-native-prebuilt-linux-x86_64-$KONAN_VERSION
+          "$home/bin/kotlinc-native" -version
+
+      - name: Test
+        run: ./gradlew test -PkotlinNativeVersion=$KONAN_VERSION --continue
+
+      - name: Test summary
+        if: always()
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import glob, xml.etree.ElementTree as ET
+          rows, totals = [], [0, 0, 0]
+          for f in sorted(glob.glob("build/test-results/test/*.xml")):
+              suite = ET.parse(f).getroot()
+              for case in suite.iter("testcase"):
+                  outcome = next((c.tag for c in case if c.tag in ("failure", "error", "skipped")), "passed")
+                  totals[0 if outcome == "passed" else 2 if outcome == "skipped" else 1] += 1
+                  if outcome != "passed":
+                      detail = next(c for c in case if c.tag == outcome).get("message", "") or ""
+                      rows.append(f"| {outcome} | {case.get('name')} | {detail.splitlines()[0][:150] if detail else ''} |")
+          print(f"### linux-x64: {totals[0]} passed, {totals[1]} failed, {totals[2]} skipped\n")
+          if rows:
+              print("| Outcome | Test | Message |\n|---|---|---|")
+              print("\n".join(rows))
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports-linux-x64
+          path: build/reports/tests/test

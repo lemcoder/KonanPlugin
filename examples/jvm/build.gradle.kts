@@ -1,45 +1,32 @@
-import io.github.lemcoder.abiDir
-import io.github.lemcoder.hostKonanTarget
-import org.jetbrains.kotlin.konan.target.KonanTarget
-import io.github.lemcoder.interop.jvmInterops
+import io.github.lemcoder.model.NativeTarget
 
 plugins {
-    kotlin("jvm") version "2.3.10"
+    kotlin("jvm") version "2.4.20"
     id("io.github.lemcoder.konanplugin")
     application
 }
 
 repositories { mavenCentral() }
 
-val host = hostKonanTarget()
-
-// konanConfig compiles, nothing else: native/*.c -> build/native/<target>/libmymath.a.
-konanConfig {
-    targets(host)
-    libName.set("mymath")
-}
-
-kotlin {
-    jvmToolchain(17)
-
-    // Declared like a cinterop, on the compilation it belongs to. The def names the archive above,
-    // so the plugin also links the JNI library; drop `staticLibraries` from it and you get the
-    // bindings and the .c stub only, for another build system to compile.
-    target.compilations["main"].jvmInterops {
+konan {
+    // Where the Kotlin plugin installs the Kotlin/Native version this plugin needs; or set
+    // konan.config.konanHome in ~/.gradle/gradle.properties.
+    config { konanHome.set(kotlinNativeDistribution()) }
+    // native/*.c -> one static archive per target.
+    val mymath = libraries.create("mymath") { targets(NativeTarget.host) }
+    // The C API in the .def, linked against that library. A kotlin("jvm") project gets JNI bindings,
+    // added to its main source set, and a JNI library per target a JVM can load.
+    bindings {
         create("mymath") {
-            defFile(project.file("src/main/nativeInterop/mymath.def"))
-            includeDirs.from(file("native"))
+            defFile.set(file("src/main/nativeInterop/mymath.def"))
+            includeDirs.from("native")
+            library(mymath)
         }
     }
 }
 
-application { mainClass.set("example.MainKt") }
+kotlin { jvmToolchain(17) }
 
-tasks.named<JavaExec>("run") {
-    dependsOn("linkJvmInteropMymath")
-    // loadLibrary() resolves the stub from java.library.path.
-    jvmArgs(
-        "-Djava.library.path=" +
-            layout.buildDirectory.dir("jvmInterop/mymath/jniLibs/${host.abiDir}").get().asFile.absolutePath
-    )
-}
+// The JNI library travels in the jar (konan/natives/<target>/), where the bindings load it from:
+// `run`, `installDist` and a plain `java -cp` need no java.library.path.
+application { mainClass.set("example.MainKt") }

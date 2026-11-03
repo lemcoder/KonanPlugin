@@ -1,0 +1,3 @@
+headers = cppmath.h
+headerFilter = cppmath.h
+package = cppmath

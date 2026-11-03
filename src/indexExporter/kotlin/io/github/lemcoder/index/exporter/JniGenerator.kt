@@ -1,0 +1,511 @@
+package io.github.lemcoder.index.exporter
+
+import io.github.lemcoder.model.BindingVisibility
+import io.github.lemcoder.index.GeneratorRequest
+import org.jetbrains.kotlin.native.interop.indexer.*
+import java.io.File
+
+/**
+ * JNI bindings for the plain JVM and Android: a Kotlin file of `external fun`s named after the C
+ * functions, and the C stub that implements them. Writes `kotlin/<package>/<facade>.kt` and
+ * `c/<stubLibrary>.c`, where the facade class is the package's last segment.
+ *
+ * How values cross:
+ *  - integers, `char`, `bool`, floating point and enums: the Kotlin primitive of the same size;
+ *  - `const char*`: `String?` in both directions, crossing as a `ByteArray` of real UTF-8 (#14): JNI's
+ *    string functions speak modified UTF-8, which splits every character outside the BMP into two
+ *    surrogates and is undefined for `NewStringUTF` given a 4-byte sequence. A function that takes or
+ *    returns one gets a Kotlin wrapper doing the conversion around a private `<name>$kni` external;
+ *  - other pointers to integers or floating point (`int*`, `uint8_t*`, `float*`, …): the matching
+ *    primitive array, pinned for the call and written back afterwards unless the pointee is `const`;
+ *  - pointers to pointers (`handle_t**`, the usual out-parameter): a `LongArray?` of addresses, copied
+ *    into a C array of pointers for the call and back afterwards unless the pointee is `const`;
+ *  - structs by value: a `ByteArray` holding the struct's bytes;
+ *  - `void*` and `const void*` arguments, spelled as such: a direct `java.nio.Buffer?`, whose start
+ *    address — not its position — is passed; a heap buffer is an `IllegalArgumentException`;
+ *  - pointers to a named struct or union (`tsf*`, `struct node*`, opaque or not): a typed handle,
+ *    `@JvmInline value class <Name>Pointer(val address: Long)`, named after the record. Parameters take it
+ *    non-null, results are `null` for NULL, so neither an unrelated `Long` nor a failed call's NULL reaches
+ *    C unnoticed. The `external` still takes the `Long`, behind a wrapper: Kotlin mangles the JVM name of
+ *    a function with value-class parameters, which JNI could not resolve;
+ *  - every other pointer (typedef'd `void*`, function pointers, pointers to primitives as results): its
+ *    address as a `Long`.
+ *
+ * Enum constants and the integer, floating-point and string macro constants become `const val`s.
+ *
+ * Functions it cannot bind (variadic, `long double`, an anonymous struct by value, …) are listed with the
+ * reason at the end of the Kotlin file instead.
+ *
+ * The request names the library `System.loadLibrary` loads — the plugin owns that name — and the
+ * bindings' visibility.
+ */
+object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
+    override fun generate(request: GeneratorRequest.Jni, context: GenerationContext, outputDirectory: File) {
+        val stubLibrary = request.stubLibrary
+        val visibility = request.visibility
+        val packageName = context.packageName
+        val facade = packageName.substringAfterLast('.').ifEmpty { "bindings" }
+
+        val bound = mutableListOf<Binding>()
+        val skipped = mutableListOf<Pair<String, String>>()
+        context.index.functions.sortedBy { it.name }.forEach { function ->
+            try {
+                bound += bind(function)
+            } catch (e: Unsupported) {
+                skipped += function.name to e.message.orEmpty()
+            }
+        }
+
+        val kotlinFile = outputDirectory.resolve("${GeneratorRequest.Jni.KOTLIN_DIR}/${packageName.replace('.', '/')}/$facade.kt")
+        kotlinFile.parentFile.mkdirs()
+        kotlinFile.writeText(kotlinSource(packageName, facade, stubLibrary, visibility, constants(context.index), bound, skipped))
+
+        val cFile = outputDirectory.resolve("${GeneratorRequest.Jni.C_DIR}/$stubLibrary.c")
+        cFile.parentFile.mkdirs()
+        cFile.writeText(cSource(context, jniClassPrefix(packageName, facade), bound))
+    }
+
+    private class Unsupported(reason: String) : Exception(reason)
+
+    /** One C function, decided: how each parameter and the result cross. */
+    private class Binding(val function: FunctionDecl, val params: List<Pair<String, Crossing>>, val result: Crossing) {
+        /**
+         * Strings cross as bytes and handles as their address, so the `external` takes and returns those
+         * behind a Kotlin wrapper.
+         */
+        val needsWrapper get() = (params.map { it.second } + result).any { it == Crossing.CString || it is Crossing.Handle }
+
+        /**
+         * The JVM name of the `external`: the C function's, or with a wrapper `<name>$kni` — `$` cannot occur
+         * in a C identifier, so it names no other binding.
+         */
+        val nativeName get() = if (needsWrapper) "${function.name}\$kni" else function.name
+    }
+
+    /** How one value crosses the JNI boundary. */
+    /** The JVM primitives a C value can cross as, with how Kotlin and JNI spell them. */
+    private enum class JvmPrimitive(val kotlinName: String, val jniName: String) {
+        BOOLEAN("Boolean", "jboolean"),
+        BYTE("Byte", "jbyte"),
+        SHORT("Short", "jshort"),
+        INT("Int", "jint"),
+        LONG("Long", "jlong"),
+        FLOAT("Float", "jfloat"),
+        DOUBLE("Double", "jdouble"),
+        ;
+
+        companion object {
+            fun integer(size: Int): JvmPrimitive? = when (size) {
+                1 -> BYTE; 2 -> SHORT; 4 -> INT; 8 -> LONG; else -> null
+            }
+
+            fun floating(size: Int): JvmPrimitive? = when (size) {
+                4 -> FLOAT; 8 -> DOUBLE; else -> null
+            }
+        }
+    }
+
+    private sealed class Crossing(val kotlinType: String, val jniType: String, val externalType: String = kotlinType) {
+        /** Passed as is; the C compiler converts between the JNI and C types of the same size. */
+        class Primitive(val primitive: JvmPrimitive) : Crossing(primitive.kotlinName, primitive.jniName)
+
+        /** A pointer as an address; [cType] is how C spells the pointer, for the cast. */
+        open class Address(val cType: String, kotlinType: String = JvmPrimitive.LONG.kotlinName) :
+            Crossing(kotlinType, JvmPrimitive.LONG.jniName, JvmPrimitive.LONG.kotlinName)
+
+        /**
+         * A pointer to the record [record] as its typed handle, [className]; `null` for NULL when [nullable]
+         * (results). Crosses JNI as an [Address].
+         */
+        class Handle(cType: String, val record: String, val nullable: Boolean) :
+            Address(cType, handleClassName(record) + if (nullable) "?" else "") {
+            val className get() = handleClassName(record)
+        }
+
+        /** `const char*` as a `String?`, through its NUL-terminated UTF-8 bytes. */
+        object CString : Crossing("String?", "jbyteArray", "${JvmPrimitive.BYTE.kotlinName}Array?")
+
+        /**
+         * A pointer to [element] values as a pinned primitive array; [cType] spells the pointer. A [readOnly]
+         * one (`const` pointee) is not copied back.
+         */
+        class PrimitiveArray(val element: JvmPrimitive, val cType: String, val readOnly: Boolean) :
+            Crossing("${element.kotlinName}Array?", "${element.jniName}Array")
+
+        /**
+         * A pointer to pointers as a `LongArray?` of addresses, through a C array of `void*`; [cType] spells
+         * the pointer. A [readOnly] one (`const` pointee) is not copied back. Pointers may be narrower than a
+         * `jlong`, so the array cannot be pinned and passed as is.
+         */
+        class AddressArray(val cType: String, val readOnly: Boolean) :
+            Crossing("${JvmPrimitive.LONG.kotlinName}Array?", "${JvmPrimitive.LONG.jniName}Array")
+
+        /**
+         * A `void*` argument as a direct `java.nio.Buffer`'s address; [cType] spells the pointer. A typedef'd
+         * `void*` is a handle more often than memory, and stays an [Address].
+         */
+        class DirectBuffer(val cType: String) : Crossing("java.nio.Buffer?", "jobject")
+
+        /** A struct by value as its bytes; [cType] spells the struct. */
+        class StructBytes(val cType: String) :
+            Crossing("${JvmPrimitive.BYTE.kotlinName}Array", "${JvmPrimitive.BYTE.jniName}Array")
+
+        object Void : Crossing("Unit", "void")
+    }
+
+    private fun bind(function: FunctionDecl): Binding {
+        if (function.isVararg) throw Unsupported("variadic")
+        if (function.parentName != null) throw Unsupported("C++ member")
+        val params = function.parameters.mapIndexed { i, p -> kotlinName(p.name, i) to parameter(p.type) }
+        if (params.map { it.first }.toSet().size != params.size) throw Unsupported("duplicate parameter names")
+        return Binding(function, params, result(function.returnType))
+    }
+
+    private fun parameter(type: Type): Crossing = when (val t = resolved(type)) {
+        is PointerType, is ArrayType -> pointer(type, t)
+        is RecordType -> Crossing.StructBytes(spelling(type))
+        else -> primitive(t)
+    }
+
+    private fun result(type: Type): Crossing = when (val t = resolved(type)) {
+        VoidType -> Crossing.Void
+        is PointerType -> when {
+            resolved(t.pointeeType) == CharType && t.pointeeIsConst -> Crossing.CString
+            else -> handleRecord(t.pointeeType)?.let { Crossing.Handle(spelling(type), it, nullable = true) }
+                ?: Crossing.Address(spelling(type))
+        }
+        is RecordType -> Crossing.StructBytes(spelling(type))
+        else -> primitive(t)
+    }
+
+    private fun pointer(declared: Type, pointer: Type): Crossing {
+        val declaredPointee = when (pointer) {
+            is PointerType -> pointer.pointeeType
+            is ArrayType -> pointer.elemType
+            else -> error("not a pointer")
+        }
+        val pointee = resolved(declaredPointee)
+        val isConst = pointer is PointerType && pointer.pointeeIsConst
+        if (pointee == CharType && isConst) return Crossing.CString
+        val cType = spelling(declared)
+        val element = when (pointee) {
+            CharType -> JvmPrimitive.BYTE
+            is IntegerType -> JvmPrimitive.integer(pointee.size)
+            is FloatingType -> JvmPrimitive.floating(pointee.size)
+            else -> null
+        }
+        return when {
+            element != null -> Crossing.PrimitiveArray(element, cType, isConst)
+            pointee == VoidType && declared !is Typedef -> Crossing.DirectBuffer(cType)
+            pointee is PointerType -> Crossing.AddressArray(cType, isConst)
+            else -> handleRecord(declaredPointee)?.let { Crossing.Handle(cType, it, nullable = false) } ?: Crossing.Address(cType)
+        }
+    }
+
+    /**
+     * The name a pointer to [pointee] is typed by: its struct or union's tag, else — an anonymous record —
+     * the typedef naming it. `null` for anything else, which stays a `Long`.
+     */
+    private fun handleRecord(pointee: Type): String? {
+        val record = resolved(pointee) as? RecordType ?: return null
+        if (!record.decl.isAnonymous) return record.decl.spelling.removePrefix("struct ").removePrefix("union ")
+        return (pointee as? Typedef)?.def?.name
+    }
+
+    private fun primitive(type: Type): Crossing.Primitive = when (type) {
+        CharType -> Crossing.Primitive(JvmPrimitive.BYTE)
+        is BoolType -> Crossing.Primitive(JvmPrimitive.BOOLEAN)
+        is IntegerType -> Crossing.Primitive(JvmPrimitive.integer(type.size) ?: throw Unsupported("${type.size * 8}-bit integer"))
+        is FloatingType -> Crossing.Primitive(JvmPrimitive.floating(type.size) ?: throw Unsupported(type.spelling))
+        is EnumType -> primitive(resolved(type.def.baseType))
+        else -> throw Unsupported("type ${type::class.simpleName}")
+    }
+
+    /** [type] with typedefs looked through. */
+    private fun resolved(type: Type): Type = if (type is Typedef) resolved(type.def.aliased) else type
+
+    /** How C spells [type], for casts and declarations in the stub. */
+    private fun spelling(type: Type): String = when (type) {
+        is Typedef -> type.def.name
+        is RecordType -> if (type.decl.isAnonymous) throw Unsupported("anonymous struct by value") else type.decl.spelling
+        is EnumType -> type.def.spelling
+        is PointerType -> type.spelling ?: "${if (type.pointeeIsConst) "const " else ""}${spelling(type.pointeeType)}*"
+        is ArrayType -> "${spelling(type.elemType)}*"
+        is IntegerType -> type.spelling
+        is FloatingType -> type.spelling
+        CharType -> "char"
+        CBoolType -> "_Bool"
+        is BoolType -> "bool"
+        VoidType -> "void"
+        else -> throw Unsupported("type ${type::class.simpleName}")
+    }
+
+    private fun kotlinSource(
+        packageName: String,
+        facade: String,
+        stubLibrary: String,
+        visibility: BindingVisibility,
+        constants: List<Pair<String, String>>,
+        bound: List<Binding>,
+        skipped: List<Pair<String, String>>,
+    ) = buildString {
+        appendLine("""@file:JvmName("$facade")""")
+        appendLine("""@file:Suppress("FunctionName", "LocalVariableName", "unused")""")
+        if (packageName.isNotEmpty()) appendLine("package $packageName")
+        appendLine()
+        appendLine("// Generated JNI bindings; do not edit. Strings and primitive buffers are marshalled, void*")
+        appendLine("// arguments are direct Buffers, structs by value cross as their bytes, and other pointers as")
+        appendLine("// addresses (Long).")
+        appendLine()
+        appendLine("""private val nativeLibrary: Unit = loadNativeLibrary("$stubLibrary")""")
+        appendLine()
+        append(NativeLoaderSource.kotlin())
+        if (constants.isNotEmpty()) appendLine()
+        constants.forEach { (name, value) -> appendLine("${visibility.name.lowercase()} const val ${kotlinIdentifier(name)}$value") }
+        if (bound.any { b -> b.params.any { it.second == Crossing.CString } }) {
+            appendLine()
+            appendLine("/** A string as the NUL-terminated UTF-8 C reads; JNI's own string functions speak modified UTF-8. */")
+            appendLine("private fun kniUtf8(s: String): ByteArray = (s + '\\u0000').encodeToByteArray()")
+        }
+        val visibilityName = visibility.name.lowercase()
+        bound.flatMap { b -> b.params.map { it.second } + b.result }.filterIsInstance<Crossing.Handle>()
+            .distinctBy { it.record }.sortedBy { it.className }.forEach { h ->
+                appendLine()
+                appendLine("/** The address of a C `${h.record}`; a function that may return NULL returns `null` instead. */")
+                appendLine("@JvmInline")
+                appendLine("$visibilityName value class ${h.className}(val address: Long)")
+            }
+        bound.forEach { b ->
+            val params = b.params.joinToString { (name, crossing) -> "${kotlinIdentifier(name)}: ${crossing.kotlinType}" }
+            appendLine()
+            appendLine("/** C: `${cSignature(b.function)}` */")
+            // JNI resolves the C symbol from the JVM method name; without @JvmName an internal function
+            // could be mangled.
+            appendLine("""@JvmName("${b.function.name}")""")
+            if (!b.needsWrapper) {
+                appendLine("$visibilityName external fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType}")
+                return@forEach
+            }
+            val native = "`${b.nativeName}`"
+            val arguments = b.params.joinToString { (name, crossing) ->
+                when (crossing) {
+                    Crossing.CString -> "${kotlinIdentifier(name)}?.let(::kniUtf8)"
+                    is Crossing.Handle -> "${kotlinIdentifier(name)}.address"
+                    else -> kotlinIdentifier(name)
+                }
+            }
+            val decode = when (val result = b.result) {
+                Crossing.CString -> "?.decodeToString()"
+                is Crossing.Handle -> ".let { if (it == 0L) null else ${result.className}(it) }"
+                else -> ""
+            }
+            appendLine("$visibilityName fun ${kotlinIdentifier(b.function.name)}($params): ${b.result.kotlinType} = $native($arguments)$decode")
+            appendLine()
+            val externalParams = b.params.joinToString { (name, crossing) -> "${kotlinIdentifier(name)}: ${crossing.externalType}" }
+            // Escaped in the string literal, where `$kni` would be a template.
+            appendLine("""@JvmName("${b.nativeName.replace("$", "\\$")}")""")
+            appendLine("private external fun $native($externalParams): ${b.result.externalType}")
+        }
+        if (skipped.isNotEmpty()) {
+            appendLine()
+            appendLine("// Not bound:")
+            skipped.forEach { (name, reason) -> appendLine("// - $name: $reason") }
+        }
+    }
+
+    private fun cSignature(function: FunctionDecl): String {
+        val params = function.parameters.joinToString { p ->
+            runCatching { spelling(p.type) }.getOrDefault("?") + (p.name?.let { " $it" } ?: "")
+        }
+        return "${runCatching { spelling(function.returnType) }.getOrDefault("?")} ${function.name}($params)"
+    }
+
+    private fun cSource(context: GenerationContext, jniClassPrefix: String, bound: List<Binding>) = buildString {
+        appendLine("// Generated JNI stub; do not edit.")
+        appendLine("#include <stdint.h>")
+        appendLine("#include <string.h>")
+        appendLine("#include <jni.h>")
+        context.headers.forEach { appendLine("#include <$it>") }
+        context.preambleLines.forEach { appendLine(it) }
+        if (bound.any { b -> b.params.any { it.second is Crossing.StructBytes || it.second is Crossing.DirectBuffer } }) {
+            appendLine()
+            appendLine("static void kniThrowIllegalArgument(JNIEnv* env, const char* message) {")
+            appendLine("    jclass type = (*env)->FindClass(env, \"java/lang/IllegalArgumentException\");")
+            appendLine("    if (type) (*env)->ThrowNew(env, type, message);")
+            appendLine("}")
+        }
+        bound.forEach { appendLine(); append(cFunction(it, jniClassPrefix)) }
+    }
+
+    private fun cFunction(b: Binding, jniClassPrefix: String) = buildString {
+        val name = b.function.name
+        val params = b.params.mapIndexed { i, (_, c) -> "${c.jniType} p$i" }
+        val returnType = b.result.jniType
+        val failure = if (b.result is Crossing.Void) "return;" else "return 0;"
+        appendLine("JNIEXPORT $returnType JNICALL ${jniClassPrefix}_${jniMangle(b.nativeName)}(${(listOf("JNIEnv* env", "jclass cls") + params).joinToString(", ")}) {")
+
+        // Checks first, so a failing one leaves nothing acquired.
+        b.params.forEachIndexed { i, (_, c) ->
+            if (c is Crossing.DirectBuffer) {
+                appendLine("    void* d$i = p$i ? (*env)->GetDirectBufferAddress(env, p$i) : 0;")
+                appendLine("    if (p$i && !d$i) {")
+                appendLine("        kniThrowIllegalArgument(env, \"$name: argument $i must be a direct buffer\");")
+                appendLine("        $failure")
+                appendLine("    }")
+            }
+            if (c is Crossing.StructBytes) {
+                appendLine("    if (!p$i || (*env)->GetArrayLength(env, p$i) < (jsize)sizeof(${c.cType})) {")
+                appendLine("        kniThrowIllegalArgument(env, \"$name: argument $i must hold sizeof(${c.cType}) bytes\");")
+                appendLine("        $failure")
+                appendLine("    }")
+            }
+        }
+        val arguments = b.params.mapIndexed { i, (_, c) ->
+            when (c) {
+                is Crossing.Primitive -> "p$i"
+                is Crossing.Address -> "(${c.cType})(intptr_t)p$i"
+                is Crossing.DirectBuffer -> "(${c.cType})d$i"
+                Crossing.CString -> {
+                    appendLine("    jbyte* s$i = p$i ? (*env)->GetByteArrayElements(env, p$i, 0) : 0;")
+                    "(const char*)s$i"
+                }
+                is Crossing.PrimitiveArray -> {
+                    appendLine("    ${c.element.jniName}* a$i = p$i ? (*env)->Get${c.element.kotlinName}ArrayElements(env, p$i, 0) : 0;")
+                    "(${c.cType})a$i"
+                }
+                is Crossing.AddressArray -> {
+                    appendLine("    jsize n$i = p$i ? (*env)->GetArrayLength(env, p$i) : 0;")
+                    appendLine("    jlong* a$i = p$i ? (*env)->GetLongArrayElements(env, p$i, 0) : 0;")
+                    appendLine("    void* t$i[n$i > 0 ? n$i : 1];")
+                    appendLine("    for (jsize k = 0; k < n$i; k++) t$i[k] = (void*)(intptr_t)a$i[k];")
+                    "p$i ? (${c.cType})t$i : 0"
+                }
+                is Crossing.StructBytes -> {
+                    appendLine("    jbyte* b$i = (*env)->GetByteArrayElements(env, p$i, 0);")
+                    "*(${c.cType}*)b$i"
+                }
+                Crossing.Void -> error("void parameter")
+            }
+        }
+        val call = "$name(${arguments.joinToString(", ")})"
+        when (val r = b.result) {
+            Crossing.Void -> appendLine("    $call;")
+            is Crossing.Primitive -> appendLine("    $returnType result = ($returnType)$call;")
+            is Crossing.Address -> appendLine("    jlong result = (jlong)(intptr_t)$call;")
+            Crossing.CString -> {
+                appendLine("    const char* r = $call;")
+                appendLine("    jbyteArray result = 0;")
+                appendLine("    if (r) {")
+                appendLine("        jsize n = (jsize)strlen(r);")
+                appendLine("        result = (*env)->NewByteArray(env, n);")
+                appendLine("        if (result) (*env)->SetByteArrayRegion(env, result, 0, n, (const jbyte*)r);")
+                appendLine("    }")
+            }
+            is Crossing.StructBytes -> {
+                appendLine("    ${r.cType} r = $call;")
+                appendLine("    jbyteArray result = (*env)->NewByteArray(env, (jsize)sizeof r);")
+                appendLine("    if (result) (*env)->SetByteArrayRegion(env, result, 0, (jsize)sizeof r, (const jbyte*)&r);")
+            }
+            is Crossing.PrimitiveArray, is Crossing.AddressArray, is Crossing.DirectBuffer -> error("not a result crossing")
+        }
+        // Released in reverse acquisition order; writable arrays with mode 0, so the callee's writes are
+        // copied back.
+        b.params.indices.reversed().forEach { i ->
+            when (val c = b.params[i].second) {
+                Crossing.CString -> appendLine("    if (p$i) (*env)->ReleaseByteArrayElements(env, p$i, s$i, JNI_ABORT);")
+                is Crossing.PrimitiveArray -> {
+                    val mode = if (c.readOnly) "JNI_ABORT" else "0"
+                    appendLine("    if (p$i) (*env)->Release${c.element.kotlinName}ArrayElements(env, p$i, a$i, $mode);")
+                }
+                is Crossing.AddressArray -> {
+                    if (!c.readOnly) appendLine("    for (jsize k = 0; k < n$i; k++) a$i[k] = (jlong)(intptr_t)t$i[k];")
+                    val mode = if (c.readOnly) "JNI_ABORT" else "0"
+                    appendLine("    if (p$i) (*env)->ReleaseLongArrayElements(env, p$i, a$i, $mode);")
+                }
+                is Crossing.StructBytes -> appendLine("    (*env)->ReleaseByteArrayElements(env, p$i, b$i, JNI_ABORT);")
+                else -> {}
+            }
+        }
+        if (b.result !is Crossing.Void) appendLine("    return result;")
+        appendLine("}")
+    }
+
+    /**
+     * Enum constants and macro constants, as (name, `": Type = value"`), sorted by name. Unsigned values
+     * become the signed Kotlin type of the same size, as unsigned parameters do.
+     */
+    private fun constants(index: NativeIndex): List<Pair<String, String>> {
+        val enumConstants = index.enums.flatMap { enum ->
+            val type = runCatching { primitive(resolved(enum.baseType)).primitive }.getOrNull() ?: return@flatMap emptyList()
+            enum.constants.map { it.name to integerLiteral(type, it.value) }
+        }
+        val macroConstants = index.macroConstants.mapNotNull { c ->
+            when (c) {
+                is IntegerConstantDef -> runCatching { primitive(resolved(c.type)).primitive }.getOrNull()
+                    ?.let { c.name to integerLiteral(it, c.value) }
+                is FloatingConstantDef -> when (JvmPrimitive.floating((resolved(c.type) as? FloatingType)?.size ?: 0)) {
+                    JvmPrimitive.FLOAT -> c.name to ": Float = ${c.value.toFloat()}f"
+                    JvmPrimitive.DOUBLE -> c.name to ": Double = ${c.value}"
+                    else -> null
+                }
+                is StringConstantDef -> c.name to ": String = \"${kotlinStringContent(c.value)}\""
+                else -> null
+            }
+        }
+        return (enumConstants + macroConstants).distinctBy { it.first }.sortedBy { it.first }
+    }
+
+    /** `": Type = value"` for [value] as [type], wrapped to its size the way C converts it. */
+    private fun integerLiteral(type: JvmPrimitive, value: Long): String = when (type) {
+        JvmPrimitive.BOOLEAN -> ": Boolean = ${value != 0L}"
+        JvmPrimitive.BYTE -> ": Byte = ${value.toByte()}"
+        JvmPrimitive.SHORT -> ": Short = ${value.toShort()}"
+        JvmPrimitive.INT -> ": Int = ${value.toInt()}"
+        // Long.MIN_VALUE has no literal: -9223372036854775808 is the negation of an out-of-range one.
+        JvmPrimitive.LONG -> if (value == Long.MIN_VALUE) ": Long = Long.MIN_VALUE" else ": Long = ${value}L"
+        JvmPrimitive.FLOAT, JvmPrimitive.DOUBLE -> error("not an integer")
+    }
+
+    private fun kotlinStringContent(value: String): String = buildString {
+        value.forEach { c ->
+            when {
+                c == '\\' -> append("\\\\")
+                c == '"' -> append("\\\"")
+                c == '$' -> append("\\$")
+                c.code < 0x20 || c.code > 0x7e -> append("\\u%04x".format(c.code))
+                else -> append(c)
+            }
+        }
+    }
+
+    /** `Java_<mangled class>`: the prefix of every JNI symbol for methods of the facade class. */
+    private fun jniClassPrefix(packageName: String, facade: String): String =
+        "Java_" + (packageName.split('.').filter { it.isNotEmpty() } + facade).joinToString("_") { jniMangle(it) }
+
+    /** JNI's escaping of one name segment. */
+    private fun jniMangle(segment: String): String = buildString {
+        segment.forEach { c ->
+            when {
+                c == '_' -> append("_1")
+                c == ';' -> append("_2")
+                c == '[' -> append("_3")
+                c.code < 128 && c.isLetterOrDigit() -> append(c)
+                else -> append("_0%04x".format(c.code))
+            }
+        }
+    }
+
+    private fun kotlinName(cName: String?, index: Int): String =
+        cName?.takeIf { it.isNotEmpty() && it.all { c -> c == '_' || c.isLetterOrDigit() } && !it.first().isDigit() } ?: "p$index"
+
+    /** `tsf` → `TsfPointer`: the record's name, capitalized as a Kotlin class, and `Pointer`. */
+    private fun handleClassName(record: String) = record.replaceFirstChar { it.uppercaseChar() } + "Pointer"
+
+    private fun kotlinIdentifier(name: String) = if (name in KOTLIN_KEYWORDS) "`$name`" else name
+
+    private val KOTLIN_KEYWORDS = setOf(
+        "as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in", "interface", "is",
+        "null", "object", "package", "return", "super", "this", "throw", "true", "try", "typealias", "typeof",
+        "val", "var", "when", "while",
+    )
+}
