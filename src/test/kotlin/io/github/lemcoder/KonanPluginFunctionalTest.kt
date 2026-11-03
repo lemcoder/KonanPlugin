@@ -769,6 +769,55 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `pointers to records cross JNI as typed handles, NULL as null`() {
+        val home = realKonanHome()
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/counter.c").writeText(
+            """
+            #include <stdlib.h>
+            struct counter { int n; };
+            typedef struct counter counter_t;
+            struct counter* counter_new(int start) {
+                if (start < 0) return 0;
+                struct counter* c = malloc(sizeof *c);
+                c->n = start;
+                return c;
+            }
+            int counter_bump(counter_t* c) { return ++c->n; }
+            void counter_free(struct counter* c) { free(c); }
+            """.trimIndent()
+        )
+        File(projectDir, "src/main/kotlin").mkdirs()
+        // Each call goes through a wrapper around a `$kni` external: a JNI name that does not resolve fails here.
+        File(projectDir, "src/main/kotlin/Main.kt").writeText(
+            """
+            import example.CounterPointer
+            import example.counter_bump
+            import example.counter_free
+            import example.counter_new
+            fun main() {
+                val c: CounterPointer = counter_new(41) ?: error("counter_new returned NULL")
+                println("bump=" + counter_bump(c))
+                println("null=" + (counter_new(-1) == null))
+                counter_free(c)
+            }
+            """.trimIndent()
+        )
+        write("""kotlin("jvm")${"\n"}id("io.github.lemcoder.konanplugin")${"\n"}application""", "config.konanHome.set(file(\"$home\"))\n$mymath")
+        File(projectDir, "mymath.h").writeText(
+            "struct counter;\ntypedef struct counter counter_t;\n" +
+                "struct counter* counter_new(int start);\nint counter_bump(counter_t* c);\nvoid counter_free(struct counter* c);\n"
+        )
+        File(projectDir, "build.gradle.kts").appendText("repositories { mavenCentral() }\napplication { mainClass.set(\"MainKt\") }\n")
+
+        val output = runner("run", "-q").withPluginClasspathAndKgp().build().output
+
+        // counter_t* and struct counter* are one CounterPointer; the handle reached C as the address it came from.
+        assertContains(output, "bump=42")
+        assertContains(output, "null=true")
+    }
+
+    @Test
     fun `Android libraries compile and link with the NDK, its C++ runtime inside`() {
         val home = realKonanHome()
         val ndk = realNdk()
