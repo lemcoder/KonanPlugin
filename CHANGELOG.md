@@ -3,6 +3,19 @@
 Versions are published to the [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.github.lemcoder.konanplugin)
 and never republished. 2.0 replaces 1.x's DSL; the README's migration notes cover the move.
 
+## 2.0.0-alpha05
+
+### Changed
+- **Pointers to records cross JNI as typed handles** ([#17](https://github.com/lemcoder/KonanPlugin/pull/17)).
+  A pointer to a named struct or union was a bare `Long`, so any `Long` compiled where a `tsf*` was expected
+  and a failed call's NULL came back as `0L`. Each such record now gets
+  `@JvmInline value class <Tag>Pointer(val address: Long)`, named by the record's tag (or an anonymous
+  record's typedef), so `node_t*` and `struct node*` are one `NodePointer`. Parameters take a non-null
+  handle; results are nullable, NULL being `null`. `address` is the raw pointer, and `TsfPointer(0L)` passes
+  NULL deliberately. Typedef'd `void*`, function pointers and pointers to pointers are unchanged.
+
+  **Breaking:** code that passed these pointers as `Long` must use the handle types.
+
 ## 2.0.0-alpha04
 
 ### Fixed
