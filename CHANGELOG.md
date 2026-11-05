@@ -3,6 +3,18 @@
 Versions are published to the [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.github.lemcoder.konanplugin)
 and never republished. 2.0 replaces 1.x's DSL; the README's migration notes cover the move.
 
+## 2.0.0-alpha06
+
+### Fixed
+- **The Android Gradle plugin's NDK beats `ANDROID_NDK_HOME`** ([#19](https://github.com/lemcoder/KonanPlugin/issues/19)).
+  `konan.config.androidNdk` read the environment before the module's own `android.ndkVersion`, and GitHub's
+  runners preset `ANDROID_NDK_HOME` to NDK 27, so a project on NDK 28 silently shipped libraries built by 27
+  (4 KB-aligned, not 16 KB). The order is now DSL, Gradle property `konan.config.androidNdk`, AGP's NDK,
+  `ANDROID_NDK_HOME`. When AGP's NDK is not installed, the environment variable still applies.
+
+  When a different `ANDROID_NDK_HOME` loses to AGP's NDK, the build warns once and `konanConfig` reports it
+  as not used. To keep using it, set `konan.config.androidNdk`.
+
 ## 2.0.0-alpha05
 
 ### Changed
