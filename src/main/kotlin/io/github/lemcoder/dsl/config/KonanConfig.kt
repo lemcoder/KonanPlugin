@@ -57,8 +57,8 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
      * Android library with it — the default library build, the JNI library, the library FFM loads — and
      * external builds on the `AUTO` toolchain get its compilers. Kotlin/Native's own Android toolchain (NDK
      * r20) is used only by external builds that ask for it with `KONAN`. In an Android module it defaults to
-     * the NDK the Android Gradle plugin uses (`android.ndkVersion`), after the build script, the Gradle
-     * property and `ANDROID_NDK_HOME`.
+     * the NDK the Android Gradle plugin uses (`android.ndkVersion`), after the build script and the Gradle
+     * property but before `ANDROID_NDK_HOME`: what the build declares beats what the machine presets.
      */
     abstract val androidNdk: DirectoryProperty
 
@@ -78,8 +78,8 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
     private fun kotlinVersion(): String = kotlinPluginVersion ?: KonanDistribution.defaultVersion
 
     /**
-     * [field] for the task [usedBy]: this block, else the Gradle property, else the environment variable,
-     * else unset. Always present; [ConfigValue.require] checks it when the task runs.
+     * [field] for the task [usedBy]: this block, else the Gradle property, else (`androidNdk`) the module's
+     * Android Gradle plugin NDK, else the environment variable, else unset. Always present; [ConfigValue.require] checks it when the task runs.
      */
     internal fun readConfigField(field: ConfigField, usedBy: String): Provider<ConfigValue> {
         usages.getOrPut(field) { sortedSetOf() } += usedBy
@@ -98,12 +98,17 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
         fun value(source: ConfigSource) = { raw: String -> ConfigValue(field, raw, source, usedBy, hint) }
         return property(field).map { it.asFile.absolutePath }.map(value(ConfigSource.DSL))
             .orElse(providers.gradleProperty(field.gradleProperty).map(value(ConfigSource.GRADLE_PROPERTY)))
-            .orElse(providers.environmentVariable(field.environmentVariable).map(value(ConfigSource.ENVIRONMENT)))
-            .let { configured ->
-                if (field == ConfigField.ANDROID_NDK) configured.orElse(androidGradlePluginNdk.map(value(ConfigSource.ANDROID_GRADLE_PLUGIN))) else configured
+            .let { declared ->
+                if (field != ConfigField.ANDROID_NDK) declared
+                else declared.orElse(androidGradlePluginNdk.map { value(ConfigSource.ANDROID_GRADLE_PLUGIN)(it).copy(overridden = differentEnvironment(field, it)) })
             }
+            .orElse(providers.environmentVariable(field.environmentVariable).map(value(ConfigSource.ENVIRONMENT)))
             .orElse(ConfigValue(field, null, null, usedBy, hint))
     }
+
+    /** [field]'s environment variable, when it names something other than [raw]. */
+    private fun differentEnvironment(field: ConfigField, raw: String): String? =
+        providers.environmentVariable(field.environmentVariable).orNull?.takeIf { File(it).canonicalFile != File(raw).canonicalFile }
 
     /** [field] as the program an external build step runs. */
     internal fun executable(field: ConfigField, usedBy: String): Provider<Executable> =

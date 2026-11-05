@@ -1,5 +1,6 @@
 package io.github.lemcoder.dsl.bindings.ffm
 
+import io.github.lemcoder.android.warnsOfUnusedNdkHome
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
 import io.github.lemcoder.dsl.bindings.LinkSharedLibraryTask
@@ -44,7 +45,10 @@ internal fun registerFfmLink(
             description = "Link the '$libraryName' library for ${target.konanName}, for the FFM bindings."
             dependsOn(artifacts.builtBy(target))
             androidApiLevel.set(konan.androidApiLevel)
-            if (target.isAndroid) androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
+            if (target.isAndroid) {
+                androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
+                warnsOfUnusedNdkHome(androidNdk)
+            }
             this.target.set(target)
             libraryBaseName.set(libraryName)
             staticLibrary.set(artifacts.archive(target))

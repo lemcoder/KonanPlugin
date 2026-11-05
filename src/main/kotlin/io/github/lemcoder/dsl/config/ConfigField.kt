@@ -28,10 +28,10 @@ enum class ConfigField(val dslName: String, val environmentVariable: String, val
 enum class ConfigSource(val description: String) {
     DSL("build script"),
     GRADLE_PROPERTY("Gradle property"),
-    ENVIRONMENT("environment variable"),
 
     /** `androidNdk` only: the NDK the module's Android Gradle plugin uses (`android.ndkVersion`, else its default). */
     ANDROID_GRADLE_PLUGIN("the Android Gradle plugin's NDK"),
+    ENVIRONMENT("environment variable"),
 }
 
 /**
@@ -46,6 +46,8 @@ data class ConfigValue(
     val usedBy: String,
     /** Extra lines for the error, e.g. the default the build could use. */
     val hint: String? = null,
+    /** A different value of [field]'s environment variable, which this one took precedence over. */
+    val overridden: String? = null,
 ) : Serializable {
     /** The file named, checked to exist as the field's kind; otherwise an error saying how to set it. */
     fun require(): File {
@@ -63,6 +65,12 @@ data class ConfigValue(
             field.kind == ConfigField.Kind.EXECUTABLE && !(file.isFile && file.canExecute()) -> "is not an executable file"
             else -> null
         }
+    }
+
+    /** What to tell the build about [overridden], if anything: it set a variable that had no effect. */
+    fun overriddenWarning(): String? = overridden?.let {
+        "konan.config.${field.dslName}: using ${describe()}, not ${field.environmentVariable}=$it. " +
+            "To use that one, set ${field.gradleProperty}."
     }
 
     /** The current value and its origin, for reports: `/opt/x (Gradle property konan.config.x)`. */

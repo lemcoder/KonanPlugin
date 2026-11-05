@@ -162,10 +162,14 @@ unmangled method name, so a mangled internal name compiles, links, and dies on t
 - **Link flags live in `KonanDistribution.linkArguments`**: `-fuse-ld=lld` for Linux (the GCC toolchain's
   `ld.bfd` is a Linux binary; a cross link from macOS fails without it), NDK compiler-rt and
   `--unwindlib=none` for Android, Xcode's compiler-rt for macOS. The wrappers add them only when linking.
-- **`androidNdk` falls back, last, to the module's AGP NDK** (`AndroidComponents.sdkComponents.ndkDirectory`,
+- **`androidNdk` falls back to the module's AGP NDK before `ANDROID_NDK_HOME`** (`AndroidComponents.sdkComponents.ndkDirectory`,
   set into `KonanConfig.androidGradlePluginNdk` by `AgpWiring.ndkDirectory`, source `ANDROID_GRADLE_PLUGIN`).
-  Not a search: it is the project's own `android.ndkVersion`. AGP throws when that NDK is not installed, so the
-  provider catches it and reads as unset, leaving the plugin's own "not set" error.
+  Not a search: it is the project's own `android.ndkVersion`. The order is DSL, Gradle property, AGP, environment:
+  GitHub's runners preset `ANDROID_NDK_HOME` to NDK 27, which silently shipped 4 KB-aligned libraries from a
+  project on NDK 28 (#19). AGP throws when its NDK is not installed, so the provider catches it and reads as
+  unset, leaving the environment variable, then the plugin's own "not set" error. An `ANDROID_NDK_HOME` that lost
+  rides in `ConfigValue.overridden`; `AndroidNdkNotice`, a build service, warns once per build from a `doFirst`
+  of each task using the NDK — at configuration it would vanish on a configuration cache hit.
 - **Android requires an NDK (`konan.config.androidNdk`), and everything Android uses it** — `android/AndroidNdk`:
   the default library build (`CompileNativeLibraryTask`), the JNI and FFM links (`LinkSharedLibraryTask`), and
   external builds on `AUTO` (`AndroidNdkToolchain`). Kotlin/Native's Android toolchain is clang 21 driving NDK

@@ -50,7 +50,8 @@ internal abstract class KonanConfigReportTask : DefaultTask() {
                 else -> "NEEDED, ${problem.removePrefix("is ")}"
             }
             val needs = if (users.isEmpty()) "" else "\n${" ".repeat(width + 4)}needed by ${users.joinToString()}"
-            "  ${value.field.dslName.padEnd(width)}  ${value.describe()} — $status$needs"
+            val overridden = value.overridden?.let { "\n${" ".repeat(width + 4)}${value.field.environmentVariable}=$it is not used" }.orEmpty()
+            "  ${value.field.dslName.padEnd(width)}  ${value.describe()} — $status$overridden$needs"
         }
         logger.lifecycle((listOf("konan.config for ${projectPath.get()}:") + lines).joinToString("\n"))
         val missing = values.get().filter { usages[it.field.name].orEmpty().isNotEmpty() && it.problem() != null }

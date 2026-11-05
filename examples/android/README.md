@@ -26,7 +26,7 @@ cpp.cpp_median(arena.allocateFrom(JAVA_INT, 5, 1, 4, 2), 4)  // C++, FFM
 ```
 
 Everything Android is built with the NDK the Android Gradle plugin uses (`android.ndkVersion`, else its
-default; `ANDROID_NDK_HOME` or `konan.config.androidNdk` choose another): the C and
+default; `konan.config.androidNdk` chooses another): the C and
 C++ compiles, cargo's C compilers, and the links. The Rust and C++ libraries need runtimes Android does not
 give apps — Rust's std its unwinder, C++ libc++ and the unwinder — which the links put inside each library
 (`-static-libstdc++`), failing the build if anything is left undefined.

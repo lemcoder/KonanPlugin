@@ -40,6 +40,7 @@ gradlePlugin {
 }
 
 val kgpForTests: Configuration = configurations.create("kgpForTests")
+val agpForTests: Configuration = configurations.create("agpForTests")
 
 dependencies {
     // -PkgpTestVersion runs the KGP fixtures on another Kotlin version; -PtestGradleVersion on another Gradle.
@@ -47,6 +48,7 @@ dependencies {
         providers.gradleProperty("kgpTestVersion").orElse(providers.gradleProperty("kotlinNativeVersion"))
             .map { "org.jetbrains.kotlin:kotlin-gradle-plugin:$it" }
     )
+    "agpForTests"("com.android.tools.build:gradle:9.2.1")
     // KonanTarget, for NativeTarget.of(konanTarget) and the KGP adapter — both reached only where KGP, which
     // brings it, is applied. The DSL speaks the plugin's own NativeTarget, so nothing decorated needs it.
     compileOnly(providers.gradleProperty("kotlinNativeVersion").map { "org.jetbrains.kotlin:kotlin-native-utils:$it" })
@@ -72,9 +74,11 @@ tasks.test {
     // proving the plugin loads without KGP.
     val kgp: FileCollection = kgpForTests
     inputs.files(kgp).withPropertyName("kgpForTests").withNormalizer(ClasspathNormalizer::class.java)
+    val agp: FileCollection = agpForTests
+    inputs.files(agp).withPropertyName("agpForTests").withNormalizer(ClasspathNormalizer::class.java)
     val gradleVersion = providers.gradleProperty("testGradleVersion").orElse("")
     inputs.property("testGradleVersion", gradleVersion)
-    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp.classpath=${kgp.asPath}", "-Dtest.gradle.version=${gradleVersion.get()}") })
+    jvmArgumentProviders.add(CommandLineArgumentProvider { listOf("-Dkgp.classpath=${kgp.asPath}", "-Dagp.classpath=${agp.asPath}", "-Dtest.gradle.version=${gradleVersion.get()}") })
 }
 
 // A version already on the Plugin Portal must never be published again, not even to mavenLocal: a local

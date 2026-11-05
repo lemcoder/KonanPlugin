@@ -75,8 +75,8 @@ docker run --rm --platform linux/amd64 -v "$PWD/shared/build/bin/linuxX64":/kn u
 ```
 
 Needs Xcode for the iOS and macOS targets, an Android SDK (`local.properties` or `ANDROID_HOME`), and the
-NDK the Android Gradle plugin uses installed (SDK Manager → NDK (Side by side)); `ANDROID_NDK_HOME` or
-`konan.config.androidNdk` choose another.
+NDK the Android Gradle plugin uses installed (SDK Manager → NDK (Side by side)); `konan.config.androidNdk`
+chooses another.
 
 From Swift, the common API is in the framework:
 

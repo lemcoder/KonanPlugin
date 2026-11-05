@@ -129,7 +129,7 @@ from the build script, else the Gradle property `konan.config.<field>` (the buil
 | `make`      | `konan.config.make`        | `KONAN_MAKE`         | `make { }` |
 | `cargo`     | `konan.config.cargo`       | `KONAN_CARGO`        | `cargo { }` |
 | `zig`       | `konan.config.zig`         | `KONAN_ZIG`          | `zig { }` |
-| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | every Android target: the plugin's own compiles and links, and external builds on `AUTO` (below). In an Android module, last of all the NDK the Android Gradle plugin uses |
+| `androidNdk` | `konan.config.androidNdk` | `ANDROID_NDK_HOME`   | every Android target: the plugin's own compiles and links, and external builds on `AUTO` (below). In an Android module, the NDK the Android Gradle plugin uses comes before the environment variable |
 
 ```kotlin
 konan {
@@ -614,9 +614,12 @@ with no stub. The app needs:
 Every Android library the plugin builds — the default library build, the JNI library, the library FFM
 loads — is compiled and linked with the Android NDK in `konan.config.androidNdk` (r23 or newer), which
 Android targets require. In an Android module it is the NDK the Android Gradle plugin uses — the one
-`android { ndkVersion = "…" }` names, else AGP's default, once it is installed — so nothing needs setting;
-`konan.config.androidNdk=<Android SDK>/ndk/<version>` or `ANDROID_NDK_HOME` choose another, and are what a
-module without AGP sets. `konanConfig` shows which one a build uses. One NDK for everything, so an archive
+`android { ndkVersion = "…" }` names, else AGP's default, once it is installed — so nothing needs setting.
+`konan { config { androidNdk } }` or `konan.config.androidNdk=<Android SDK>/ndk/<version>` choose another.
+`ANDROID_NDK_HOME` comes last, after AGP's NDK: CI images preset it, and a variable nobody chose must not
+split a module across two NDKs. It serves modules without AGP, and those whose AGP NDK is not installed;
+a build that sets it to a different NDK and goes unheard gets a warning naming both, once.
+`konanConfig` shows which one a build uses. One NDK for everything, so an archive
 your own build made with it links against the same libc++, and `androidApiLevel` reaches every API level
 the NDK has.
 
@@ -692,7 +695,7 @@ The DSL is new and there is no compatibility shim.
 - JNI bindings are named after the C functions (`my_add`), not `kniBridge0`; tasks are `generateJni…` and
   `linkJni…`.
 - Android needs an Android NDK (r23 or newer), which builds every Android library: in an Android module the
-  one the Android Gradle plugin uses, else `konan.config.androidNdk` or `ANDROID_NDK_HOME`. Kotlin/Native's
+  one the Android Gradle plugin uses unless `konan.config.androidNdk` says otherwise, else `ANDROID_NDK_HOME`. Kotlin/Native's
   own Android toolchain is no longer used, and `androidApiLevel` is no longer capped at 29.
 - A library's build may leave several archives in `KONAN_OUTPUT_DIR`; they are merged into `lib<name>.a`.
 

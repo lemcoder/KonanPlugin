@@ -1,5 +1,6 @@
 package io.github.lemcoder.dsl.bindings.jni
 
+import io.github.lemcoder.android.warnsOfUnusedNdkHome
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.bindings.BindingSpec
 import io.github.lemcoder.dsl.bindings.DefFile
@@ -38,7 +39,10 @@ internal fun registerKonanLink(
             artifacts?.let { dependsOn(it.builtBy(target)) }
             mustRunAfter(project.cleanTask())
             androidApiLevel.set(konan.androidApiLevel)
-            if (target.isAndroid) androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
+            if (target.isAndroid) {
+                androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
+                warnsOfUnusedNdkHome(androidNdk)
+            }
             this.target.set(target)
             libraryBaseName.set(jni.stubLibraryName)
             stubCFile.set(generate.flatMap { it.outputDirectory.file(jni.stubLibraryName.map { name -> "${GeneratorRequest.Jni.C_DIR}/$name.c" }) })
