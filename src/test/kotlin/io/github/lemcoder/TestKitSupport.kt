@@ -9,13 +9,18 @@ import java.io.File
  * applies a Kotlin plugin gets KGP from here and requests it without a version. Fixtures that must prove
  * the plugin loads without KGP use plain `withPluginClasspath()`.
  */
-internal fun GradleRunner.withPluginClasspathAndKgp(): GradleRunner {
+internal fun GradleRunner.withPluginClasspathAndKgp(): GradleRunner = withPluginClasspathAnd("kgp.classpath")
+
+/** The same for AGP, for a fixture that applies an Android plugin. AGP 9 does not run on the oldest Gradle tested. */
+internal fun GradleRunner.withPluginClasspathAndAgp(): GradleRunner = withPluginClasspathAnd("agp.classpath")
+
+private fun GradleRunner.withPluginClasspathAnd(property: String): GradleRunner {
     val metadata = java.util.Properties().apply {
         TestKitSupport::class.java.classLoader.getResourceAsStream("plugin-under-test-metadata.properties").use { load(it) }
     }
     val plugin = metadata.getProperty("implementation-classpath").split(File.pathSeparator)
-    val kgp = System.getProperty("kgp.classpath").split(File.pathSeparator)
-    return withPluginClasspath((plugin + kgp).filter { it.isNotEmpty() }.map(::File))
+    val extra = System.getProperty(property).split(File.pathSeparator)
+    return withPluginClasspath((plugin + extra).filter { it.isNotEmpty() }.map(::File))
 }
 
 /**

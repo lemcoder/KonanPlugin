@@ -1,6 +1,7 @@
 package io.github.lemcoder.dsl.builds
 
 import io.github.lemcoder.android.AndroidNdk
+import io.github.lemcoder.android.warnsOfUnusedNdkHome
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.kotlin.KonanToolchain
@@ -73,9 +74,10 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
             // explicit KONAN keeps Kotlin/Native's own Android toolchain (NDK r20).
             val ndk = target.isAndroid && toolchain == ExternalToolchain.AUTO
             val konanToolchain = toolchain?.takeIf { !ndk && it.usesKonan(target) }?.let { KonanToolchain.of(project, target) }
-            val toolchainFiles = if (ndk) {
+            val ndkValue = if (ndk) konan.config.readConfigField(ConfigField.ANDROID_NDK, taskPath) else null
+            val toolchainFiles = if (ndkValue != null) {
                 AndroidNdkToolchain.files(
-                    konan.config.readConfigField(ConfigField.ANDROID_NDK, taskPath), target,
+                    ndkValue, target,
                     konan.androidApiLevel.orElse(AndroidNdk.DEFAULT_API_LEVEL),
                 )
             } else konanToolchain?.files
@@ -98,6 +100,7 @@ internal sealed class ExternalBuild(private val taskPrefix: String, private val 
                 description = taskDescription
                 mustRunAfter(clean)
                 usesService(limit)
+                ndkValue?.let { warnsOfUnusedNdkHome(it) }
                 konanToolchain?.let { dependsOn(it.task) }
                 context.environment.forEach { (variable, value) -> this.environment.put(variable.variableName, value) }
                 libraryFileName.set(fileName)

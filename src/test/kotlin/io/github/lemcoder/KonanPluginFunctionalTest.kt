@@ -311,6 +311,62 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `the Android Gradle plugin's NDK beats ANDROID_NDK_HOME, which a machine presets`() {
+        assumeTrue(System.getProperty("test.gradle.version").isNullOrEmpty(), "AGP 9 does not run on the oldest Gradle tested")
+        val ndk = File(realNdk())
+        assumeTrue(ndk.parentFile.name == "ndk", "needs an NDK inside an Android SDK")
+        val preset = createTempDirectory("preset-ndk").toFile().absolutePath
+        File(projectDir, "local.properties").writeText("sdk.dir=${ndk.parentFile.parentFile.absolutePath.replace("\\", "/")}\n")
+        fun androidNdk(ndkVersion: String, vararg arguments: String): String {
+            write("""id("com.android.library")${"\n"}id("io.github.lemcoder.konanplugin")""", "")
+            File(projectDir, "build.gradle.kts").appendText(
+                "android {\n    namespace = \"example\"\n    compileSdk = 36\n    ndkVersion = \"$ndkVersion\"\n}\n"
+            )
+            val output = runner("konanConfig", *arguments).withPluginClasspathAndAgp()
+                .withEnvironment(System.getenv() + ("ANDROID_NDK_HOME" to preset)).build().output
+            return output.substringAfter("androidNdk").substringBefore("cargo")
+        }
+
+        val agp = androidNdk(ndk.name)
+        assertContains(agp, "${ndk.absolutePath} (the Android Gradle plugin's NDK, android.ndkVersion)")
+        assertContains(agp, "ANDROID_NDK_HOME=$preset is not used")
+        // What the build states still beats AGP's...
+        assertContains(androidNdk(ndk.name, "-Pkonan.config.androidNdk=/from/property"), "/from/property (Gradle property konan.config.androidNdk)")
+        // ...and an AGP NDK that is not installed leaves the environment.
+        assertContains(androidNdk("1.2.3"), "$preset (environment variable ANDROID_NDK_HOME)")
+    }
+
+    @Test
+    fun `an ANDROID_NDK_HOME the Android Gradle plugin's NDK overrides is warned about once`() {
+        assumeTrue(System.getProperty("test.gradle.version").isNullOrEmpty(), "AGP 9 does not run on the oldest Gradle tested")
+        val home = realKonanHome()
+        val ndk = File(realNdk())
+        assumeTrue(ndk.parentFile.name == "ndk", "needs an NDK inside an Android SDK")
+        val preset = createTempDirectory("preset-ndk").toFile().absolutePath
+        File(projectDir, "local.properties").writeText("sdk.dir=${ndk.parentFile.parentFile.absolutePath.replace("\\", "/")}\n")
+        File(projectDir, "native").mkdirs()
+        File(projectDir, "native/mymath.c").writeText("int my_add(int a, int b) { return a + b; }\n")
+        write(
+            """id("com.android.library")${"\n"}id("io.github.lemcoder.konanplugin")""",
+            "config.konanHome.set(file(\"$home\"))\n" +
+                "libraries { create(\"mymath\") { targets(NativeTarget.ANDROID_ARM64, NativeTarget.ANDROID_X64) } }",
+        )
+        File(projectDir, "build.gradle.kts").appendText(
+            "android {\n    namespace = \"example\"\n    compileSdk = 36\n    ndkVersion = \"${ndk.name}\"\n}\n"
+        )
+        fun build(environment: Map<String, String>, vararg arguments: String) =
+            runner("compileNativeLibraryMymath", "--rerun-tasks", *arguments).withPluginClasspathAndAgp().withEnvironment(environment).build().output
+
+        val warning = "using ${ndk.absolutePath} (the Android Gradle plugin's NDK, android.ndkVersion), not ANDROID_NDK_HOME=$preset."
+        // Two targets, so two tasks use the NDK: the build says it once.
+        val output = build(System.getenv() + ("ANDROID_NDK_HOME" to preset))
+        assertEquals(1, output.split(warning).size - 1, output)
+        // The same NDK in both, however it is spelled, is nothing to say.
+        val agreeing = build(System.getenv() + ("ANDROID_NDK_HOME" to "${ndk.absolutePath}/"))
+        assertFalse("not ANDROID_NDK_HOME" in agreeing, agreeing)
+    }
+
+    @Test
     fun `CMake builds with a job count`() {
         write(
             """id("io.github.lemcoder.konanplugin")""",

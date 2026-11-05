@@ -1,5 +1,6 @@
 package io.github.lemcoder.dsl.libraries
 
+import io.github.lemcoder.android.warnsOfUnusedNdkHome
 import io.github.lemcoder.dsl.config.ConfigField
 import io.github.lemcoder.dsl.KonanExtension
 import io.github.lemcoder.model.NativeTarget
@@ -39,6 +40,7 @@ internal fun registerKonanClang(project: Project, konan: KonanExtension, library
             libName.set(library.name)
             if (target.isAndroid) {
                 androidNdk.set(konan.config.readConfigField(ConfigField.ANDROID_NDK, path))
+                warnsOfUnusedNdkHome(androidNdk)
                 androidApiLevel.set(konan.androidApiLevel)
             }
             arguments.addAll(DEFAULT_COMPILER_OPTIONS)
