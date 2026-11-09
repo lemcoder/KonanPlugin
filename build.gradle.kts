@@ -9,7 +9,7 @@ plugins {
 }
 
 // Every published version is immutable on the Portal: bump before publishing, and never reuse one.
-version = "2.0.0-alpha06"
+version = "2.0.0-alpha07"
 group = "io.github.lemcoder"
 
 repositories {

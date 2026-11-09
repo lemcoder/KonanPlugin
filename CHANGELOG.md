@@ -3,6 +3,21 @@
 Versions are published to the [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.github.lemcoder.konanplugin)
 and never republished. 2.0 replaces 1.x's DSL; the README's migration notes cover the move.
 
+## 2.0.0-alpha07
+
+### Fixed
+- **`kotlinNativeDistribution()` names the project's Kotlin under AGP 9's built-in Kotlin** ([#21](https://github.com/lemcoder/KonanPlugin/pull/21)).
+  The plugin recognized Kotlin by plugin id, and built-in Kotlin applies none, so an Android module without
+  `kotlin-android` got the plugin's default version (2.4.20) instead of its own (2.2.10 with AGP 9.2.1). The
+  version now comes from the `kotlin` extension, whichever order the plugins are applied in.
+
+  In such a module `konanHome.set(kotlinNativeDistribution())` now points at the project's Kotlin/Native
+  version. If only the plugin's default version is installed, set `konan.config.konanHome` to it.
+- **JNI bindings in an Android module that compiles no Kotlin fail configuration** ([#21](https://github.com/lemcoder/KonanPlugin/pull/21)).
+  The JNI bindings are Kotlin. With `android { enableKotlin = false }`, nothing compiled them, so they went
+  missing silently and Java callers could not find them. Configuring that variant's build now fails, saying to
+  enable Kotlin or call `ffm()`, which generates Java.
+
 ## 2.0.0-alpha06
 
 ### Fixed
