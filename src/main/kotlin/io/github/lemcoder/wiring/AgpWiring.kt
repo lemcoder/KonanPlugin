@@ -3,6 +3,7 @@ package io.github.lemcoder.wiring
 import com.android.build.api.variant.AndroidComponents
 import com.android.build.api.variant.AndroidComponentsExtension
 import com.android.build.api.variant.KotlinMultiplatformAndroidComponentsExtension
+import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
 import org.gradle.api.provider.Property
@@ -47,8 +48,10 @@ internal object AgpWiring {
                 if (!enabled()) return@onVariants
                 project.file(relative).mkdirs()
                 when (kind) {
-                    SourceKind.KOTLIN ->
-                        if (!project.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM)) variant.sources.kotlin?.addStaticSourceDirectory(relative)
+                    SourceKind.KOTLIN -> if (!project.hasPlugin(GradlePluginId.KOTLIN_MULTIPLATFORM)) {
+                        variant.sources.kotlin?.addStaticSourceDirectory(relative)
+                        requireKotlinCompile(project, variant.name)
+                    }
                     SourceKind.JAVA -> variant.sources.java?.addStaticSourceDirectory(relative)
                 }
             }
@@ -68,6 +71,22 @@ internal object AgpWiring {
                 }
             }
             ordering()
+        }
+    }
+
+    /**
+     * Fails configuring [variant]'s build when nothing compiles the Kotlin added to it — `android { enableKotlin = false }`,
+     * or AGP without built-in Kotlin or `kotlin-android` — instead of letting `javac` report the bindings missing.
+     * Judged by the compile task itself, which every way of compiling Kotlin names alike; it is registered after
+     * the variant callbacks, so the check waits for the variant's `pre<Variant>Build` to be configured.
+     */
+    private fun requireKotlinCompile(project: Project, variant: String) {
+        val capitalized = variant.replaceFirstChar { it.uppercase() }
+        project.tasks.matching { it.name == "pre${capitalized}Build" }.configureEach {
+            if ("compile${capitalized}Kotlin" !in project.tasks.names) throw GradleException(
+                "${project.path}: JNI bindings are Kotlin, and variant '$variant' compiles none " +
+                    "(android { enableKotlin = false }?). Enable Kotlin, or call ffm() in the binding for Java bindings."
+            )
         }
     }
 

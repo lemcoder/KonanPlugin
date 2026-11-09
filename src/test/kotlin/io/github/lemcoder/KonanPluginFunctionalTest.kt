@@ -367,6 +367,39 @@ class KonanPluginFunctionalTest {
     }
 
     @Test
+    fun `JNI bindings in an Android module that compiles no Kotlin fail configuration, not javac`() {
+        assumeTrue(System.getProperty("test.gradle.version").isNullOrEmpty(), "AGP 9 does not run on the oldest Gradle tested")
+        useAndroidSdk()
+        fun preBuild(enableKotlin: Boolean): org.gradle.testkit.runner.GradleRunner {
+            write("""id("com.android.library")${"\n"}id("io.github.lemcoder.konanplugin")""", """bindings { create("mymath") { defFile.set(file("mymath.def")) } }""")
+            File(projectDir, "build.gradle.kts").appendText(
+                "android {\n    namespace = \"example\"\n    compileSdk = 36\n    enableKotlin = $enableKotlin\n}\n"
+            )
+            return runner("preDebugBuild", "--dry-run").withPluginClasspathAndAgp()
+        }
+
+        val failure = preBuild(enableKotlin = false).buildAndFail().output
+        assertContains(failure, ": JNI bindings are Kotlin, and variant 'debug' compiles none")
+        assertContains(failure, "call ffm() in the binding")
+        // With Kotlin, AGP 9's default, the same module configures.
+        preBuild(enableKotlin = true).build()
+    }
+
+    @Test
+    fun `kotlinNativeDistribution() names the Kotlin version of AGP's built-in Kotlin, whichever plugin comes first`() {
+        assumeTrue(System.getProperty("test.gradle.version").isNullOrEmpty(), "AGP 9 does not run on the oldest Gradle tested")
+        useAndroidSdk()
+        // The Kotlin plugin AGP brings: built-in Kotlin applies no `kotlin-android`, only its `kotlin` extension.
+        val kotlin = Regex("""kotlin-gradle-plugin-([0-9][^-/\\]*)""").find(System.getProperty("agp.classpath"))!!.groupValues[1]
+        for (plugins in listOf("""id("com.android.library")${"\n"}id("io.github.lemcoder.konanplugin")""", """id("io.github.lemcoder.konanplugin")${"\n"}id("com.android.library")""")) {
+            write(plugins, """println("distribution: " + config.kotlinNativeDistribution().name)""")
+            File(projectDir, "build.gradle.kts").appendText("android {\n    namespace = \"example\"\n    compileSdk = 36\n}\n")
+            val output = runner("help").withPluginClasspathAndAgp().build().output
+            assertContains(output, Regex("distribution: kotlin-native-prebuilt-[a-z0-9_-]+-${Regex.escape(kotlin)}$", RegexOption.MULTILINE), plugins)
+        }
+    }
+
+    @Test
     fun `CMake builds with a job count`() {
         write(
             """id("io.github.lemcoder.konanplugin")""",
@@ -481,6 +514,14 @@ class KonanPluginFunctionalTest {
             ?: sdk.map { File(it, "ndk") }.firstOrNull { it.isDirectory }?.listFiles()?.filter { it.resolve("source.properties").isFile }?.maxByOrNull { it.name }
         assumeTrue(ndk != null, "needs an Android NDK (ANDROID_NDK_HOME, or the SDK's ndk/)")
         return ndk!!.absolutePath.replace("\\", "/")
+    }
+
+    /** An Android SDK into `local.properties`, for fixtures that configure an Android module. */
+    private fun useAndroidSdk() {
+        val sdk = listOfNotNull(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"), "${System.getProperty("user.home")}/Library/Android/sdk", "${System.getProperty("user.home")}/Android/Sdk")
+            .map(::File).firstOrNull { it.resolve("platforms").isDirectory }
+        assumeTrue(sdk != null, "needs an Android SDK")
+        File(projectDir, "local.properties").writeText("sdk.dir=${sdk!!.absolutePath.replace("\\", "/")}\n")
     }
 
     private fun realKonanHome(): String {
