@@ -8,8 +8,6 @@ import io.github.lemcoder.dsl.libraries.registerLibraries
 import io.github.lemcoder.kotlin.KotlinGradlePlugin
 import io.github.lemcoder.kotlin.UsesKonanDistribution
 import io.github.lemcoder.wiring.AgpWiring
-import io.github.lemcoder.wiring.GradlePluginId
-import io.github.lemcoder.wiring.withPlugin
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import java.io.File
@@ -32,9 +30,11 @@ abstract class KonanPlugin : Plugin<Project> {
             })
         }
         project.registerConfigReport(konan.config)
-        // kotlinNativeDistribution() names the project's own Kotlin/Native version once the Kotlin plugin is known.
-        for (kotlin in listOf(GradlePluginId.KOTLIN_JVM, GradlePluginId.KOTLIN_MULTIPLATFORM, GradlePluginId.KOTLIN_ANDROID)) {
-            project.withPlugin(kotlin) { konan.config.kotlinPluginVersion = KotlinGradlePlugin.version(project) }
+        // kotlinNativeDistribution() names the project's own Kotlin/Native version. Told by the `kotlin` extension,
+        // not a plugin id: AGP 9's built-in Kotlin registers it without applying `kotlin-android`. Asked lazily, so
+        // the plugins may be applied in either order; findByName touches no KGP type.
+        konan.config.kotlinPluginVersion = {
+            if (project.extensions.findByName("kotlin") != null) KotlinGradlePlugin.version(project) else null
         }
         konan.androidApiLevel.convention(AgpWiring.minSdk(project))
         AgpWiring.ndkDirectory(project, konan.config.androidGradlePluginNdk)

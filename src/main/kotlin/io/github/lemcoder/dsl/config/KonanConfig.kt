@@ -67,15 +67,15 @@ abstract class KonanConfig @Inject constructor(private val providers: ProviderFa
 
     /**
      * Where the Kotlin plugin installs Kotlin/Native for this host: `konanHome.set(kotlinNativeDistribution())`.
-     * The project's Kotlin version when it applies the Kotlin plugin, else the plugin's default. Computed,
+     * The project's Kotlin version when it compiles Kotlin, else the plugin's default. Computed,
      * not searched for; a Kotlin Multiplatform build of that version with a native target downloads it.
      */
     fun kotlinNativeDistribution(): File = KonanDistribution.defaultHome(kotlinVersion())
 
-    /** The Kotlin plugin's version, set when the project applies it. */
-    internal var kotlinPluginVersion: String? = null
+    /** The Kotlin plugin's version, or null when the project has none. Asked when the build script asks. */
+    internal var kotlinPluginVersion: () -> String? = { null }
 
-    private fun kotlinVersion(): String = kotlinPluginVersion ?: KonanDistribution.defaultVersion
+    private fun kotlinVersion(): String = kotlinPluginVersion() ?: KonanDistribution.defaultVersion
 
     /**
      * [field] for the task [usedBy]: this block, else the Gradle property, else (`androidNdk`) the module's

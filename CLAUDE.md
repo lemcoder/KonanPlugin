@@ -55,6 +55,10 @@ resolved the moment the plugin is applied, in *every* project that applies it.
   them depend on KGP's `downloadKotlinNativeDistribution` (KGP 2.3+) when `konanHome` is the directory
   `kotlinNativeDistribution()` names (#16). That dependency is a `project.provider { }`: given
   `konanHome.map { }`, Gradle asks the mapped property for its producer, finds none, and never runs the mapping.
+- **`kotlinNativeDistribution()` takes the Kotlin version from the `kotlin` extension, not a plugin id.** AGP 9's
+  built-in Kotlin registers `KotlinAndroidProjectExtension` without applying `org.jetbrains.kotlin.android`, so a
+  plugin-id check left the version at the plugin's default. It is asked when the build script calls it, so the
+  plugins may be applied in either order; `findByName("kotlin")` touches no KGP type.
 - **The plugin ships Android's `jni.h`** (`src/main/resources/io/github/lemcoder/dsl/bindings/jni/`, Apache 2.0): the
   JNI generator writes it to its `include/` output, the host link and `KONAN_JNI_INCLUDE_DIR` use it. Its
   JNI is 1.6 — enough for the generated stubs.
@@ -152,6 +156,11 @@ are one `NodePointer`); results are nullable, parameters are not.
 
 Bindings are `internal` by default and each carries **`@JvmName`**. JNI resolves the C symbol from the
 unmangled method name, so a mangled internal name compiles, links, and dies on the first call.
+
+**An Android module may compile no Kotlin**: AGP 9's `android { enableKotlin = false }` keeps `variant.sources.kotlin`
+and the `kotlin` extension but registers no `compile<Variant>Kotlin`, so the bindings were silently never compiled and
+Java calling them could not find them. `AgpWiring.requireKotlinCompile` checks for that task when `pre<Variant>Build` is
+configured — not in `onVariants`, which runs before AGP registers tasks.
 
 ## Kotlin/Native's toolchain for external builds
 

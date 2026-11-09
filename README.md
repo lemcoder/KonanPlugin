@@ -501,7 +501,9 @@ The loader is generated into each binding's package, so the bindings still need 
 ### The generated JNI bindings
 One `external fun` per C function, named after it and carrying its C signature as a doc comment.
 cinterop's own indexer reads the headers — the same `.def` the Kotlin/Native targets use — and the
-plugin writes both sides of each JNI bridge from the C declarations:
+plugin writes both sides of each JNI bridge from the C declarations. The bindings are Kotlin, so the
+module must compile Kotlin: an Android module with `android { enableKotlin = false }` fails configuration
+saying so. Use `ffm()` there, which generates Java.
 
 | C type                                       | Kotlin type                      | Crosses as                                         |
 |----------------------------------------------|----------------------------------|----------------------------------------------------|
