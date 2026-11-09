@@ -395,7 +395,7 @@ class KonanPluginFunctionalTest {
             write(plugins, """println("distribution: " + config.kotlinNativeDistribution().name)""")
             File(projectDir, "build.gradle.kts").appendText("android {\n    namespace = \"example\"\n    compileSdk = 36\n}\n")
             val output = runner("help").withPluginClasspathAndAgp().build().output
-            assertContains(output, Regex("distribution: kotlin-native-prebuilt-[a-z0-9-]+-${Regex.escape(kotlin)}$", RegexOption.MULTILINE), plugins)
+            assertContains(output, Regex("distribution: kotlin-native-prebuilt-[a-z0-9_-]+-${Regex.escape(kotlin)}$", RegexOption.MULTILINE), plugins)
         }
     }
 
