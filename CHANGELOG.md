@@ -3,6 +3,21 @@
 Versions are published to the [Gradle Plugin Portal](https://plugins.gradle.org/plugin/io.github.lemcoder.konanplugin)
 and never republished. 2.0 replaces 1.x's DSL; the README's migration notes cover the move.
 
+## 2.0.0-alpha08
+
+### Fixed
+- **JNI and FFM bindings honor the `.def`'s `excludedFunctions`** ([#22](https://github.com/lemcoder/KonanPlugin/issues/22)).
+  cinterop leaves the functions a `.def` excludes out of Kotlin/Native's bindings, but the JNI generator
+  still bound them, and jextract was still asked to include them. One `.def` therefore gave a different
+  API on the JVM and Android, and a function the JVM side could not bind could not be dropped. Excluded
+  functions now get no `external fun`, no C stub and no FFM binding; the JNI bindings list them under
+  `// Not bound:` as `excluded in the .def`.
+- **Functions taking a `va_list` are no longer bound over JNI** ([#22](https://github.com/lemcoder/KonanPlugin/issues/22)).
+  No JVM value can become a `va_list`, and on arm and arm64, where it is a struct, the stub's cast to it
+  did not compile, so the JNI library failed to link for every Android ABI but x86 (Lua's
+  `lua_pushvfstring`, for one). They are now listed under `// Not bound:` as `takes a va_list`, as variadic
+  functions are.
+
 ## 2.0.0-alpha07
 
 ### Fixed
