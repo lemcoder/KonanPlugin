@@ -33,8 +33,9 @@ import java.io.File
  *
  * Enum constants and the integer, floating-point and string macro constants become `const val`s.
  *
- * Functions it cannot bind (variadic, `long double`, an anonymous struct by value, …) are listed with the
- * reason at the end of the Kotlin file instead.
+ * Functions it cannot bind (variadic, taking a `va_list`, `long double`, an anonymous struct by value, …)
+ * are listed with the reason at the end of the Kotlin file instead, as are those the `.def`'s
+ * `excludedFunctions` leaves out — Kotlin/Native's bindings leave them out too.
  *
  * The request names the library `System.loadLibrary` loads — the plugin owns that name — and the
  * bindings' visibility.
@@ -49,6 +50,10 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         val bound = mutableListOf<Binding>()
         val skipped = mutableListOf<Pair<String, String>>()
         context.index.functions.sortedBy { it.name }.forEach { function ->
+            if (function.name in context.excludedFunctions) {
+                skipped += function.name to "excluded in the .def"
+                return@forEach
+            }
             try {
                 bound += bind(function)
             } catch (e: Unsupported) {
@@ -156,6 +161,8 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
     private fun bind(function: FunctionDecl): Binding {
         if (function.isVararg) throw Unsupported("variadic")
         if (function.parentName != null) throw Unsupported("C++ member")
+        // No JVM value can become a va_list; on arm64 and arm it is a struct, and a cast to it does not compile.
+        if (function.parameters.any { isVaList(it.type) }) throw Unsupported("takes a va_list")
         val params = function.parameters.mapIndexed { i, p -> kotlinName(p.name, i) to parameter(p.type) }
         if (params.map { it.first }.toSet().size != params.size) throw Unsupported("duplicate parameter names")
         return Binding(function, params, result(function.returnType))
@@ -220,6 +227,18 @@ object JniGenerator : BindingGenerator<GeneratorRequest.Jni> {
         is EnumType -> primitive(resolved(type.def.baseType))
         else -> throw Unsupported("type ${type::class.simpleName}")
     }
+
+    /**
+     * Whether [type] is a `va_list`: a typedef of that family anywhere in its chain, or — where it is an
+     * array, as on x86-64, and a parameter decays to a pointer — a pointer to clang's `__va_list_tag`.
+     */
+    private fun isVaList(type: Type): Boolean = when (type) {
+        is Typedef -> type.def.name in VA_LIST_NAMES || isVaList(type.def.aliased)
+        is PointerType -> (resolved(type.pointeeType) as? RecordType)?.decl?.spelling == "struct __va_list_tag"
+        else -> false
+    }
+
+    private val VA_LIST_NAMES = setOf("va_list", "__builtin_va_list", "__gnuc_va_list", "__va_list")
 
     /** [type] with typedefs looked through. */
     private fun resolved(type: Type): Type = if (type is Typedef) resolved(type.def.aliased) else type

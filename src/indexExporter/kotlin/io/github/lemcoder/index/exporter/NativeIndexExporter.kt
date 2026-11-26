@@ -45,6 +45,7 @@ private fun context(cinteropArgs: Array<String>): GenerationContext {
     return GenerationContext(
         packageName = packageName,
         preambleLines = def.defHeaderLines,
+        excludedFunctions = def.config.excludedFunctions.toSet(),
     ) {
         // As cinterop's own entry point does around its run; the index is plain objects once built.
         NativeMemoryAllocator.init()

@@ -72,6 +72,9 @@ class GenerateFromNativeIndexTest {
         // A typedef'd void* is a handle, not memory.
         assertContains(kotlin, "internal external fun sample_release(handle: Long): Unit")
         assertContains(kotlin, "// - sample_log: variadic")
+        assertContains(kotlin, "// - sample_vlog: takes a va_list")
+        assertContains(kotlin, "// - sample_hidden: excluded in the .def")
+        assertFalse("fun sample_vlog" in kotlin || "fun sample_hidden" in kotlin, kotlin)
         assertContains(kotlin, "internal external fun sample_open(out: LongArray?): Int")
     }
 
@@ -112,6 +115,8 @@ class GenerateFromNativeIndexTest {
         assertContains(c, "if (!p0 || (*env)->GetArrayLength(env, p0) < (jsize)sizeof(struct flags)) {")
         assertContains(c, "void* d0 = p0 ? (*env)->GetDirectBufferAddress(env, p0) : 0;")
         assertContains(c, "sample_sort((void *)d0, p1, (compare_fn)(intptr_t)p2);")
+        // Neither a va_list nor a function the .def excludes gets a stub (#22).
+        assertFalse("sample_1vlog" in c || "sample_1hidden" in c, c)
     }
 
     @Test
@@ -130,6 +135,8 @@ class GenerateFromNativeIndexTest {
         val header = java.resolve("sample.java").readText()
         listOf("sample_sum", "sample_name", "sample_bits", "sample_log", "SAMPLE_VERSION", "RED", "sample_global")
             .forEach { assertContains(header, it) }
+        // The .def's excludedFunctions are left out, as cinterop leaves them out (#22).
+        assertFalse("sample_hidden" in header, "sample_hidden is excluded in the .def")
     }
 
     @TestFactory

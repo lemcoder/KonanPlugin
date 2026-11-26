@@ -33,6 +33,11 @@ class GenerationContext(
     val packageName: String,
     /** The `.def`'s lines after `---`: C code every translation unit of the library sees. */
     val preambleLines: List<String>,
+    /**
+     * The `.def`'s `excludedFunctions`: functions cinterop leaves out of Kotlin/Native's bindings, so the
+     * generators leave them out too. The index still holds them.
+     */
+    val excludedFunctions: Set<String>,
     indexLibrary: () -> IndexedLibrary,
 ) {
     private val indexed by lazy(indexLibrary)

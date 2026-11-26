@@ -532,10 +532,11 @@ so a stray `Long` does not compile. `address` is the raw pointer for other nativ
 (`tsf_close`) and not using it afterwards stays the caller's job. Pointers to pointers stay `LongArray?`.
 
 Enum constants and integer, floating-point and string macros become `const val`s. Functions that
-cannot be bound — variadic ones, `long double` — are listed with the reason at the end of the generated
-file. Unsigned integers cross as the signed Kotlin type of the same size. Struct bytes are
-in native order, so read them with `ByteBuffer.order(ByteOrder.nativeOrder())` and the layout from the
-C header.
+cannot be bound — variadic ones, those taking a `va_list`, `long double` — are listed with the reason at
+the end of the generated file, as are those the `.def` names in `excludedFunctions`: JNI and FFM leave
+them out, as cinterop does for Kotlin/Native. Unsigned integers cross as the signed Kotlin type of the
+same size. Struct bytes are in native order, so read them with
+`ByteBuffer.order(ByteOrder.nativeOrder())` and the layout from the C header.
 
 The bindings are `internal` by default — they are an implementation detail of the module that writes
 the idiomatic API over them. Each carries `@JvmName`, because JNI resolves the symbol from the
