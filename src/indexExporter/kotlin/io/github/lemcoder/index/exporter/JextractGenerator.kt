@@ -11,7 +11,8 @@ import java.nio.file.Files
  * jextract parses the headers itself, with its own libclang, so this generator splits the work: cinterop's
  * index decides *what* is bound — every function, struct, union, typedef, constant and global that passed
  * the `.def`'s header filter becomes a jextract `--include-*` filter, so the FFM and JNI bindings cover the
- * same declarations — and jextract decides *how*.
+ * same declarations — and jextract decides *how*. The `.def`'s `excludedFunctions` get no filter, so
+ * jextract leaves them out as cinterop does.
  *
  * Only the user-level `-I`, `-D` and `-U` options reach jextract: it brings its own clang and builtin
  * headers, so the target flags cinterop parsed with do not apply.
@@ -90,7 +91,7 @@ object JextractGenerator : BindingGenerator<GeneratorRequest.Jextract> {
      */
     private fun includeFilters(context: GenerationContext): List<Pair<String, String>> = buildList {
         val index = context.index
-        index.functions.filter { it.parentName == null }.forEach { add("--include-function" to it.name) }
+        index.functions.filter { it.parentName == null && it.name !in context.excludedFunctions }.forEach { add("--include-function" to it.name) }
         index.structs.filter { !it.isAnonymous && it.def != null }.forEach { add(tagFilter(it.spelling)) }
         index.enums.filter { !it.isAnonymous }.forEach { enum ->
             if (!enum.spelling.startsWith("enum ")) add("--include-typedef" to enum.spelling)

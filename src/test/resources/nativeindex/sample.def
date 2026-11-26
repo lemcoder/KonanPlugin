@@ -1,2 +1,3 @@
 headers = sample.h
 headerFilter = sample.h
+excludedFunctions = sample_hidden

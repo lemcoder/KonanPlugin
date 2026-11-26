@@ -1,5 +1,6 @@
 // Covers the shapes the index file has to carry: self-referential structs, unions, bit-fields,
 // anonymous members, enums, typedef chains, function pointers, arrays and macro constants.
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -53,6 +54,8 @@ void sample_sort(void *base, size_t n, compare_fn cmp);
 double sample_scale(node_t *node, double factor);
 struct buffer sample_buffer(struct opaque *handle, enum color c, size_class s);
 int sample_log(const char *format, ...);
+int sample_vlog(const char *format, va_list args);
+int sample_hidden(int x);
 size_t sample_packet_size(const struct packet *p);
 bits_t sample_bits(struct flags f);
 struct opaque *sample_create(void);
